@@ -1,8 +1,0 @@
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/CMakeFiles/LegoPrinterCore.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/CMakeFiles/INSTALL.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/CMakeFiles/ALL_BUILD.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/CMakeFiles/ZERO_CHECK.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/external/simpleble/simpleble/CMakeFiles/simpleble.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/external/simpleble/simpleble/CMakeFiles/simpleble-c.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/external/simpleble/simpleble/CMakeFiles/INSTALL.dir
-D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/external/simpleble/simpleble/CMakeFiles/ALL_BUILD.dir
