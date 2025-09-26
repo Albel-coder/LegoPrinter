@@ -1,0 +1,1 @@
+D:/aleksey/programming/C++/LegoPrinter/PrinterDriver/build/LegoPrinterCore.dir/MinSizeRel/LegoPrinterCore.obj

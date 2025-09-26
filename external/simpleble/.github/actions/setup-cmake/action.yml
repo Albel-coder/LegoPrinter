@@ -1,9 +1,0 @@
-name: 'Setup CMake'
-description: 'Setup CMake'
-
-runs:
-  using: "composite"
-  steps:
-    - uses: jwlawson/actions-setup-cmake@v2
-      with:
-        cmake-version: '3.21'
