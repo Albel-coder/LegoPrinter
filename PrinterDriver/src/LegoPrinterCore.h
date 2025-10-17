@@ -22,4 +22,9 @@ extern "C"
 	PRINTER_DRIVER_API bool IsConnected(IPrinter* Printer);
 	PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* Printer, MotorCommand* Commands, int Count);
 	PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* Printer, const unsigned char* Command, int Length);
+
+	PRINTER_DRIVER_API int GetLogCount(IPrinter* Printer);
+	PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* Printer, int Index);
+	PRINTER_DRIVER_API void ClearLog(IPrinter* Printer);
+	PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* Printer);
 }

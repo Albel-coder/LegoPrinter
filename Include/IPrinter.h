@@ -30,6 +30,11 @@ typedef struct
 	// Raw command
 	void (*SendCommand)(IPrinter* Self, const unsigned char* Command, int Length);
 
+	int (*GetLogCount)(IPrinter* Self);                       
+	const char* (*GetLogEntry)(IPrinter* Self, int index);   
+	void (*ClearLog)(IPrinter* Self);                         
+	const char* (*GetLastError)(IPrinter* Self);              
+	void (*PrintConnectionInfo)(IPrinter* Self);              
 
 } IPrinterVirtualTable;
 
