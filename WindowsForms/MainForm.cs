@@ -11,15 +11,51 @@ namespace WindowsForms
 {
     public partial class MainForm : Form
     {
-        private PrinterController printerController = new PrinterController();
-        private GCodeInterpreter Interpreter = new GCodeInterpreter();
+        private PrinterController printerController;
+        private GCodeInterpreter Interpreter;
         private int LastLogCount = 0;
-        private bool AutoScrollEnambled = true;
+        private int LastInterpreterLogCount = 0;
+        private bool AutoScrollEnabled = true;
 
         public MainForm()
         {
-            InitializeComponent();
-            LogTimer.Start();
+            try
+            {
+                Console.WriteLine("Initializing MainForm...");
+                InitializeComponent();
+
+                // Инициализация с обработкой ошибок
+                InitializeControllers();
+
+                LogTimer.Start();
+                Console.WriteLine("MainForm initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"CRITICAL ERROR in MainForm constructor: {ex}");
+                MessageBox.Show($"Failed to initialize application: {ex.Message}", "Fatal Error",
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                throw; // Перебрасываем исключение, чтобы увидеть его в отладчике
+            }
+        }
+
+        private void InitializeControllers()
+        {
+            try
+            {
+                Console.WriteLine("Initializing PrinterController...");
+                printerController = new PrinterController();
+                Console.WriteLine("PrinterController initialized successfully");
+
+                Console.WriteLine("Initializing GCodeInterpreter...");
+                Interpreter = new GCodeInterpreter();
+                Console.WriteLine("GCodeInterpreter initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR initializing controllers: {ex}");
+                throw;
+            }
         }
 
         private async void ConnectButton_Click(object sender, EventArgs e)
@@ -29,11 +65,26 @@ namespace WindowsForms
 
             try
             {
+                Console.WriteLine("Attempting to connect...");
                 bool isConnected = await Task.Run(() => printerController.Connect());
+
+                if (isConnected)
+                {
+                    MessageBox.Show("Connected successfully!", "Success",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    string error = printerController.GetLastError();
+                    MessageBox.Show($"Failed to connect: {error}", "Connection Error",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
-                MessageBox.Show($"Error with connect: {ex.Message}");
+                Console.WriteLine($"ERROR in ConnectButton_Click: {ex}");
+                MessageBox.Show($"Error with connect: {ex.Message}", "Error",
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -44,37 +95,103 @@ namespace WindowsForms
 
         private void DisconnectButton_Click(object sender, EventArgs e)
         {
-            printerController.Disconnect();
+            try
+            {
+                Console.WriteLine("Disconnecting...");
+                printerController.Disconnect();
+                MessageBox.Show("Disconnected successfully", "Disconnected",
+                              MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR in DisconnectButton_Click: {ex}");
+                MessageBox.Show($"Error disconnecting: {ex.Message}", "Error",
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            printerController?.Dispose();
+            try
+            {
+                Console.WriteLine("MainForm is closing, disposing resources...");
+                LogTimer.Stop();
+                Interpreter?.Dispose();
+                printerController?.Dispose();                
+                Console.WriteLine("Resources disposed successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR during disposal: {ex}");
+            }
             base.OnFormClosing(e);
         }
 
         private void Test_Click(object sender, EventArgs e)
         {
-            var printerHandle = printerController.GetPrinterHandle();
+            try
+            {
+                Console.WriteLine("Testing interpreter...");
+                var printerHandle = printerController.GetPrinterHandle();
+                bool success = Interpreter.Test(printerHandle);
 
-            Interpreter.Test(printerHandle);
+                if (success)
+                {
+                    MessageBox.Show("Interpreter test completed successfully", "Test Result",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    string error = Interpreter.GetLastError();
+                    MessageBox.Show($"Interpreter test failed: {error}", "Test Result",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR in Test_Click: {ex}");
+                MessageBox.Show($"Test error: {ex.Message}", "Error",
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void MotorTest_Click(object sender, EventArgs e)
         {
-            printerController.Test();
+            try
+            {
+                Console.WriteLine("Running motor test...");
+                printerController.Test();
+                MessageBox.Show("Motor test completed", "Test Result",
+                              MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR in MotorTest_Click: {ex}");
+                MessageBox.Show($"Motor test error: {ex.Message}", "Error",
+                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
+
         private void LogTimer_Tick(object sender, EventArgs e)
         {
-            UpdateLegoDisplay();
+            try
+            {
+                UpdateLegoDisplay();
+                UpdateStatusDisplay();
+                UpdateInterpreterLogDisplay();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR in LogTimer_Tick: {ex}");
+            }
         }
+
         private void UpdateLegoDisplay()
         {
             try
             {
                 int CurrentLogCount = printerController.GetLogCount();
 
-                // Update only if we have new info
                 if (CurrentLogCount > LastLogCount)
                 {
                     for (int i = LastLogCount; i < CurrentLogCount; i++)
@@ -88,7 +205,7 @@ namespace WindowsForms
 
                     LastLogCount = CurrentLogCount;
 
-                    if (AutoScrollEnambled)
+                    if (AutoScrollEnabled)
                     {
                         LogTextBox.SelectionStart = LogTextBox.Text.Length;
                         LogTextBox.ScrollToCaret();
@@ -97,7 +214,132 @@ namespace WindowsForms
             }
             catch (Exception ex)
             {
-                LogTextBox.AppendText($"[UI ERROR] Failad to update log:{ex.Message}\r\n");
+                LogTextBox.AppendText($"[UI ERROR] Failed to update log: {ex.Message}\r\n");
+            }
+        }
+
+        private void UpdateInterpreterLogDisplay()
+        {
+            try
+            {
+                int CurrentLogCount = Interpreter.GetLogCount();
+
+                if (CurrentLogCount > LastInterpreterLogCount)
+                {
+                    for (int i = LastInterpreterLogCount; i < CurrentLogCount; i++)
+                    {
+                        string LogEntry = Interpreter.GetLog(i);
+                        if (!string.IsNullOrEmpty(LogEntry))
+                        {
+                            InterpreterTexBox.AppendText(LogEntry + Environment.NewLine);
+                        }
+                    }
+
+                    LastInterpreterLogCount = CurrentLogCount;
+
+                    if (AutoScrollEnabled)
+                    {
+                        InterpreterTexBox.SelectionStart = InterpreterTexBox.Text.Length;
+                        InterpreterTexBox.ScrollToCaret();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                InterpreterTexBox.AppendText($"[UI ERROR] Failed to update interpreter log: {ex.Message}\r\n");
+            }
+        }
+
+        private void UpdateStatusDisplay()
+        {
+            try
+            {
+                StatusLabel.Text = $"Status: {Interpreter.GetStatus()}";
+                //ProgressBar.Value = (int)(Interpreter.GetProgress() * 100);
+
+                int errorCount = Interpreter.GetErrorCount();
+                //ErrorCountLabel.Text = $"Errors: {errorCount}";
+
+                if (errorCount > 0)
+                {
+                    //ErrorCountLabel.ForeColor = Color.Red;
+                }
+                else
+                {
+                    //ErrorCountLabel.ForeColor = Color.Green;
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusLabel.Text = $"Status: Error - {ex.Message}";
+            }
+        }
+
+        private async void ExecuteGcodeButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var printerHandle = printerController.GetPrinterHandle();
+                bool Success = await Task.Run(() => Interpreter.ExecuteFile("G-code.txt", printerHandle));
+
+                if (Success)
+                {
+                    MessageBox.Show("G-code execution started successfully", "Execution",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    string error = Interpreter.GetLastError();
+                    MessageBox.Show($"Failed to execute G-code: {error}", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Execution error: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LoadConfigButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                bool Success = Interpreter.ReadConfig("Printer.cfg");
+
+                if (Success)
+                {
+                    MessageBox.Show("Configuration loaded successfully", "Config",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    string error = Interpreter.GetLastError();
+                    MessageBox.Show($"Failed to load config: {error}", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Config error: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ClearLogsButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                LogTextBox.Clear();
+                InterpreterTexBox.Clear();
+                Interpreter.ClearLog();
+                LastLogCount = 0;
+                LastInterpreterLogCount = 0;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error clearing logs: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }

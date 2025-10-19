@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Ports;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using static PrinterController;
 
 // Class for managing a printer
@@ -139,12 +141,12 @@ public class PrinterController : IDisposable
     {
         return SafeCall(() =>
         {
-            IntPtr ErrorPtr = GetLastErrorMsg(PrinterHandle);
+            IntPtr ErrorPtr = GetLastErrorMessage(PrinterHandle);
             return ErrorPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ErrorPtr) : string.Empty;
         }, string.Empty);
     }
 
-    public void PrintConnectionInfo() => SafeCall(() => { PrintConnectionInfo(PrinterHandle); return true; }, false);
+    public void PrintConnectionInfo() => SafeCall(() => { PrinterConnectionInfo(PrinterHandle); return true; }, false);
     public bool Connect() => SafeCall(() => PrinterConnect(PrinterHandle), false);
     public bool Disconnect() => SafeCall(() => PrinterDisconnect(PrinterHandle), false);
 
@@ -156,7 +158,15 @@ public class PrinterController : IDisposable
             return DefaultValue;
         }
 
-        return function();
+        try
+        {
+            return function();
+        }
+        catch(Exception ex)
+        {
+            Console.WriteLine($"SafeCall exception: {ex}");
+            return DefaultValue;
+        }
     }
 
     // Importing functions from DLL
@@ -178,7 +188,7 @@ public class PrinterController : IDisposable
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterIsConnected(IPrinter printer);
+    private static extern bool IsConnected(IPrinter printer);
 
     // Functions for controlling motors
 
@@ -202,23 +212,33 @@ public class PrinterController : IDisposable
     private static extern void ClearLog(IPrinter printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetLastErrorMsg(IPrinter printer);
+    private static extern IntPtr GetLastErrorMessage(IPrinter printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrintConnectionInfo(IPrinter printer);
+    private static extern void PrinterConnectionInfo(IPrinter printer);
 
     // To properly release resources
     public void Dispose()
     {
         if (!Disposed)
         {
-            if (PrinterHandle.VirtualTable != IntPtr.Zero)
+            try
             {
-                DestroyPrinter(PrinterHandle);
-                PrinterHandle.VirtualTable = IntPtr.Zero;
-            }
+                Console.WriteLine("Disposing PrinterController...");
 
-            Disposed = true;
+                if (PrinterHandle.VirtualTable != IntPtr.Zero)
+                {
+                    DestroyPrinter(PrinterHandle);
+                    PrinterHandle.VirtualTable = IntPtr.Zero;
+                }
+
+                Disposed = true;
+                Console.WriteLine("PrinterController disposed successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during printer disposal: {ex}");
+            }
         }
     }
 }
@@ -227,6 +247,29 @@ public class GCodeInterpreter : IDisposable
 {
     private IntPtr InterpreterHandle;
     private bool Disposed = false;
+
+    public enum Status
+    {
+        IDLE = 0,
+        CHECKING_CODE = 1,
+        RUNNING = 2,
+        PAUSED = 3,
+        COMPLETED = 4,
+        ERROR = 5
+    }
+
+    public enum ErrorCode
+    {
+        IDENTIFIER_NOT_DEFINED = 0,
+        VALUE_NOT_DEFINED = 1,
+        OUT_OF_RANGE = 2,
+        FILE_ERROR = 3,
+        CONFIG_ERROR = 4,
+        PRINTER_ERROR = 5,
+        SYNTAX_ERROR = 6,
+        MOVEMENT_ERROR = 7,
+        NO_ERROR = 8
+    }
 
     public GCodeInterpreter()
     {
@@ -237,11 +280,76 @@ public class GCodeInterpreter : IDisposable
         }
     }
 
-    public bool Test(IPrinter printer)
+    // Основные методы
+    public bool Test(IPrinter printer) => TestCode(InterpreterHandle, printer);
+    public bool ExecuteFile(string filename, IPrinter printer) => ExecuteGcode(InterpreterHandle, filename, printer);
+    public void Pause() => PauseExecution(InterpreterHandle);
+    public void Resume() => ResumeExecution(InterpreterHandle);
+    public Status GetStatus() => (Status)GetStatus(InterpreterHandle);
+    public double GetProgress() => GetProgress(InterpreterHandle);
+
+    // Строковые методы - ТЕПЕРЬ КАК В ДРАЙВЕРЕ!
+    public string GetLastError()
     {
-        return TestCode(InterpreterHandle, printer);
+        IntPtr errorPtr = GetLastInterpreterError(InterpreterHandle);
+        return errorPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(errorPtr) : string.Empty;
     }
 
+    public string GetError(int index)
+    {
+        IntPtr errorPtr = GetError(InterpreterHandle, index);
+        return errorPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(errorPtr) : string.Empty;
+    }
+
+    public string GetLog(int index)
+    {
+        IntPtr logPtr = GetLogEntry(InterpreterHandle, index);
+        return logPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(logPtr) : string.Empty;
+    }
+
+    public int GetErrorCount() => GetErrorCount(InterpreterHandle);
+    public int GetLogCount() => GetLogCount(InterpreterHandle);
+    public void ClearErrors() => ClearErrors(InterpreterHandle);
+    public void ClearLog() => ClearLog(InterpreterHandle);
+    public bool ReadConfig(string filename) => ReadConfing(InterpreterHandle, filename);
+
+    // Вспомогательные методы для С#
+    public List<string> GetAllErrors()
+    {
+        var Errors = new List<string>();
+        int Count = GetErrorCount();
+        for (int i = 0; i < Count; i++)
+        {
+            string error = GetError(i);
+            if (!string.IsNullOrEmpty(error))
+            {
+                Errors.Add(error);
+            }
+        }
+        return Errors;
+    }
+
+    public List<string> GetAllLogs()
+    {
+        var Logs = new List<string>();
+        int Count = GetLogCount();
+        for (int i = 0; i < Count; i++)
+        {
+            string log = GetLog(i);
+            if (!string.IsNullOrEmpty(log))
+            {
+                Logs.Add(log);
+            }
+        }
+        return Logs;
+    }
+
+    public bool HasErrors => GetErrorCount() > 0;
+    public bool IsRunning => GetStatus() == Status.RUNNING;
+    public bool IsCompleted => GetStatus() == Status.COMPLETED;
+    public bool IsError => GetStatus() == Status.ERROR;
+
+    // DLL Imports - ТЕПЕРЬ КАК В ДРАЙВЕРЕ!
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr CreateInterpreter();
 
@@ -251,13 +359,85 @@ public class GCodeInterpreter : IDisposable
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool TestCode(IntPtr interpreter, IPrinter printer);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ExecuteGcode(IntPtr interpreter, string filename, IPrinter printer);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void PauseExecution(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void ResumeExecution(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int GetStatus(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern double GetProgress(IntPtr interpreter);
+
+    // ИЗМЕНЕНО: теперь возвращают IntPtr вместо string
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr GetLastInterpreterError(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int GetErrorCount(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr GetError(IntPtr interpreter, int index);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int GetLogCount(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr GetLogEntry(IntPtr interpreter, int index);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void ClearErrors(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void ClearLog(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ReadConfing(IntPtr interpreter, string filename);
+
     public void Dispose()
     {
-        if (!Disposed)
+        if (!Disposed && InterpreterHandle != IntPtr.Zero)
         {
-            DestroyInterpreter(InterpreterHandle);
-            InterpreterHandle = IntPtr.Zero;
-            Disposed = true;
+            try
+            {
+                Console.WriteLine("Disposing GCodeInterpreter...");
+
+                // Даем время на корректное завершение
+                for (int i = 0; i < 10; i++) // 10 попыток по 100 мс = 1 секунда
+                {
+                    if (!IsRunning)
+                    {
+                        break;
+                    }
+
+                    System.Threading.Thread.Sleep(100);
+                }
+
+                // Уничтожаем интерпретатор
+                DestroyInterpreter(InterpreterHandle);
+                InterpreterHandle = IntPtr.Zero;
+                Disposed = true;
+
+                Console.WriteLine("GCodeInterpreter disposed successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+                
+                // Все равно помечаем как disposed
+                Disposed = true;
+            }
         }
     }
 }
+
+
+
