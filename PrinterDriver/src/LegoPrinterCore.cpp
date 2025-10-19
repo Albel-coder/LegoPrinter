@@ -37,6 +37,7 @@ private:
     std::atomic<bool> StopRequested;
     std::atomic<bool> IsValid;
     std::atomic<int> Status;
+    std::atomic<bool> WasConnected { false };
 
     // Logging system
     std::vector<std::string> LogEntries;
@@ -76,25 +77,35 @@ public:
 
     ~PrinterImplementation()
     {
-        AddLog("PrinterImplementation destroyed");
         IsValid = false;
         StopRequested = true;
 
-        // Wake up all waiting threads
-        CompletionCV.notify_all();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        try
+        {
+            std::lock_guard<std::mutex> Lock(CompletionMutex);
+            CompletionCV.notify_all();
+        }
+        catch (...)
+        {
+            // Ignore condition variable errors
+        }
 
         // Automatic shutdown when variable is destroyed
-        if (peripheral.is_connected())
+        if (WasConnected)
         {
-            try
+            if (peripheral.is_connected())
             {
-                peripheral.disconnect();
-            }
-            catch (...)
-            {
-                // Ignoring errors in the destructor
+                try
+                {
+                    if (!peripheral.address().empty() && peripheral.is_connected())
+                    {
+                        peripheral.disconnect();
+                    }
+                }
+                catch (const std::exception& ex)
+                {
+                    // Ignore all errors
+                }
             }
         }
     }
@@ -204,7 +215,7 @@ private:
                 snprintf(Hex, sizeof(Hex), "%02X", b);
                 HexCommand += Hex;
             }
-            AddLog(HexCommand.c_str());
+            AddLog("%s", HexCommand.c_str());
 
             // Sending a command via Bluetooth LE
             peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, Command);
@@ -231,7 +242,7 @@ public:
         std::lock_guard<std::mutex> lock(LogMutex);
         if (Index < 0 || Index >= static_cast<int>(LogEntries.size()))
         {
-            return nullptr;
+            return "";
         }
 
         return LogEntries[Index].c_str();
@@ -246,7 +257,7 @@ public:
 
     const char* GetLastErrorMessage()
     {
-        return LastError.c_str();
+        return LastError.empty() ? "" : LastError.c_str();
     }
 
     // Basic methods
@@ -265,11 +276,11 @@ public:
             AddLog("Checking Bluetooth status:");
 
             bool ble_enabled = SimpleBLE::Adapter::bluetooth_enabled();
-            AddLog("  - SimpleBLE::Adapter::bluetooth_enabled(): " + ble_enabled);
+            AddLog("  - SimpleBLE::Adapter::bluetooth_enabled(): %s" + ble_enabled ? "true" : "false");
 
             // Getting a list of adapters
             auto adapters = SimpleBLE::Adapter::get_adapters();
-            AddLog("  - Adapters found: " + adapters.size());
+            AddLog("  - Adapters found: %zu" + adapters.size());
 
             if (adapters.empty())
             {
@@ -282,7 +293,9 @@ public:
 
             // We use the first adapter
             SimpleBLE::Adapter& adapter = adapters[0];
-            AddLog("Adapter used: " + adapter.identifier() + " [" + adapter.address() + "]");
+            AddLog("Adapter used: %s [%s]",
+                adapter.identifier().c_str(),
+                adapter.address().c_str());
 
             // Setting up callbacks
             adapter.set_callback_on_scan_start([]() { });
@@ -291,7 +304,7 @@ public:
 
             adapter.set_callback_on_scan_stop([]() { });
 
-            AddLog("Scanning stoped");
+            AddLog("Scanning stopped");
 
             adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral peripheral)
                 {
@@ -390,6 +403,7 @@ public:
                                 return false;
                             }
 
+                            WasConnected = true;
                             return true;
                         }
                     }
@@ -415,6 +429,11 @@ public:
     bool Disconnect()
     {
         std::lock_guard<std::mutex> contextLock(OperationMutex);
+
+        if (!IsValid || !peripheral.initialized() || peripheral.address().empty())
+        {
+            return true; // Disconnect already completed
+        }
 
         if (peripheral.is_connected())
         {
@@ -628,6 +647,23 @@ public:
             LastError = e.what();
         }
     }
+
+    void SafeShutdown()
+    {
+        IsValid = false;
+        StopRequested = true;
+
+        // Safe breaking all operations
+        try
+        {
+            std::lock_guard<std::mutex> Lock(CompletionMutex);
+            CompletionCV.notify_all();
+        }
+        catch (...)
+        {
+            // Ignoring all errors
+        }
+    }
 };
 
 // Main context and virtual table
@@ -678,9 +714,23 @@ namespace
             return;
         }
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        std::lock_guard<std::mutex> Lock(ContextsMutex);
-        Contexts.erase(Implementation);
+        try
+        {
+            PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
+            
+            Implementation->SafeShutdown();
+            
+            std::lock_guard<std::mutex> Lock(ContextsMutex);
+            
+            if (Contexts.find(Implementation) != Contexts.end())
+            {
+                Contexts.erase(Implementation);
+            }
+        }
+        catch (...)
+        {
+            // Ignore all errors
+        }
     }
 
     void Printer_RotateMotor(IPrinter* Self, const MotorCommand* Commands, int Count)
@@ -794,9 +844,21 @@ extern "C"
 
     PRINTER_DRIVER_API void DestroyPrinter(IPrinter* Printer)
     {
-        if (Printer && Printer->VirtualTable && Printer->VirtualTable->Destroy)
+        if (!Printer)
         {
-            Printer->VirtualTable->Destroy(Printer);
+            return;
+        }
+
+        try
+        {
+            if (Printer->VirtualTable && Printer->VirtualTable->Destroy)
+            {
+                Printer->VirtualTable->Destroy(Printer);
+            }
+        }
+        catch (...)
+        {
+            // Ignore all errors
         }
     }
 
@@ -885,5 +947,13 @@ extern "C"
             return "";
         }
         return Printer->VirtualTable->GetLastError(Printer);
+    }
+
+    PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer)
+    {
+        if (Printer)
+        {
+            Printer->VirtualTable->PrinterConnectionInfo(Printer);
+        }
     }
 }

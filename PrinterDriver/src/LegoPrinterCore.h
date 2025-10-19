@@ -27,4 +27,6 @@ extern "C"
 	PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* Printer, int Index);
 	PRINTER_DRIVER_API void ClearLog(IPrinter* Printer);
 	PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* Printer);
+
+	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer);
 }
