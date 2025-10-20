@@ -18,6 +18,8 @@
 std::mutex StringCacheMutex;
 std::map<int, std::string> StringCache;
 int NextStringId = 0;
+std::mutex GInterpreterMutex;
+std::atomic<int> GActiveInterpreters(0);
 
 // Functions for caching strings
 const char* CacheString(const std::string& String)
@@ -94,6 +96,7 @@ private:
 	std::string LastError;
 	std::vector<std::string> GcodeErrors;
 	std::vector<std::string> ExecutionLog;
+	std::atomic<bool> ThreadRunning;
 
 	// Current coordinates
 	double CurrentX;
@@ -102,7 +105,7 @@ private:
 	bool AbsolutePositioning;
 	double Speed;
 
-	std::thread ExecutionThread;
+	std::unique_ptr<std::thread> ExecutionThread;
 	std::mutex Mutex;
 	std::mutex LogMutex;
 
@@ -334,56 +337,76 @@ private:
 			{
 				std::vector<uint8_t> Ports;
 				AddLogEntry("Processing ports configuration: " + Value);
-				
-				for (char Character : Value)
+
+				std::string ProcessedValue = Value;
+				ProcessedValue.erase(std::remove(ProcessedValue.begin(), ProcessedValue.end(), ' '), ProcessedValue.end());
+				ProcessedValue.erase(std::remove(ProcessedValue.begin(), ProcessedValue.end(), ','), ProcessedValue.end());
+				ProcessedValue.erase(std::remove(ProcessedValue.begin(), ProcessedValue.end(), ';'), ProcessedValue.end());
+
+				for (char Character : ProcessedValue)
 				{
+					uint8_t PortValue = 0xFF;
 					switch(Character)
 					{
 					case 'A':
 					case 'a':
-						if (IsPortNotDuplicated(Ports, 0x00))
-						{
-							Ports.push_back(0x00);
-							AddLogEntry("Added port A");
-						}
+						PortValue = 0x00;
 						break;
 					case 'B':
 					case 'b':
-						if (IsPortNotDuplicated(Ports, 0x01))
-						{
-							Ports.push_back(0x01);
-							AddLogEntry("Added port B");
-						}
+						PortValue = 0x01;
 						break;
 					case 'C':
 					case 'c':
-						if (IsPortNotDuplicated(Ports, 0x02))
-						{
-							Ports.push_back(0x02);
-							AddLogEntry("Added port C");
-						}
+						PortValue = 0x02;
 						break;
 					case 'D':
 					case 'd':
-						if (IsPortNotDuplicated(Ports, 0x03))
-						{
-							Ports.push_back(0x03);
-							AddLogEntry("Added port D");
-						}
-						break;
-					case ' ':
-					case ',':
-					case ';':
-						// Ignore all separators
+						PortValue = 0x03;
 						break;
 					default:
 						AddLogEntry("Warning: unknown port character '" + std::string(1, Character) + "'");
 						break;
 					}
-				}
+
+					bool IsDuplicate = false;
+					for (auto ExistingPort : Ports)
+					{
+						if (ExistingPort == PortValue)
+						{
+							IsDuplicate = true;
+							break;
+						}
+					}
+
+					if (!IsDuplicate)
+					{
+						Ports.push_back(PortValue);
+						AddLogEntry("Added port " + std::string(1, Character));
+					}
+					else
+					{
+						AddLogEntry("Duplicate port detected: " + std::string(1, Character));
+					}
+				}				
 
 				Config->Ports = Ports;
-				AddLogEntry("Ports configuration completed. Total ports: " + std::to_string(Ports.size()));
+				AddLogEntry("Ports configuration completed. Total ports: " + std::to_string(Config->Ports.size()));
+
+				if (Config->Ports.empty())
+				{
+					AddLogEntry("WARNING: No valid ports configured!");
+				}
+				else
+				{
+					std::string PortsList = "Configured ports: ";
+					for (auto Port : Config->Ports)
+					{
+						PortsList += std::to_string(Port) + " ";
+					}
+
+					AddLogEntry(PortsList);
+				}
 			}
 			catch (const std::exception& ex)
 			{
@@ -427,24 +450,12 @@ private:
 		}
 	}
 
-	// Check for port duplication
-	inline bool IsPortNotDuplicated(std::vector<uint8_t> Ports, uint8_t Port)
-	{
-		for (uint8_t i = 0; i < Ports.size(); i++)
-		{
-			if (Ports[i] == Port)
-			{
-				AddLogEntry("Duplicate port detected: " + std::to_string(Port));
-				return false;
-			}
-		}
-
-		return true;
-	}
-
 public:	
 	Interpreter() // Constructor
 	{
+		std::lock_guard<std::mutex> Lock(GInterpreterMutex);
+		GActiveInterpreters++;
+		ThreadRunning = false;
 		status = IDLE;
 		CurrentError = NO_ERROR;
 		StopRequested = false;
@@ -455,27 +466,72 @@ public:
 		AbsolutePositioning = true;
 		Speed = 0.0;
 		CurrentPrinter = nullptr;
+		ExecutionThread = nullptr;
 		AddLogEntry("Interpreter initialized successfully");
 	}
 
 	~Interpreter() // Destructor
 	{
+		std::lock_guard<std::mutex> Lock(GInterpreterMutex);
 		StopRequested = true; // Set stop flag
+		ThreadRunning = false;
 
-		if (ExecutionThread.joinable())
+		if (ExecutionThread && ExecutionThread->joinable())
 		{
-			ExecutionThread.detach();
-			AddLogEntry("Execution thread detach");
+			for (int i = 0; i < 20; i++)
+			{
+				if (!ThreadRunning)
+				{
+					break;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+
+			if (ExecutionThread->joinable())
+			{
+				ExecutionThread->join();
+				AddLogEntry("Execution thread joined");
+			}
 		}
 
-		AddLogEntry("Execution thread destroyed");
+		AddLogEntry("Interpreter destroyed");
+		GActiveInterpreters--;
 	}
 
 	// Execute G-code from file
 	bool ExecuteFile(const char* Filename, IPrinter* Printer)
 	{
 		std::lock_guard<std::mutex> Lock(Mutex);
-		AddLogEntry("ExecuteFile called with filename: " + std::string(Filename));
+		AddLogEntry("=== ExecuteFile called ===");
+		AddLogEntry("Current status: " + std::to_string(static_cast<int>(status)));
+		AddLogEntry("Printer valid: " + std::string(Printer && Printer->VirtualTable ? "YES" : "NO"));
+
+		if (!Filename)
+		{
+			AddLogEntry("Filename: NULL");
+			return false;
+		}
+
+		if (strlen(Filename) == 0)
+		{
+			AddLogEntry("Filename: EMPTY STRING");
+			return false;
+		}
+
+		if (ThreadRunning)
+		{
+			AddGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
+			return false;
+		}
+
+		if (ExecutionThread && ExecutionThread->joinable())
+		{
+			ExecutionThread->detach();
+			ExecutionThread.reset();
+		}
+
+		AddLogEntry("Filename: " + std::string(Filename));
+		AddLogEntry("Filename length: " + std::to_string(strlen(Filename)));
 
 		if (status == RUNNING)
 		{
@@ -489,15 +545,37 @@ public:
 			return false;
 		}
 
+		std::ifstream TestFile(Filename);
+		if (!TestFile.is_open())
+		{
+			AddGCodeErrorInfo("File does not exist or cannot be opened: " + std::string(Filename), FILE_ERROR);
+		}
+		TestFile.close();
+
 		CurrentPrinter = Printer;
 		status = RUNNING;
 		StopRequested = false;
 		PauseRequested = false;
+		ThreadRunning = true;
 		Progress = 0.0;
 
-		ExecutionThread = std::thread([this, Filename]()
+		CurrentX = 0.0;
+		CurrentY = 0.0;
+		CurrentZ = 0.0;
+		AbsolutePositioning = true;
+		Speed = 0.0;
+
+		AddLogEntry("Starting execution thread...");
+		AddLogEntry("Reset coordinates to X = 0; Y = 0; Z = 0");
+
+		std::string FilenameCopy = Filename;
+		ExecutionThread = std::make_unique<std::thread>([this, FilenameCopy]()
 			{
-				RunFile(Filename);
+				AddLogEntry("Execution thread started");
+				AddLogEntry("Thread filename: " + FilenameCopy);
+				RunFile(FilenameCopy);
+				AddLogEntry("Execution thread finished");
+				ThreadRunning = false;
 			});
 
 		AddLogEntry("Execution started: " + std::string(Filename));
@@ -542,9 +620,9 @@ public:
 			AddLogEntry("Execution stopped by user request");
 		}
 
-		if (ExecutionThread.joinable())
+		if (ExecutionThread->joinable())
 		{
-			ExecutionThread.join();
+			ExecutionThread->join();
 			AddLogEntry("Execution thread joined");
 		}
 	}
@@ -846,16 +924,44 @@ private:
 	// Execute G-code file
 	void RunFile(const std::string& Filename)
 	{
+		try
+		{
+			RunFileInternal(Filename);
+		}
+		catch (const std::exception& ex)
+		{
+			AddLogEntry("CRITICAL ERROR in RunFile: " + std::string(ex.what()));
+			status = ERROR;
+			ThreadRunning = false;
+		}
+		catch (...)
+		{
+			AddLogEntry("CRITICAL ERROR: Unknown exception in RunFile");
+			status = ERROR;
+			ThreadRunning = false;
+		}
+	}
+
+	void RunFileInternal(const std::string& Filename)
+	{
 		AddLogEntry("Runfile started: " + Filename);
-		std::ifstream File(Filename);
+
+		if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+		{
+			AddGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
+			status = ERROR;
+			return;
+		}
 
 		try
 		{
+			std::ifstream File(Filename);
 			if (!File.is_open())
 			{
 				AddGCodeErrorInfo("Cannot open file: " + Filename, FILE_ERROR);
 				LastError = "Cannot open file: " + Filename;
 				status = ERROR;
+				ThreadRunning = false;
 				return;
 			}
 
@@ -889,7 +995,19 @@ private:
 			}
 
 			File.close();
+		}
+		catch (const std::exception& ex)
+		{
+			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			LastError = ex.what();
+			status = ERROR;
+		}
 
+		try
+		{
+			std::ifstream File(Filename);
+			std::string Line = "";
+			size_t LinesCount = 0;
 			if (status != ERROR)
 			{
 				// Second pass: execution
@@ -926,13 +1044,30 @@ private:
 			{
 				AddLogEntry("Execution aborted due to syntax errors");
 			}
+
+			if (!StopRequested)
+			{
+				AddLogEntry("Execution completed successfully");
+				status = COMPLETED;
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				status = IDLE;
+			}
+			else
+			{
+				AddLogEntry("Execution stopped by user");
+				status = IDLE;
+			}
 		}
 		catch (const std::exception& ex)
 		{
 			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
 			LastError = ex.what();
 			status = ERROR;
+			ThreadRunning = false;
 		}
+
+		ThreadRunning = false;
 	}
 
 	// Process G-code line
@@ -1072,6 +1207,18 @@ private:
 		double Value;
 		if (IsTryingInterpret)
 		{
+			if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+			{
+				AddGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
+				return;
+			}
+
+			if (StepperX.Ports.empty() || StepperY.Ports.empty() || StepperZ.Ports.empty())
+			{
+				AddGCodeErrorInfo("Motor ports are not configured", CONFIG_ERROR);
+				return;
+			}
+
 			AddLogEntry("Checking movement command syntax");
 			while (String >> Token)
 			{
@@ -1142,6 +1289,7 @@ private:
 				// Initialized final command for XY movement as a vector
 				std::vector<MotorCommand> XYCommands;
 
+				// ============X=============
 				if (std::abs(XMovement) > 0)
 				{
 					// If a single motor is used to move the axis
@@ -1155,13 +1303,18 @@ private:
 						}
 						else if (Speed < StepperX.MinimumFeedrate)
 						{
-							Command.Speed = StepperX.MaximumFeedrate;
+							Command.Speed = StepperX.MinimumFeedrate;
 						}
 						else
 						{
 							Command.Speed = Speed;
 						}
 						Command.Revolutions = std::abs(XMovement) / (StepperX.RotationDistance * StepperX.GearRatio);
+
+						if (X < 0)
+						{
+							Speed *= -1;
+						}
 
 						if (!StepperX.Direction)
 						{
@@ -1182,7 +1335,7 @@ private:
 						}
 						else if (Speed < StepperX.MinimumFeedrate)
 						{
-							Command[0].Speed = StepperX.MaximumFeedrate;
+							Command[0].Speed = StepperX.MinimumFeedrate;
 						}
 						else
 						{
@@ -1191,6 +1344,11 @@ private:
 
 						// Converting distance traveled into engine speed
 						Command[0].Revolutions = std::abs(XMovement) / (StepperX.RotationDistance * StepperX.GearRatio);
+
+						if (X < 0)
+						{
+							Speed *= -1;
+						}
 
 						// If we turn in the other direction
 						if (!StepperX.Direction)
@@ -1201,8 +1359,10 @@ private:
 						// Copy commands to all ports
 						for (uint8_t i = 1; i < StepperX.Ports.size(); i++)
 						{
-							Command[0].Port = StepperX.Ports[i];
-							Command.push_back(Command[0]);
+							Command[i].Port = StepperX.Ports[i];
+							Command[i].Speed = Command[0].Speed;
+							Command[i].Revolutions = Command[0].Revolutions;
+							Command.push_back(Command[i]);
 						}
 
 						for (uint8_t i = 0; i < Command.size(); i++)
@@ -1212,6 +1372,7 @@ private:
 					}
 				}
 
+				// =============Y================
 				if (std::abs(YMovement) > 0)
 				{
 					// If a single motor is used to move the axis
@@ -1225,13 +1386,18 @@ private:
 						}
 						else if (Speed < StepperY.MinimumFeedrate)
 						{
-							Command.Speed = StepperY.MaximumFeedrate;
+							Command.Speed = StepperY.MinimumFeedrate;
 						}
 						else
 						{
 							Command.Speed = Speed;
 						}
-						Command.Revolutions = std::abs(XMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
+						Command.Revolutions = std::abs(YMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
+
+						if (Y < 0)
+						{
+							Speed *= -1;
+						}
 
 						if (!StepperY.Direction)
 						{
@@ -1251,13 +1417,18 @@ private:
 						}
 						else if (Speed < StepperY.MinimumFeedrate)
 						{
-							Command[0].Speed = StepperY.MaximumFeedrate;
+							Command[0].Speed = StepperY.MinimumFeedrate;
 						}
 						else
 						{
 							Command[0].Speed = Speed;
 						}
-						Command[0].Revolutions = std::abs(XMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
+						Command[0].Revolutions = std::abs(YMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
+
+						if (Y < 0)
+						{
+							Speed *= -1;
+						}
 
 						if (!StepperY.Direction)
 						{
@@ -1267,8 +1438,10 @@ private:
 						// Copy all commands to the remaining ports
 						for (uint8_t i = 1; i < StepperY.Ports.size(); i++)
 						{
-							Command[0].Port = StepperY.Ports[i];
-							Command.push_back(Command[0]);
+							Command[i].Port = StepperY.Ports[i];
+							Command[i].Speed = Command[0].Speed;
+							Command[i].Revolutions = Command[0].Revolutions;
+							Command.push_back(Command[i]);
 						}
 
 						for (uint8_t i = 0; i < Command.size(); i++)
@@ -1296,6 +1469,7 @@ private:
 				FinalCommands = nullptr;
 			}
 
+			// ===================Z===================
 			if (std::abs(ZMovement) > 0)
 			{
 				std::vector<MotorCommand> ZCommands;
@@ -1310,13 +1484,18 @@ private:
 					}
 					else if (Speed < StepperZ.MinimumFeedrate)
 					{
-						Command.Speed = StepperZ.MaximumFeedrate;
+						Command.Speed = StepperZ.MinimumFeedrate;
 					}
 					else
 					{
 						Command.Speed = Speed;
 					}
-					Command.Revolutions = std::abs(XMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
+					Command.Revolutions = std::abs(ZMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
+
+					if (Z < 0)
+					{
+						Speed *= -1;
+					}
 
 					if (!StepperZ.Direction)
 					{
@@ -1336,13 +1515,18 @@ private:
 					}
 					else if (Speed < StepperZ.MinimumFeedrate)
 					{
-						Command[0].Speed = StepperZ.MaximumFeedrate;
+						Command[0].Speed = StepperZ.MinimumFeedrate;
 					}
 					else
 					{
 						Command[0].Speed = Speed;
 					}
-					Command[0].Revolutions = std::abs(XMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
+					Command[0].Revolutions = std::abs(ZMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
+
+					if (Z < 0)
+					{
+						Speed *= -1;
+					}
 
 					if (!StepperZ.Direction)
 					{
@@ -1352,8 +1536,10 @@ private:
 					// Copy the commands to the remaining ports
 					for (uint8_t i = 1; i < StepperZ.Ports.size(); i++)
 					{
-						Command[0].Port = StepperZ.Ports[i];
-						Command.push_back(Command[0]);
+						Command[i].Port = StepperZ.Ports[i];
+						Command[i].Speed = Command[0].Speed;
+						Command[i].Revolutions = Command[0].Revolutions;
+						Command.push_back(Command[i]);
 					}
 
 					for (uint8_t i = 0; i < Command.size(); i++)
@@ -1379,6 +1565,12 @@ private:
 				delete[] FinalCommands;
 				FinalCommands = nullptr;
 			}
+
+			CurrentX = X;
+			CurrentY = Y;
+			CurrentZ = Z;
+			AddLogEntry("Movement completed. New position: X=" + std::to_string(CurrentX) +
+			" Y=" + std::to_string(CurrentY) + " Z=" + std::to_string(CurrentZ));
 		}
 	}
 
@@ -1482,13 +1674,35 @@ extern "C"
 		return static_cast<Interpreter*>(Handle)->TestFunction(Printer);
 	}
 
-	GCODE_API bool ExecuteGcode(InterpreterHandle Handle, IPrinter* Printer, const char* Filename)
+	GCODE_API bool ExecuteGcode(InterpreterHandle Handle, const char* Filename, IPrinter* Printer)
 	{
-		if (!Handle || !Printer)
+		// Добавляем детальное логирование
+		printf("C++: ExecuteGcode called\n");
+		printf("C++: Handle: %p\n", Handle);
+		printf("C++: Printer: %p\n", Printer);
+		if (Printer) 
 		{
+			printf("C++: Printer->VirtualTable: %p\n", Printer->VirtualTable);
+		}
+		printf("C++: Filename: %s\n", Filename ? Filename : "NULL");
+
+		if (!Handle || !Printer || !Filename)
+		{
+			printf("C++: ERROR - Invalid parameters\n");
 			return false;
 		}
 
+		// БЕЗОПАСНАЯ проверка файла с использованием fopen_s
+		FILE* testFile = nullptr;
+		errno_t err = fopen_s(&testFile, Filename, "r");
+		if (err != 0 || !testFile)
+		{
+			printf("C++: ERROR - Cannot open file: %s, error code: %d\n", Filename, err);
+			return false;
+		}
+		fclose(testFile);
+
+		printf("C++: File exists, calling ExecuteFile\n");
 		return static_cast<Interpreter*>(Handle)->ExecuteFile(Filename, Printer);
 	}
 
