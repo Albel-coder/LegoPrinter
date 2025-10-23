@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -273,33 +276,7 @@ namespace WindowsForms
             {
                 StatusLabel.Text = $"Status: Error - {ex.Message}";
             }
-        }
-
-        private async void ExecuteGcodeButton_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                var printerHandle = printerController.GetPrinterHandle();
-                bool Success = await Task.Run(() => Interpreter.ExecuteFile("G-code.txt", printerHandle));
-
-                if (Success)
-                {
-                    MessageBox.Show("G-code execution started successfully", "Execution",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                else
-                {
-                    string error = Interpreter.GetLastError();
-                    MessageBox.Show($"Failed to execute G-code: {error}", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Execution error: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
+        }        
 
         private void LoadConfigButton_Click(object sender, EventArgs e)
         {
@@ -341,6 +318,117 @@ namespace WindowsForms
                 MessageBox.Show($"Error clearing logs: {ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+        private async void ExecuteGcodeButton_Click(object sender, EventArgs e)
+        {
+            Console.WriteLine("=== ExecuteGcodeButton_Click START ===");
+            ExecuteGcodeButton.Enabled = false;
+            ExecuteGcodeButton.Text = "Executing...";
+
+            try
+            {
+                string filename = "G-code.txt";
+                string fullPath = Path.GetFullPath(filename);
+
+                Console.WriteLine($"C#: Full path: {fullPath}");
+                Console.WriteLine($"C#: File exists: {File.Exists(fullPath)}");
+
+                if (!File.Exists(fullPath))
+                {
+                    MessageBox.Show($"File '{fullPath}' not found!", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                var printerHandle = printerController.GetPrinterHandle();
+
+                Console.WriteLine($"C#: Printer handle: VirtualTable={printerHandle.VirtualTable}");
+
+                if (printerHandle.VirtualTable == IntPtr.Zero)
+                {
+                    MessageBox.Show("Printer handle is invalid!", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                // ПРОВЕРКА СТАТУСА 
+                var status = Interpreter.GetStatus();
+                Console.WriteLine($"C#: Current interpreter status: {status}");
+
+                if (status == GCodeInterpreter.Status.RUNNING ||
+                    status == GCodeInterpreter.Status.PAUSED ||
+                    status == GCodeInterpreter.Status.CHECKING_CODE)
+                {
+                    MessageBox.Show("Interpreter is busy. Please wait for current execution to complete.", "Busy",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                // ДОБАВЛЯЕМ: небольшая задержка для гарантии завершения предыдущего потока
+                if (status == GCodeInterpreter.Status.COMPLETED || status == GCodeInterpreter.Status.ERROR)
+                {
+                    await Task.Delay(200); // 200ms задержка
+                }
+
+                // Очищаем ошибки если были
+                if (status == GCodeInterpreter.Status.ERROR)
+                {
+                    Interpreter.ClearErrors();
+                }
+
+                Console.WriteLine("C#: Calling Interpreter.ExecuteFile...");
+                bool success = await Task.Run(() => Interpreter.ExecuteFile(fullPath, printerHandle));
+
+                Console.WriteLine($"C#: ExecuteFile returned: {success}");
+
+                if (success)
+                {
+                    MessageBox.Show("G-code execution started successfully", "Execution",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    StartExecutionMonitoring();
+                }
+                else
+                {
+                    string error = Interpreter.GetLastError();
+                    Console.WriteLine($"C#: ExecuteFile failed: {error}");
+                    MessageBox.Show($"Failed to execute G-code: {error}", "Error",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"C#: Exception in ExecuteGcodeButton_Click: {ex}");
+                MessageBox.Show($"Execution error: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                ExecuteGcodeButton.Enabled = true;
+                ExecuteGcodeButton.Text = "Execute G-code";
+                Console.WriteLine("=== ExecuteGcodeButton_Click END ===");
+            }
+        }
+        private void StartExecutionMonitoring()
+        {
+            var timer = new System.Windows.Forms.Timer();
+            timer.Interval = 1000;
+            timer.Tick += (s, e) =>
+            {
+                var status = Interpreter.GetStatus();
+                var progress = Interpreter.GetProgress();
+
+                StatusLabel.Text = $"Status: {status}, Progress: {progress:F1}%";
+
+                if (status == GCodeInterpreter.Status.COMPLETED ||
+                    status == GCodeInterpreter.Status.ERROR ||
+                    status == GCodeInterpreter.Status.IDLE)
+                {
+                    timer.Stop();
+                    timer.Dispose();
+                    UpdateInterpreterLogDisplay();
+                }
+            };
+            timer.Start();
         }
     }
 }

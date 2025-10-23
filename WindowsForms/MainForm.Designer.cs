@@ -133,6 +133,7 @@
             this.ExecuteGcodeButton.TabIndex = 9;
             this.ExecuteGcodeButton.Text = "Run G-code";
             this.ExecuteGcodeButton.UseVisualStyleBackColor = true;
+            this.ExecuteGcodeButton.Click += new System.EventHandler(this.ExecuteGcodeButton_Click);
             // 
             // MainForm
             // 

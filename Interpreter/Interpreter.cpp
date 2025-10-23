@@ -716,13 +716,23 @@ public:
 		}
 
 		MotorCommand Command[2];
-		Command[0].Port = 0x00;
-		Command[0].Speed = 30;
-		Command[0].Revolutions = 2.5;
+		Command[0].Port = 0x02;
+		Command[0].Speed = 50;
+		Command[0].Revolutions = 1;
 
-		Command[1].Port = 0x01;
-		Command[1].Speed = 30;
-		Command[1].Revolutions = 2.5;
+		Command[1].Port = 0x03;
+		Command[1].Speed = 50;
+		Command[1].Revolutions = 1;
+
+		CurrentPrinter->VirtualTable->RotateMotor(Printer, Command, 2);
+
+		Command[0].Port = 0x02;
+		Command[0].Speed = -50;
+		Command[0].Revolutions = 1;
+
+		Command[1].Port = 0x03;
+		Command[1].Speed = -50;
+		Command[1].Revolutions = 1;
 
 		AddLogEntry("Sending test commands to printer");
 		CurrentPrinter->VirtualTable->RotateMotor(Printer, Command, 2);
@@ -955,6 +965,7 @@ private:
 
 		try
 		{
+			status = CHECKING_CODE;
 			std::ifstream File(Filename);
 			if (!File.is_open())
 			{
@@ -967,13 +978,11 @@ private:
 
 			std::string Line = "";
 			size_t LinesCount = 0;
+			bool HasErrors = false;
 
 			// Try interpret lines to find errors
-			status = CHECKING_CODE;
-			while (!File.eof())
+			while (std::getline(File, Line))
 			{
-				std::getline(File, Line);
-
 				if (StopRequested)
 				{
 					break;
@@ -981,7 +990,7 @@ private:
 
 				while (PauseRequested && !StopRequested)
 				{
-					std::this_thread::sleep_for(std::chrono::milliseconds(50));
+					std::this_thread::sleep_for(std::chrono::milliseconds(5));
 				}
 
 				if (StopRequested)
@@ -991,66 +1000,78 @@ private:
 
 				ProcessLine(Line, LinesCount, true);
 				LinesCount++;
-				Line.clear();
+
+				if (status == ERROR)
+				{
+					HasErrors = true;
+					break;
+				}
 			}
 
 			File.close();
-		}
-		catch (const std::exception& ex)
-		{
-			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
-			LastError = ex.what();
-			status = ERROR;
-		}
 
-		try
-		{
-			std::ifstream File(Filename);
-			std::string Line = "";
-			size_t LinesCount = 0;
-			if (status != ERROR)
+			if (HasErrors)
 			{
-				// Second pass: execution
-				status = RUNNING;
-				while (!File.eof())
+				AddLogEntry("Execution aborted due to errors");
+				status = ERROR;
+				ThreadRunning = false;
+				return;
+			}
+
+			// Second pass: execution
+			status = RUNNING;
+			std::ifstream File2(Filename);
+			if (!File2.is_open())
+			{
+				AddGCodeErrorInfo("Cannot open file: " + Filename, FILE_ERROR);
+				LastError = "Cannot open file: " + Filename;
+				status = ERROR;
+				ThreadRunning = false;
+				return;
+			}
+
+			LinesCount = 0;
+			size_t TotalLines = 0;
+
+			std::ifstream CountFile(Filename);
+			TotalLines = std::count(std::istreambuf_iterator<char>(CountFile),
+				std::istreambuf_iterator<char>(), '\n');
+
+			CountFile.close();
+
+			while (std::getline(File2, Line))
+			{
+				if (StopRequested)
 				{
-					std::getline(File, Line);
-
-					if (StopRequested)
-					{
-						break;
-					}
-
-					while (PauseRequested && !StopRequested)
-					{
-						std::this_thread::sleep_for(std::chrono::milliseconds(50));
-					}
-
-					if (StopRequested)
-					{
-						break;
-					}
-
-					ProcessLine(Line, LinesCount, false);
-					LinesCount++;
-					Line.clear();
+					break;
 				}
 
-				File.close();
-				AddLogEntry("Execution completed successfully");
-				status = COMPLETED;
+				while (PauseRequested && !StopRequested)
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(5));
+				}
+
+				if (StopRequested)
+				{
+					break;
+				}
+
+				ProcessLine(Line, LinesCount, false);
+				LinesCount++;
+
+				if (TotalLines > 0)
+				{
+					Progress = static_cast<double>(LinesCount) / TotalLines * 100.0;
+				}
 			}
-			else
-			{
-				AddLogEntry("Execution aborted due to syntax errors");
-			}
+
+			File2.close();
 
 			if (!StopRequested)
 			{
 				AddLogEntry("Execution completed successfully");
 				status = COMPLETED;
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				status = IDLE;
 			}
 			else
@@ -1064,8 +1085,7 @@ private:
 			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
 			LastError = ex.what();
 			status = ERROR;
-			ThreadRunning = false;
-		}
+		}		
 
 		ThreadRunning = false;
 	}
@@ -1130,7 +1150,18 @@ private:
 			}
 			else if (Command[0] == 'F')
 			{
-				AddLogEntry("Feedrate command detection: " + Command);
+				try
+				{
+					double NewSpeed = std::stoi(Command.substr(1));
+					if (NewSpeed < 0)
+					{
+						AddGCodeErrorInfo("Negative feedrate not allowed: " + Command, VALUE_NOT_DEFINED);
+					}
+				}
+				catch (const std::exception& ex)
+				{
+					AddGCodeErrorInfo("Invalid feedrate value: " + Command, VALUE_NOT_DEFINED);
+				}
 			}
 			else
 			{
@@ -1178,19 +1209,7 @@ private:
 			}
 			else if (Command[0] == 'F')
 			{
-				int Fcode = std::stoi(Command.substr(1));
-				if (Fcode > 100)
-				{
-					Speed = 100;
-				}
-				else if (Fcode < 0)
-				{
-					Speed = 1;
-				}
-				else
-				{
-					Speed = Fcode;
-				}
+				Speed = std::stoi(Command.substr(1));
 			}
 		}
 	}
@@ -1267,21 +1286,12 @@ private:
 				}
 			}
 
-			double XMovement = 0.0;
-			double YMovement = 0.0;
-			double ZMovement = 0.0;
-			if (AbsolutePositioning)
-			{
-				XMovement = X - CurrentX;
-				YMovement = Y - CurrentY;
-				ZMovement = Z - CurrentZ;
-			}
-			else
-			{
-				XMovement = X;
-				YMovement = Y;
-				ZMovement = Z;
-			}
+			double XMovement = AbsolutePositioning ? (X - CurrentX) : X;
+			double YMovement = AbsolutePositioning ? (Y - CurrentY) : Y;
+			double ZMovement = AbsolutePositioning ? (Z - CurrentZ) : Z;
+
+			AddLogEntry("Execute movement command - X:" + std::to_string(XMovement) +
+			 " Y: " + std::to_string(YMovement) + " Z:" + std::to_string(ZMovement));
 
 			// Process X and Y axis movement
 			if (std::abs(XMovement) > 0 || std::abs(YMovement) > 0)
@@ -1292,283 +1302,138 @@ private:
 				// ============X=============
 				if (std::abs(XMovement) > 0)
 				{
-					// If a single motor is used to move the axis
-					if (StepperX.Ports.size() == 1)
+					for (uint8_t Port : StepperX.Ports)
 					{
 						MotorCommand Command;
-						Command.Port = StepperX.Ports[0];
-						if (Speed > StepperX.MaximumFeedrate)
+						Command.Port = Port;
+
+						double CalculatedSpeed = Speed;
+						if (XMovement < 0)
 						{
-							Command.Speed = StepperX.MaximumFeedrate;
+							CalculatedSpeed = -CalculatedSpeed;
 						}
-						else if (Speed < StepperX.MinimumFeedrate)
+						if (!StepperX.Direction)
 						{
-							Command.Speed = StepperX.MinimumFeedrate;
+							CalculatedSpeed = -CalculatedSpeed;
+						}
+
+						if (CalculatedSpeed > 0)
+						{
+							CalculatedSpeed = std::min(CalculatedSpeed, StepperX.MaximumFeedrate);
+							CalculatedSpeed = std::max(CalculatedSpeed, StepperX.MinimumFeedrate);
 						}
 						else
 						{
-							Command.Speed = Speed;
+							CalculatedSpeed = std::max(CalculatedSpeed, -StepperX.MaximumFeedrate);
+							CalculatedSpeed = std::min(CalculatedSpeed, -StepperX.MinimumFeedrate);
 						}
+
+						Command.Speed = static_cast<signed char>(CalculatedSpeed);
 						Command.Revolutions = std::abs(XMovement) / (StepperX.RotationDistance * StepperX.GearRatio);
 
-						if (X < 0)
-						{
-							Speed *= -1;
-						}
-
-						if (!StepperX.Direction)
-						{
-							Speed *= -1;
-						}
-
 						XYCommands.push_back(Command);
-					}
-					else // If multiple motors are used to move the axis
-					{
-						std::vector<MotorCommand> Command(StepperX.Ports.size());
-						// Commands on different ports of the same axis are the same
-						// Therefore, we initialize only one port, and copy the rest from other ports.
-						Command[0].Port = StepperX.Ports[0];
-						if (Speed > StepperX.MaximumFeedrate)
-						{
-							Command[0].Speed = StepperX.MaximumFeedrate;
-						}
-						else if (Speed < StepperX.MinimumFeedrate)
-						{
-							Command[0].Speed = StepperX.MinimumFeedrate;
-						}
-						else
-						{
-							Command[0].Speed = Speed;
-						}
-
-						// Converting distance traveled into engine speed
-						Command[0].Revolutions = std::abs(XMovement) / (StepperX.RotationDistance * StepperX.GearRatio);
-
-						if (X < 0)
-						{
-							Speed *= -1;
-						}
-
-						// If we turn in the other direction
-						if (!StepperX.Direction)
-						{
-							Speed *= -1;
-						}
-
-						// Copy commands to all ports
-						for (uint8_t i = 1; i < StepperX.Ports.size(); i++)
-						{
-							Command[i].Port = StepperX.Ports[i];
-							Command[i].Speed = Command[0].Speed;
-							Command[i].Revolutions = Command[0].Revolutions;
-							Command.push_back(Command[i]);
-						}
-
-						for (uint8_t i = 0; i < Command.size(); i++)
-						{
-							XYCommands.push_back(Command[i]);
-						}
 					}
 				}
 
 				// =============Y================
 				if (std::abs(YMovement) > 0)
 				{
-					// If a single motor is used to move the axis
-					if (StepperY.Ports.size() == 1)
+					for (uint8_t Port : StepperY.Ports)
 					{
 						MotorCommand Command;
-						Command.Port = StepperY.Ports[0];
-						if (Speed > StepperY.MaximumFeedrate)
+						Command.Port = Port;
+
+						double CalculatedSpeed = Speed;
+						if (YMovement < 0)
 						{
-							Command.Speed = StepperY.MaximumFeedrate;
+							CalculatedSpeed = -CalculatedSpeed;
 						}
-						else if (Speed < StepperY.MinimumFeedrate)
+						if (StepperY.Direction)
 						{
-							Command.Speed = StepperY.MinimumFeedrate;
+							CalculatedSpeed = -CalculatedSpeed;
+						}
+
+						if (CalculatedSpeed > 0)
+						{
+							CalculatedSpeed = std::min(CalculatedSpeed, StepperY.MaximumFeedrate);
+							CalculatedSpeed = std::max(CalculatedSpeed, StepperY.MinimumFeedrate);
 						}
 						else
 						{
-							Command.Speed = Speed;
+							CalculatedSpeed = std::max(CalculatedSpeed, -StepperY.MaximumFeedrate);
+							CalculatedSpeed = std::min(CalculatedSpeed, -StepperY.MinimumFeedrate);
 						}
+
+						Command.Speed = static_cast<signed char>(CalculatedSpeed);
 						Command.Revolutions = std::abs(YMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
-
-						if (Y < 0)
-						{
-							Speed *= -1;
-						}
-
-						if (!StepperY.Direction)
-						{
-							Speed *= -1;
-						}
 
 						XYCommands.push_back(Command);
 					}
-					else // If multiple motors are used to move the axis
-					{
-						std::vector<MotorCommand> Command(StepperY.Ports.size());
-
-						Command[0].Port = StepperY.Ports[0];
-						if (Speed > StepperY.MaximumFeedrate)
-						{
-							Command[0].Speed = StepperY.MaximumFeedrate;
-						}
-						else if (Speed < StepperY.MinimumFeedrate)
-						{
-							Command[0].Speed = StepperY.MinimumFeedrate;
-						}
-						else
-						{
-							Command[0].Speed = Speed;
-						}
-						Command[0].Revolutions = std::abs(YMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
-
-						if (Y < 0)
-						{
-							Speed *= -1;
-						}
-
-						if (!StepperY.Direction)
-						{
-							Speed *= -1;
-						}
-
-						// Copy all commands to the remaining ports
-						for (uint8_t i = 1; i < StepperY.Ports.size(); i++)
-						{
-							Command[i].Port = StepperY.Ports[i];
-							Command[i].Speed = Command[0].Speed;
-							Command[i].Revolutions = Command[0].Revolutions;
-							Command.push_back(Command[i]);
-						}
-
-						for (uint8_t i = 0; i < Command.size(); i++)
-						{
-							XYCommands.push_back(Command[i]);
-						}
-					}
 				}
 
-				// We will convert it into the required format for a C-style interface.
-				uint8_t FinalCommandsSize = XYCommands.size();
-				MotorCommand* FinalCommands = new MotorCommand[FinalCommandsSize];
-
-				for (uint8_t i = 0; i < FinalCommandsSize; i++)
-				{
-					FinalCommands[i] = XYCommands[i];
-				}
-
-				if (CurrentPrinter && CurrentPrinter->VirtualTable)
-				{
-					CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, FinalCommandsSize);
-				}
-
+				// Send command for X and Y axis
+				MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
+				std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
+				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, XYCommands.size());
 				delete[] FinalCommands;
-				FinalCommands = nullptr;
 			}
 
 			// ===================Z===================
 			if (std::abs(ZMovement) > 0)
 			{
 				std::vector<MotorCommand> ZCommands;
-				// If a single motor is used to move the axis
-				if (StepperZ.Ports.size() == 1)
+				
+				for (uint8_t Port : StepperZ.Ports)
 				{
 					MotorCommand Command;
-					Command.Port = StepperZ.Ports[0];
-					if (Speed > StepperZ.MaximumFeedrate)
+					Command.Port = Port;
+
+					double CalculatedSpeed = Speed;
+					if (ZMovement < 0)
 					{
-						Command.Speed = StepperZ.MaximumFeedrate;
+						CalculatedSpeed = -CalculatedSpeed;
 					}
-					else if (Speed < StepperZ.MinimumFeedrate)
+					if (!StepperZ.Direction)
 					{
-						Command.Speed = StepperZ.MinimumFeedrate;
+						CalculatedSpeed = -CalculatedSpeed;
+					}
+
+					if (CalculatedSpeed > 0)
+					{
+						CalculatedSpeed = std::min(CalculatedSpeed, StepperZ.MaximumFeedrate);
+						CalculatedSpeed = std::max(CalculatedSpeed, StepperZ.MinimumFeedrate);
 					}
 					else
 					{
-						Command.Speed = Speed;
+						CalculatedSpeed = std::max(CalculatedSpeed, -StepperZ.MaximumFeedrate);
+						CalculatedSpeed = std::min(CalculatedSpeed, -StepperZ.MinimumFeedrate);
 					}
+
+					Command.Speed = static_cast<signed char>(CalculatedSpeed);
 					Command.Revolutions = std::abs(ZMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
-
-					if (Z < 0)
-					{
-						Speed *= -1;
-					}
-
-					if (!StepperZ.Direction)
-					{
-						Speed *= -1;
-					}
 
 					ZCommands.push_back(Command);
 				}
-				else // If multiple motors are used to move the axis
-				{
-					std::vector<MotorCommand> Command(StepperZ.Ports.size());
 
-					Command[0].Port = StepperZ.Ports[0];
-					if (Speed > StepperZ.MaximumFeedrate)
-					{
-						Command[0].Speed = StepperZ.MaximumFeedrate;
-					}
-					else if (Speed < StepperZ.MinimumFeedrate)
-					{
-						Command[0].Speed = StepperZ.MinimumFeedrate;
-					}
-					else
-					{
-						Command[0].Speed = Speed;
-					}
-					Command[0].Revolutions = std::abs(ZMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
-
-					if (Z < 0)
-					{
-						Speed *= -1;
-					}
-
-					if (!StepperZ.Direction)
-					{
-						Speed *= -1;
-					}
-
-					// Copy the commands to the remaining ports
-					for (uint8_t i = 1; i < StepperZ.Ports.size(); i++)
-					{
-						Command[i].Port = StepperZ.Ports[i];
-						Command[i].Speed = Command[0].Speed;
-						Command[i].Revolutions = Command[0].Revolutions;
-						Command.push_back(Command[i]);
-					}
-
-					for (uint8_t i = 0; i < Command.size(); i++)
-					{
-						ZCommands.push_back(Command[i]);
-					}
-				}
-
-				// We will convert it into the required format for a C-style interface.
-				uint8_t FinalCommandsSize = ZCommands.size();
-				MotorCommand* FinalCommands = new MotorCommand[FinalCommandsSize];
-
-				for (uint8_t i = 0; i < FinalCommandsSize; i++)
-				{
-					FinalCommands[i] = ZCommands[i];
-				}
-
-				if (CurrentPrinter && CurrentPrinter->VirtualTable)
-				{
-					CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, FinalCommandsSize);
-				}
-
+				MotorCommand* FinalCommands = new MotorCommand[ZCommands.size()];
+				std::copy(ZCommands.begin(), ZCommands.end(), FinalCommands);
+				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, ZCommands.size());
 				delete[] FinalCommands;
-				FinalCommands = nullptr;
 			}
 
-			CurrentX = X;
-			CurrentY = Y;
-			CurrentZ = Z;
+			if (AbsolutePositioning)
+			{
+				CurrentX = X;
+				CurrentY = Y;
+				CurrentZ = Z;
+			}
+			else
+			{
+				CurrentX += X;
+				CurrentY += Y;
+				CurrentZ += Z;
+			}
+
 			AddLogEntry("Movement completed. New position: X=" + std::to_string(CurrentX) +
 			" Y=" + std::to_string(CurrentY) + " Z=" + std::to_string(CurrentZ));
 		}

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Ports;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -148,6 +149,7 @@ public class PrinterController : IDisposable
 
     public void PrintConnectionInfo() => SafeCall(() => { PrinterConnectionInfo(PrinterHandle); return true; }, false);
     public bool Connect() => SafeCall(() => PrinterConnect(PrinterHandle), false);
+    public bool IsPrinterConnect() => SafeCall(() => IsConnected(PrinterHandle), false);
     public bool Disconnect() => SafeCall(() => PrinterDisconnect(PrinterHandle), false);
 
     // Helper method for safely calling a DLL function
@@ -226,6 +228,8 @@ public class PrinterController : IDisposable
             {
                 Console.WriteLine("Disposing PrinterController...");
 
+                System.Threading.Thread.Sleep(100);
+
                 if (PrinterHandle.VirtualTable != IntPtr.Zero)
                 {
                     DestroyPrinter(PrinterHandle);
@@ -282,7 +286,37 @@ public class GCodeInterpreter : IDisposable
 
     // Основные методы
     public bool Test(IPrinter printer) => TestCode(InterpreterHandle, printer);
-    public bool ExecuteFile(string filename, IPrinter printer) => ExecuteGcode(InterpreterHandle, filename, printer);
+
+    // ИСПРАВЛЕННЫЙ метод - правильный порядок параметров
+    public bool ExecuteFile(string filename, IPrinter printer)
+    {
+        if (string.IsNullOrEmpty(filename))
+        {
+            Console.WriteLine("C#: ERROR - Filename is null or empty");
+            return false;
+        }
+
+        if (printer.VirtualTable == IntPtr.Zero)
+        {
+            Console.WriteLine("C#: ERROR - Printer VirtualTable is zero");
+            return false;
+        }
+
+        try
+        {
+            string fullPath = Path.GetFullPath(filename);
+            Console.WriteLine($"C#: Executing file '{fullPath}'");
+            Console.WriteLine($"C#: File exists: {File.Exists(fullPath)}");
+
+            // ПРАВИЛЬНЫЙ ПОРЯДОК ПАРАМЕТРОВ: interpreter, filename, printer
+            return ExecuteGcode(InterpreterHandle, fullPath, printer);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"C#: Exception in ExecuteFile: {ex}");
+            return false;
+        }
+    }
     public void Pause() => PauseExecution(InterpreterHandle);
     public void Resume() => ResumeExecution(InterpreterHandle);
     public Status GetStatus() => (Status)GetStatus(InterpreterHandle);
@@ -349,7 +383,6 @@ public class GCodeInterpreter : IDisposable
     public bool IsCompleted => GetStatus() == Status.COMPLETED;
     public bool IsError => GetStatus() == Status.ERROR;
 
-    // DLL Imports - ТЕПЕРЬ КАК В ДРАЙВЕРЕ!
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr CreateInterpreter();
 
@@ -360,6 +393,7 @@ public class GCodeInterpreter : IDisposable
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool TestCode(IntPtr interpreter, IPrinter printer);
 
+    // ИСПРАВЛЕННЫЙ DllImport с правильным порядком параметров
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool ExecuteGcode(IntPtr interpreter, string filename, IPrinter printer);
@@ -438,6 +472,3 @@ public class GCodeInterpreter : IDisposable
         }
     }
 }
-
-
-
