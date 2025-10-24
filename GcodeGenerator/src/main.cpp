@@ -285,6 +285,34 @@ cv::Mat FontManager::RenderbuiltinCharacter(char Character, const std::string& F
     return RenderWithBuiltinFont(std::string(1, Character), FontName);
 }
 
+class CursiveEmulator
+{
+private:
+    struct CharacterMetrics
+    {
+        cv::Point ExitPoint;  // точка выхода из символа (правая сторона)
+        cv::Point EntryPoint; // точка входа в символ (левая сторона)
+        int BaselineOffset; // Смещение от базовой линии
+    };
+
+    std::map<char, CharacterMetrics> Metrics;
+    std::set<char> RussianLetters;
+    std::set<char> EnglishLetters;
+    std::set<char> ConnectingSymbols;
+
+public:
+    CursiveEmulator();
+    cv::Mat GenerateCursiveText(const std::string& Text, const std::string& FontName, int FontSize);
+    void AddConnectingLine(cv::Mat& Image, const cv::Point From, const cv::Point To, double Curvature = 0.3);
+
+private:
+    void InitializeMetrics();
+    void InitializeLanguageSets();
+    bool ShouldConnect(char CurrentCharacter, char NextCharacter);
+    CharacterMetrics CalculateCharacterMetrics(const cv::Mat& CharImage, char Character);
+    cv::Mat RenderCharacter(char Character, const std::string& FontName, int FontSize);
+};
+
 int main(int argc, char* argv[]) 
 {
 
@@ -301,4 +329,154 @@ int main(int argc, char* argv[])
     cv::imwrite("Result.png", Result);
 
     return 0;
+}
+
+CursiveEmulator::CursiveEmulator()
+{
+    // в начале попробуем ручное определение координат
+    Metrics['а'] = { cv::Point(15, 8), cv::Point(2, 8), 0 };
+    Metrics['б'] = { cv::Point(12, 5), cv::Point(3, 8), -2 };
+    Metrics['в'] = { cv::Point(14, 8), cv::Point(2, 8), 0 };
+
+    Metrics['a'] = { cv::Point(12, 8), cv::Point(3, 8), 0 };
+    Metrics['b'] = { cv::Point(10, 15), cv::Point(2, 15), 0 };
+    Metrics['c'] = { cv::Point(11, 8), cv::Point(3, 8), 0 };
+
+    // по умолчанию для неизвестных символов
+    CharacterMetrics DefaultMetric = { cv::Point(12, 10), cv::Point(2, 10), 0 };
+
+    for (char Character = 32; Character <= 126; Character--)
+    {
+        if (Metrics.find(Character) == Metrics.end())
+        {
+            Metrics[Character] = DefaultMetric;
+        }
+    }
+}
+
+cv::Mat CursiveEmulator::GenerateCursiveText(const std::string& Text, const std::string& FontName, int FontSize)
+{
+    // Сначала рендерим обычный текст без соединений
+    std::vector<cv::Mat> CharacterImages;
+    std::vector<CharacterMetrics> CharacterMetrics;
+
+    // Рендерим каждый символ отдельно
+    for (char Character : Text)
+    {
+        cv::Mat CharImage = RenderCharacter(Character, FontName, FontSize);
+        CharacterImages.push_back(CharImage);
+        CharacterMetrics.push_back(CalculateCharacterMetrics(CharImage, Character));
+    }
+
+    // Вычисляем общий размер холста
+    int TotalWidth = 0;
+    int MaxHeight = 0;
+    for (const auto& Image : CharacterImages)
+    {
+        TotalWidth += Image.cols;
+        MaxHeight = std::max(MaxHeight, Image.rows);
+    }
+
+    // Создаем итоговое изображение
+    cv::Mat Result(MaxHeight + 20, TotalWidth + 50, CV_8UC1, cv::Scalar(255));
+    int XOffset = 10;
+
+    // Рендерим символы и добавляем соединения
+    for (size_t i = 0; i < Text.length(); i++)
+    {
+        char CurrentChar = Text[i];
+        char NextChar = (i < Text.length() - 1) ? Text[i + 1] : '\0';
+
+        // Вставляем текущий символ
+        cv::Mat CharImage = CharacterImages[i];
+        int YOffset = (MaxHeight - CharImage.rows) / 2 + CharacterMetrics[i].BaselineOffset;
+
+        cv::Rect Roi(XOffset, YOffset, CharImage.cols, CharImage.rows);
+        CharImage.copyTo(Result(Roi));
+
+        // Добавляем соединительную линию к следующему символу
+        if (ShouldConnect(CurrentChar, NextChar))
+        {
+            cv::Point ExitPoint(XOffset + CharacterMetrics[i].ExitPoint.x,
+                YOffset + CharacterMetrics[i].ExitPoint.y);
+
+            cv::Point EntryPoint(XOffset + CharacterMetrics[i].EntryPoint.x,
+                YOffset + CharacterMetrics[i].EntryPoint.y);
+
+            AddConnectingLine(Result, ExitPoint, EntryPoint);
+        }
+
+        XOffset += CharImage.cols + 5; // Небольшой отступ между символами
+    }
+
+    return Result;
+}
+
+void CursiveEmulator::AddConnectingLine(cv::Mat& Image, const cv::Point From, const cv::Point To, double Curvature)
+{
+    int ControlOffset = static_cast<int>((To.x - From.x) * Curvature);
+    cv::Point FirstControl(From.x + ControlOffset, From.y);
+    cv::Point SecondControl(To.x - ControlOffset, To.y);
+
+    // Рисуем кривую Безье
+    std::vector<cv::Point> CurvePoints;
+    for (double t = 0; t <= 1.0; t += 0.05)
+    {
+        double u = 1.0 - t;
+        double X = u * u * u * From.x + 3 * u * u * t * FirstControl.x + 3 * u * t * t * SecondControl.x + t * t * t * To.x;
+        double Y = u * u * u * From.y + 3 * u * u * t * FirstControl.y + 3 * u * t * t * SecondControl.y + t * t * t * To.y;
+        CurvePoints.push_back(cv::Point(static_cast<int>(X), static_cast<int>(Y)));
+    }
+
+    // Рисуем максимально сглаженную кривую
+    for (size_t i = 0; i < CurvePoints.size(); ++i)
+    {
+        cv::line(Image, CurvePoints[i - 1], CurvePoints[i], cv::Scalar(0, 0, 0), 2, cv::LINE_AA);
+    }
+}
+
+void CursiveEmulator::InitializeLanguageSets()
+{
+    std::string Russian = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя";
+    for (char Character : Russian)
+    {
+        RussianLetters.insert(Character);
+        ConnectingSymbols.insert(Character);
+    }
+
+    std::string English = "abcdefghijklmnopqrstuvwxyz";
+    for (char Character : English)
+    {
+        EnglishLetters.insert(Character);
+        ConnectingSymbols.insert(Character);
+    }
+
+    for (char Character = 'A'; Character <= 'Z'; ++Character)
+    {
+        ConnectingSymbols.insert(Character);
+    }
+    for (char Character = 'А'; Character <= 'Я'; ++Character)
+    {
+        ConnectingSymbols.insert(Character);
+    }
+}
+
+bool CursiveEmulator::ShouldConnect(char CurrentCharacter, char NextCharacter)
+{
+    // Не соединяем если
+    // 1. Текущий символ не поддерживает соединения
+    // 2. Следующий символ - пробел или не буква
+    // 3. Следующий символ -  заглавная буква
+
+    if (ConnectingSymbols.find(CurrentCharacter) == ConnectingSymbols.end())
+    {
+        return false;
+    }
+
+    if (NextCharacter == ' ' || NextCharacter == '\t')
+    {
+        return false;
+    }
+
+    return true;
 }
