@@ -17,6 +17,7 @@ extern "C"
 
 	GCODE_API bool TestCode(InterpreterHandle Handle, IPrinter* Printer);
 	GCODE_API bool ExecuteGcode(InterpreterHandle Handle, const char* Filename, IPrinter* Printer);
+	GCODE_API bool ExecuteLine(InterpreterHandle Handle, const char* Line, IPrinter* Printer);
 
 	GCODE_API void PauseExecution(InterpreterHandle Handle);
 	GCODE_API void ResumeExecution(InterpreterHandle Handle);

@@ -128,13 +128,22 @@ private:
 	void AddLogEntry(const std::string& Entry)
 	{
 		std::unique_lock<std::mutex> Lock(LogMutex, std::try_to_lock);
-		if (ExecutionLog.size() > 1000)
+		if (Lock.owns_lock())
 		{
-			ExecutionLog.erase(ExecutionLog.begin());
-			AddLogEntry("Log buffer cleared - reached maximum size");
-		}
+			// Size limit without recursion
+			if (ExecutionLog.size() > 999)
+			{
+				ExecutionLog.erase(ExecutionLog.begin());
+			}
 
-		ExecutionLog.push_back(Entry);
+			ExecutionLog.push_back(Entry);
+
+			// Add a cleaning message only if it is not the message itself
+			if (Entry.find("cleared") == std::string::npos && ExecutionLog.size() == 1000)
+			{
+				ExecutionLog.push_back("Log buffer limit reached - old entries are being removed");
+			}
+		}
 	}
 
 	// Add G-code error information
@@ -142,10 +151,9 @@ private:
 	{
 		std::unique_lock<std::mutex> Lock(LogMutex, std::try_to_lock);
 
-		if (GcodeErrors.size() > 1000)
+		if (GcodeErrors.size() > 999)
 		{
 			GcodeErrors.erase(GcodeErrors.begin());
-			AddLogEntry("Error buffer cleared - reached maximum size");
 		}
 
 		std::string ErrorInfo;
@@ -188,6 +196,16 @@ private:
 		AddLogEntry("[ERROR] " + ErrorInfo);
 		LastError = ErrorInfo;
 		status = ERROR;
+
+		// Add to the main log without recursion
+		if (Lock.owns_lock())
+		{
+			if (ExecutionLog.size() > 999)
+			{
+				ExecutionLog.erase(ExecutionLog.begin());
+			}
+			ExecutionLog.push_back("[ERROR] " + ErrorInfo);
+		}
 	}
 
 	void SetError(GnodeError Error, const std::string& Message)
@@ -874,6 +892,86 @@ public:
 		}
 	}	
 
+	bool ExecuteLine(const std::string& Line, IPrinter* Printer)
+	{
+		AddLogEntry("ExecuteLine started: " + Line);
+
+		if (status == RUNNING)
+		{
+			AddGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
+			return false;
+		}
+
+		if (!Printer || !Printer->VirtualTable)
+		{
+			AddGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
+			return false;
+		}
+		
+		CurrentPrinter = Printer;
+
+		if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+		{
+			AddGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
+			status = ERROR;
+			return false;
+		}
+
+		if (ThreadRunning)
+		{
+			AddGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
+			return false;
+		}
+
+		if (ExecutionThread && ExecutionThread->joinable())
+		{
+			ExecutionThread->detach();
+			ExecutionThread.reset();
+		}
+
+		try
+		{
+			// Try interpret single line to find errors
+			status = CHECKING_CODE;
+			bool HasErrors = false;
+			ProcessLine(Line, 1, true);
+
+			if (status == ERROR)
+			{
+				AddLogEntry("Execution aborted due to errors");
+				ThreadRunning = false;
+				return false;
+			}
+
+			// Second pass: execution
+			status = RUNNING;
+			ProcessLine(Line, 1, false);
+
+			if (!StopRequested)
+			{
+				AddLogEntry("Execution completed successfully");
+				status = COMPLETED;
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+				status = IDLE;
+			}
+			else
+			{
+				AddLogEntry("Execution stopped by user");
+				status = IDLE;
+			}
+		}
+		catch (const std::exception& ex)
+		{
+			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			LastError = ex.what();
+			status = ERROR;
+		}
+
+		ThreadRunning = false;
+		AddLogEntry("Line executed successfully!");
+		return true;
+	}
+
 private:
 
 	bool ValidateConfig() // Validate configuration
@@ -1217,13 +1315,11 @@ private:
 	//Process movement commands
 	void ProcessMovement(std::istringstream& String, int LineCount, bool IsTryingInterpret)
 	{
-		double X = CurrentX;
-		double Y = CurrentY;
-		double Z = CurrentZ;
 		std::string Token;
 
 		char Axis;
-		double Value;
+		double Value;		
+
 		if (IsTryingInterpret)
 		{
 			if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
@@ -1247,13 +1343,8 @@ private:
 				switch (Axis)
 				{
 				case 'X':
-					X = Value;
-					break;
 				case 'Y':
-					Y = Value;
-					break;
 				case 'Z':
-					Z = Value;
 					break;
 				default:
 					AddGCodeErrorInfo("Unknown axis: " + std::string(1, Axis) + 
@@ -1265,6 +1356,13 @@ private:
 		else
 		{
 			AddLogEntry("Execute movement command");
+
+			// Initialize target coordinates
+			double TargetX = AbsolutePositioning ? CurrentX : 0.0;
+			double TargetY = AbsolutePositioning ? CurrentY : 0.0;
+			double TargetZ = AbsolutePositioning ? CurrentZ : 0.0;
+
+			// Parse movement commands
 			while (String >> Token)
 			{
 				Axis = Token[0];
@@ -1273,22 +1371,43 @@ private:
 				switch (Axis)
 				{
 				case 'X':
-					X = Value;
+					if (AbsolutePositioning)
+					{
+						TargetX = Value;
+					}
+					else
+					{
+						TargetX += Value;
+					}
 					break;
 				case 'Y':
-					Y = Value;
+					if (AbsolutePositioning)
+					{
+						TargetY = Value;
+					}
+					else
+					{
+						TargetY += Value;
+					}
 					break;
 				case 'Z':
-					Z = Value;
+					if (AbsolutePositioning)
+					{
+						TargetZ = Value;
+					}
+					else
+					{
+						TargetZ += Value;
+					}
 					break;
 				default:
 					break;
 				}
 			}
 
-			double XMovement = AbsolutePositioning ? (X - CurrentX) : X;
-			double YMovement = AbsolutePositioning ? (Y - CurrentY) : Y;
-			double ZMovement = AbsolutePositioning ? (Z - CurrentZ) : Z;
+			double XMovement = TargetX - CurrentX;
+			double YMovement = TargetY - CurrentY;
+			double ZMovement = TargetZ - CurrentZ;
 
 			AddLogEntry("Execute movement command - X:" + std::to_string(XMovement) +
 			 " Y: " + std::to_string(YMovement) + " Z:" + std::to_string(ZMovement));
@@ -1299,15 +1418,94 @@ private:
 				// Initialized final command for XY movement as a vector
 				std::vector<MotorCommand> XYCommands;
 
-				// ============X=============
+				// Calculate movement times for each axis
+				double TimeX = 0.0;
+				double TimeY = 0.0;
+
+				// ========== X Axis ==========
 				if (std::abs(XMovement) > 0)
 				{
+					double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+
+					// Calculate base time for X movement
+					double BaseSpeedX = Speed;
+					if (XMovement < 0)
+					{
+						BaseSpeedX = -BaseSpeedX;
+					}
+					if (!StepperX.Direction)
+					{
+						BaseSpeedX = -BaseSpeedX;
+					}
+
+					// Apply speed limits
+					if (BaseSpeedX > 0)
+					{
+						BaseSpeedX = std::min(BaseSpeedX, StepperX.MaximumFeedrate);
+						BaseSpeedX = std::max(BaseSpeedX, StepperX.MinimumFeedrate);
+					}
+					else
+					{
+						BaseSpeedX = std::max(BaseSpeedX, -StepperX.MaximumFeedrate);
+						BaseSpeedX = std::min(BaseSpeedX, -StepperX.MinimumFeedrate);
+					}
+
+					TimeX = RevolutionsX / std::abs(BaseSpeedX);
+				}
+
+				// ========== Y Axis ==========
+				if (std::abs(YMovement) > 0)
+				{
+					double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+
+					// Calculates base time for Y movement
+					double BaseSpeedY = Speed;
+					if (YMovement < 0)
+					{
+						BaseSpeedY = -BaseSpeedY;
+					}
+					if (!StepperY.Direction)
+					{
+						BaseSpeedY = -BaseSpeedY;
+					}
+
+					// Apply speed limits
+					if (BaseSpeedY > 0)
+					{
+						BaseSpeedY = std::min(BaseSpeedY, StepperY.MaximumFeedrate);
+						BaseSpeedY = std::max(BaseSpeedY, StepperY.MinimumFeedrate);
+					}
+					else
+					{
+						BaseSpeedY = std::max(BaseSpeedY, -StepperY.MaximumFeedrate);
+						BaseSpeedY = std::min(BaseSpeedY, -StepperY.MinimumFeedrate);
+					}
+
+					TimeY = RevolutionsY / std::abs(BaseSpeedY);
+				}
+
+				// Determine the maximum time needed
+				double MaxTime = std::max(TimeX, TimeY);
+				if (MaxTime == 0.0) // Avoid division by zero
+				{
+					MaxTime = 1.0;
+				}
+
+
+				// ============ X Axis with synchronized speed =============
+				if (std::abs(XMovement) > 0)
+				{
+					double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+
+					// Calculate speed to match the maximum time
+					double SynchronizedSpeedX = RevolutionsX / MaxTime;
+
 					for (uint8_t Port : StepperX.Ports)
 					{
 						MotorCommand Command;
 						Command.Port = Port;
 
-						double CalculatedSpeed = Speed;
+						double CalculatedSpeed = SynchronizedSpeedX;
 						if (XMovement < 0)
 						{
 							CalculatedSpeed = -CalculatedSpeed;
@@ -1317,6 +1515,7 @@ private:
 							CalculatedSpeed = -CalculatedSpeed;
 						}
 
+						// Apply speed limits to synchronized speed
 						if (CalculatedSpeed > 0)
 						{
 							CalculatedSpeed = std::min(CalculatedSpeed, StepperX.MaximumFeedrate);
@@ -1329,21 +1528,30 @@ private:
 						}
 
 						Command.Speed = static_cast<signed char>(CalculatedSpeed);
-						Command.Revolutions = std::abs(XMovement) / (StepperX.RotationDistance * StepperX.GearRatio);
+						Command.Revolutions = RevolutionsX;
 
 						XYCommands.push_back(Command);
+
+						AddLogEntry("X axis - Port: " + std::to_string(Port) +
+							" Speed: " + std::to_string(CalculatedSpeed) +
+							" Revolutions: " + std::to_string(RevolutionsX));
 					}
 				}
 
-				// =============Y================
+				// ============= Y Axis with synchronized speed ================
 				if (std::abs(YMovement) > 0)
 				{
+					double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+
+					// Calculate speed to match the maximum time
+					double SynchronizedSpeedY = RevolutionsY / MaxTime;
+
 					for (uint8_t Port : StepperY.Ports)
 					{
 						MotorCommand Command;
 						Command.Port = Port;
 
-						double CalculatedSpeed = Speed;
+						double CalculatedSpeed = SynchronizedSpeedY;
 						if (YMovement < 0)
 						{
 							CalculatedSpeed = -CalculatedSpeed;
@@ -1353,6 +1561,7 @@ private:
 							CalculatedSpeed = -CalculatedSpeed;
 						}
 
+						// Apply speed limits to synchronized speed
 						if (CalculatedSpeed > 0)
 						{
 							CalculatedSpeed = std::min(CalculatedSpeed, StepperY.MaximumFeedrate);
@@ -1365,20 +1574,29 @@ private:
 						}
 
 						Command.Speed = static_cast<signed char>(CalculatedSpeed);
-						Command.Revolutions = std::abs(YMovement) / (StepperY.RotationDistance * StepperY.GearRatio);
+						Command.Revolutions = RevolutionsY;
 
 						XYCommands.push_back(Command);
+
+						AddLogEntry("Y axis - Port: " + std::to_string(Port) +
+						" Speed: " + std::to_string(CalculatedSpeed) +
+						" Revolutions " + std::to_string(RevolutionsY));
 					}
 				}
 
-				// Send command for X and Y axis
-				MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
-				std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
-				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, XYCommands.size());
-				delete[] FinalCommands;
+				// Send synchronized commands for X and Y axis
+				if (!XYCommands.empty())
+				{
+					MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
+					std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
+					CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, XYCommands.size());
+					delete[] FinalCommands;
+
+					AddLogEntry("XY movement synchronized. Max time: " + std::to_string(MaxTime));
+				}
 			}
 
-			// ===================Z===================
+			// =================== Z Axis ===================
 			if (std::abs(ZMovement) > 0)
 			{
 				std::vector<MotorCommand> ZCommands;
@@ -1410,7 +1628,7 @@ private:
 					}
 
 					Command.Speed = static_cast<signed char>(CalculatedSpeed);
-					Command.Revolutions = std::abs(ZMovement) / (StepperZ.RotationDistance * StepperZ.GearRatio);
+					Command.Revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
 
 					ZCommands.push_back(Command);
 				}
@@ -1421,18 +1639,9 @@ private:
 				delete[] FinalCommands;
 			}
 
-			if (AbsolutePositioning)
-			{
-				CurrentX = X;
-				CurrentY = Y;
-				CurrentZ = Z;
-			}
-			else
-			{
-				CurrentX += X;
-				CurrentY += Y;
-				CurrentZ += Z;
-			}
+			CurrentX = TargetX;
+			CurrentY = TargetY;
+			CurrentZ = TargetZ;
 
 			AddLogEntry("Movement completed. New position: X=" + std::to_string(CurrentX) +
 			" Y=" + std::to_string(CurrentY) + " Z=" + std::to_string(CurrentZ));
@@ -1443,74 +1652,247 @@ private:
 	void ProcessHoming()
 	{
 		AddLogEntry("Homing command started");
-		if (std::abs(CurrentZ) > 0.0001)
-		{
-			MotorCommand Command[1];
-			Command[0].Port = StepperZ.Ports[0];
-			Command[0].Speed = -50;
-			Command[0].Revolutions = std::abs(CurrentZ) / (StepperZ.RotationDistance * StepperZ.GearRatio);
 
-			if (!StepperZ.Direction)
+		double XMovement = -CurrentX;
+		double YMovement = -CurrentY;
+		double ZMovement = -CurrentZ;
+
+		AddLogEntry("Execute movement command - X:" + std::to_string(XMovement) +
+			" Y: " + std::to_string(YMovement) + " Z:" + std::to_string(ZMovement));
+
+		// Process X and Y axis movement
+		if (std::abs(XMovement) > 0 || std::abs(YMovement) > 0)
+		{
+			// Initialized final command for XY movement as a vector
+			std::vector<MotorCommand> XYCommands;
+
+			// Calculate movement times for each axis
+			double TimeX = 0.0;
+			double TimeY = 0.0;
+
+			// ========== X Axis ==========
+			if (std::abs(XMovement) > 0)
 			{
-				Speed *= -1;
+				double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+
+				// Calculate base time for X movement
+				double BaseSpeedX = Speed;
+				if (XMovement < 0)
+				{
+					BaseSpeedX = -BaseSpeedX;
+				}
+				if (!StepperX.Direction)
+				{
+					BaseSpeedX = -BaseSpeedX;
+				}
+
+				// Apply speed limits
+				if (BaseSpeedX > 0)
+				{
+					BaseSpeedX = std::min(BaseSpeedX, StepperX.MaximumFeedrate);
+					BaseSpeedX = std::max(BaseSpeedX, StepperX.MinimumFeedrate);
+				}
+				else
+				{
+					BaseSpeedX = std::max(BaseSpeedX, -StepperX.MaximumFeedrate);
+					BaseSpeedX = std::min(BaseSpeedX, -StepperX.MinimumFeedrate);
+				}
+
+				TimeX = RevolutionsX / std::abs(BaseSpeedX);
 			}
 
-			if (CurrentPrinter && CurrentPrinter->VirtualTable)
+			// ========== Y Axis ==========
+			if (std::abs(YMovement) > 0)
 			{
-				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, Command, 1);
+				double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+
+				// Calculates base time for Y movement
+				double BaseSpeedY = Speed;
+				if (YMovement < 0)
+				{
+					BaseSpeedY = -BaseSpeedY;
+				}
+				if (!StepperY.Direction)
+				{
+					BaseSpeedY = -BaseSpeedY;
+				}
+
+				// Apply speed limits
+				if (BaseSpeedY > 0)
+				{
+					BaseSpeedY = std::min(BaseSpeedY, StepperY.MaximumFeedrate);
+					BaseSpeedY = std::max(BaseSpeedY, StepperY.MinimumFeedrate);
+				}
+				else
+				{
+					BaseSpeedY = std::max(BaseSpeedY, -StepperY.MaximumFeedrate);
+					BaseSpeedY = std::min(BaseSpeedY, -StepperY.MinimumFeedrate);
+				}
+
+				TimeY = RevolutionsY / std::abs(BaseSpeedY);
+			}
+
+			// Determine the maximum time needed
+			double MaxTime = std::max(TimeX, TimeY);
+			if (MaxTime == 0.0) // Avoid division by zero
+			{
+				MaxTime = 1.0;
+			}
+
+
+			// ============ X Axis with synchronized speed =============
+			if (std::abs(XMovement) > 0)
+			{
+				double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+
+				// Calculate speed to match the maximum time
+				double SynchronizedSpeedX = RevolutionsX / MaxTime;
+
+				for (uint8_t Port : StepperX.Ports)
+				{
+					MotorCommand Command;
+					Command.Port = Port;
+
+					double CalculatedSpeed = SynchronizedSpeedX;
+					if (XMovement < 0)
+					{
+						CalculatedSpeed = -CalculatedSpeed;
+					}
+					if (!StepperX.Direction)
+					{
+						CalculatedSpeed = -CalculatedSpeed;
+					}
+
+					// Apply speed limits to synchronized speed
+					if (CalculatedSpeed > 0)
+					{
+						CalculatedSpeed = std::min(CalculatedSpeed, StepperX.MaximumFeedrate);
+						CalculatedSpeed = std::max(CalculatedSpeed, StepperX.MinimumFeedrate);
+					}
+					else
+					{
+						CalculatedSpeed = std::max(CalculatedSpeed, -StepperX.MaximumFeedrate);
+						CalculatedSpeed = std::min(CalculatedSpeed, -StepperX.MinimumFeedrate);
+					}
+
+					Command.Speed = static_cast<signed char>(CalculatedSpeed);
+					Command.Revolutions = RevolutionsX;
+
+					XYCommands.push_back(Command);
+
+					AddLogEntry("X axis - Port: " + std::to_string(Port) +
+						" Speed: " + std::to_string(CalculatedSpeed) +
+						" Revolutions: " + std::to_string(RevolutionsX));
+				}
+			}
+
+			// ============= Y Axis with synchronized speed ================
+			if (std::abs(YMovement) > 0)
+			{
+				double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+
+				// Calculate speed to match the maximum time
+				double SynchronizedSpeedY = RevolutionsY / MaxTime;
+
+				for (uint8_t Port : StepperY.Ports)
+				{
+					MotorCommand Command;
+					Command.Port = Port;
+
+					double CalculatedSpeed = SynchronizedSpeedY;
+					if (YMovement < 0)
+					{
+						CalculatedSpeed = -CalculatedSpeed;
+					}
+					if (StepperY.Direction)
+					{
+						CalculatedSpeed = -CalculatedSpeed;
+					}
+
+					// Apply speed limits to synchronized speed
+					if (CalculatedSpeed > 0)
+					{
+						CalculatedSpeed = std::min(CalculatedSpeed, StepperY.MaximumFeedrate);
+						CalculatedSpeed = std::max(CalculatedSpeed, StepperY.MinimumFeedrate);
+					}
+					else
+					{
+						CalculatedSpeed = std::max(CalculatedSpeed, -StepperY.MaximumFeedrate);
+						CalculatedSpeed = std::min(CalculatedSpeed, -StepperY.MinimumFeedrate);
+					}
+
+					Command.Speed = static_cast<signed char>(CalculatedSpeed);
+					Command.Revolutions = RevolutionsY;
+
+					XYCommands.push_back(Command);
+
+					AddLogEntry("Y axis - Port: " + std::to_string(Port) +
+						" Speed: " + std::to_string(CalculatedSpeed) +
+						" Revolutions " + std::to_string(RevolutionsY));
+				}
+			}
+
+			// Send synchronized commands for X and Y axis
+			if (!XYCommands.empty())
+			{
+				MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
+				std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
+				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, XYCommands.size());
+				delete[] FinalCommands;
+
+				AddLogEntry("XY movement synchronized. Max time: " + std::to_string(MaxTime));
 			}
 		}
-		MotorCommand Commands[2];
 
-		if (std::abs(CurrentX) > 0.0001)
+		// =================== Z Axis ===================
+		if (std::abs(ZMovement) > 0)
 		{
-			MotorCommand Command;
-			Command.Port = StepperX.Ports[0];
-			Command.Speed = -50;
-			Command.Revolutions = std::abs(CurrentX) / (StepperX.RotationDistance * StepperX.GearRatio);
+			std::vector<MotorCommand> ZCommands;
 
-			if (!StepperX.Direction)
+			for (uint8_t Port : StepperZ.Ports)
 			{
-				Speed *= -1;
+				MotorCommand Command;
+				Command.Port = Port;
+
+				double CalculatedSpeed = Speed;
+				if (ZMovement < 0)
+				{
+					CalculatedSpeed = -CalculatedSpeed;
+				}
+				if (!StepperZ.Direction)
+				{
+					CalculatedSpeed = -CalculatedSpeed;
+				}
+
+				if (CalculatedSpeed > 0)
+				{
+					CalculatedSpeed = std::min(CalculatedSpeed, StepperZ.MaximumFeedrate);
+					CalculatedSpeed = std::max(CalculatedSpeed, StepperZ.MinimumFeedrate);
+				}
+				else
+				{
+					CalculatedSpeed = std::max(CalculatedSpeed, -StepperZ.MaximumFeedrate);
+					CalculatedSpeed = std::min(CalculatedSpeed, -StepperZ.MinimumFeedrate);
+				}
+
+				Command.Speed = static_cast<signed char>(CalculatedSpeed);
+				Command.Revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
+
+				ZCommands.push_back(Command);
 			}
-			Commands[0] = Command;
-		}
-		else
-		{
-			MotorCommand Command;
-			Command.Port = StepperX.Ports[0];
-			Command.Speed = 0;
-			Command.Revolutions = 0;
-			Commands[0] = Command;
-		}
-		if (std::abs(CurrentY) > 0.0001)
-		{
-			MotorCommand Command;
-			Command.Port = StepperY.Ports[0];
-			Command.Speed = -50;
-			Command.Revolutions = std::abs(CurrentY) / (StepperY.RotationDistance * StepperY.GearRatio);
 
-			if (!StepperY.Direction)
-			{
-				Speed *= -1;
-			}
-			
-			Commands[1] = Command;
-		}
-		else
-		{
-			MotorCommand Command;
-			Command.Port = StepperY.Ports[0];
-			Command.Speed = 0;
-			Command.Revolutions = 0;
-
-			Commands[1] = Command;
+			MotorCommand* FinalCommands = new MotorCommand[ZCommands.size()];
+			std::copy(ZCommands.begin(), ZCommands.end(), FinalCommands);
+			CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, ZCommands.size());
+			delete[] FinalCommands;
 		}
 
-		if (CurrentPrinter && CurrentPrinter->VirtualTable)
-		{
-			CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, Commands, 2);
-		}
+		CurrentX = 0;
+		CurrentY = 0;
+		CurrentZ = 0;
+
+		AddLogEntry("Movement completed. New position: X=" + std::to_string(CurrentX) +
+			" Y=" + std::to_string(CurrentY) + " Z=" + std::to_string(CurrentZ));
 
 		AddLogEntry("Homing completed");
 	}
@@ -1569,6 +1951,22 @@ extern "C"
 
 		printf("C++: File exists, calling ExecuteFile\n");
 		return static_cast<Interpreter*>(Handle)->ExecuteFile(Filename, Printer);
+	}
+
+	GCODE_API bool ExecuteLine(InterpreterHandle Handle, const char* Line, IPrinter* Printer)
+	{
+		if (Printer)
+		{
+			printf("C++: Printer->VirtualTable: %p\n", Printer->VirtualTable);
+		}
+
+		if (!Handle || !Printer)
+		{
+			printf("C++: ERROR - Invalid parameters\n");
+			return false;
+		}
+
+		return static_cast<Interpreter*>(Handle)->ExecuteLine(Line, Printer);
 	}
 
 	GCODE_API void PauseExecution(InterpreterHandle Handle)
