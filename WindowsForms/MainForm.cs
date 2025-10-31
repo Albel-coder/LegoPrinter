@@ -27,6 +27,10 @@ namespace WindowsForms
                 Console.WriteLine("Initializing MainForm...");
                 InitializeComponent();
 
+                ReadConfigButton.Click += LoadConfigButton_Click;
+                ExecuteGcodeButton.Click += ExecuteGcodeButton_Click;
+                LogTimer.Tick += LogTimer_Tick;
+
                 // Инициализация с обработкой ошибок
                 InitializeControllers();
 
@@ -36,8 +40,7 @@ namespace WindowsForms
             catch (Exception ex)
             {
                 Console.WriteLine($"CRITICAL ERROR in MainForm constructor: {ex}");
-                MessageBox.Show($"Failed to initialize application: {ex.Message}", "Fatal Error",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Failed to initialize application: {ex.Message}");
                 throw; // Перебрасываем исключение, чтобы увидеть его в отладчике
             }
         }
@@ -73,21 +76,18 @@ namespace WindowsForms
 
                 if (isConnected)
                 {
-                    MessageBox.Show("Connected successfully!", "Success",
-                                  MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Console.WriteLine("Connected successfully!");
                 }
                 else
                 {
                     string error = printerController.GetLastError();
-                    MessageBox.Show($"Failed to connect: {error}", "Connection Error",
-                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine($"Failed to connect: {error}");
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"ERROR in ConnectButton_Click: {ex}");
-                MessageBox.Show($"Error with connect: {ex.Message}", "Error",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Error with connect: {ex.Message}");
             }
             finally
             {
@@ -102,14 +102,12 @@ namespace WindowsForms
             {
                 Console.WriteLine("Disconnecting...");
                 printerController.Disconnect();
-                MessageBox.Show("Disconnected successfully", "Disconnected",
-                              MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Console.WriteLine("Disconnected successfully");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"ERROR in DisconnectButton_Click: {ex}");
-                MessageBox.Show($"Error disconnecting: {ex.Message}", "Error",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Error disconnecting: {ex.Message}");
             }
         }
 
@@ -120,7 +118,7 @@ namespace WindowsForms
                 Console.WriteLine("MainForm is closing, disposing resources...");
                 LogTimer.Stop();
                 Interpreter?.Dispose();
-                printerController?.Dispose();                
+                printerController?.Dispose();
                 Console.WriteLine("Resources disposed successfully");
             }
             catch (Exception ex)
@@ -128,51 +126,6 @@ namespace WindowsForms
                 Console.WriteLine($"ERROR during disposal: {ex}");
             }
             base.OnFormClosing(e);
-        }
-
-        private void Test_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                Console.WriteLine("Testing interpreter...");
-                var printerHandle = printerController.GetPrinterHandle();
-                bool success = Interpreter.Test(printerHandle);
-
-                if (success)
-                {
-                    MessageBox.Show("Interpreter test completed successfully", "Test Result",
-                                  MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                else
-                {
-                    string error = Interpreter.GetLastError();
-                    MessageBox.Show($"Interpreter test failed: {error}", "Test Result",
-                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"ERROR in Test_Click: {ex}");
-                MessageBox.Show($"Test error: {ex.Message}", "Error",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void MotorTest_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                Console.WriteLine("Running motor test...");
-                printerController.Test();
-                MessageBox.Show("Motor test completed", "Test Result",
-                              MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"ERROR in MotorTest_Click: {ex}");
-                MessageBox.Show($"Motor test error: {ex.Message}", "Error",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
         }
 
         private void LogTimer_Tick(object sender, EventArgs e)
@@ -186,6 +139,31 @@ namespace WindowsForms
             catch (Exception ex)
             {
                 Console.WriteLine($"ERROR in LogTimer_Tick: {ex}");
+            }
+        }
+
+        private void UpdateStatusDisplay()
+        {
+            try
+            {
+                StatusLabel.Text = $"Status: {Interpreter.GetStatus()}";
+                //ProgressBar.Value = (int)(Interpreter.GetProgress() * 100);
+
+                int errorCount = Interpreter.GetErrorCount();
+                //ErrorCountLabel.Text = $"Errors: {errorCount}";
+
+                if (errorCount > 0)
+                {
+                    //ErrorCountLabel.ForeColor = Color.Red;
+                }
+                else
+                {
+                    //ErrorCountLabel.ForeColor = Color.Green;
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusLabel.Text = $"Status: Error - {ex.Message}";
             }
         }
 
@@ -219,7 +197,7 @@ namespace WindowsForms
             {
                 LogTextBox.AppendText($"[UI ERROR] Failed to update log: {ex.Message}\r\n");
             }
-        }
+        }       
 
         private void UpdateInterpreterLogDisplay()
         {
@@ -253,31 +231,6 @@ namespace WindowsForms
             }
         }
 
-        private void UpdateStatusDisplay()
-        {
-            try
-            {
-                StatusLabel.Text = $"Status: {Interpreter.GetStatus()}";
-                //ProgressBar.Value = (int)(Interpreter.GetProgress() * 100);
-
-                int errorCount = Interpreter.GetErrorCount();
-                //ErrorCountLabel.Text = $"Errors: {errorCount}";
-
-                if (errorCount > 0)
-                {
-                    //ErrorCountLabel.ForeColor = Color.Red;
-                }
-                else
-                {
-                    //ErrorCountLabel.ForeColor = Color.Green;
-                }
-            }
-            catch (Exception ex)
-            {
-                StatusLabel.Text = $"Status: Error - {ex.Message}";
-            }
-        }        
-
         private void LoadConfigButton_Click(object sender, EventArgs e)
         {
             try
@@ -286,20 +239,17 @@ namespace WindowsForms
 
                 if (Success)
                 {
-                    MessageBox.Show("Configuration loaded successfully", "Config",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Console.WriteLine("Configuration loaded successfully");
                 }
                 else
                 {
                     string error = Interpreter.GetLastError();
-                    MessageBox.Show($"Failed to load config: {error}", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine($"Failed to load config: {error}");
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Config error: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Config error: {ex.Message}");
             }
         }
 
@@ -308,15 +258,13 @@ namespace WindowsForms
             try
             {
                 LogTextBox.Clear();
-                InterpreterTexBox.Clear();
                 Interpreter.ClearLog();
                 LastLogCount = 0;
                 LastInterpreterLogCount = 0;
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error clearing logs: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Error clearing logs: {ex.Message}");
             }
         }
         private async void ExecuteGcodeButton_Click(object sender, EventArgs e)
@@ -335,8 +283,7 @@ namespace WindowsForms
 
                 if (!File.Exists(fullPath))
                 {
-                    MessageBox.Show($"File '{fullPath}' not found!", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine($"File '{fullPath}' not found!");
                     return;
                 }
 
@@ -346,8 +293,7 @@ namespace WindowsForms
 
                 if (printerHandle.VirtualTable == IntPtr.Zero)
                 {
-                    MessageBox.Show("Printer handle is invalid!", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine("Printer handle is invalid!");
                     return;
                 }
 
@@ -359,8 +305,7 @@ namespace WindowsForms
                     status == GCodeInterpreter.Status.PAUSED ||
                     status == GCodeInterpreter.Status.CHECKING_CODE)
                 {
-                    MessageBox.Show("Interpreter is busy. Please wait for current execution to complete.", "Busy",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Console.WriteLine("Interpreter is busy. Please wait for current execution to complete.");
                     return;
                 }
 
@@ -383,23 +328,20 @@ namespace WindowsForms
 
                 if (success)
                 {
-                    MessageBox.Show("G-code execution started successfully", "Execution",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Console.WriteLine("G-code execution started successfully");
                     StartExecutionMonitoring();
                 }
                 else
                 {
                     string error = Interpreter.GetLastError();
                     Console.WriteLine($"C#: ExecuteFile failed: {error}");
-                    MessageBox.Show($"Failed to execute G-code: {error}", "Error",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine($"Failed to execute G-code: {error}");
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"C#: Exception in ExecuteGcodeButton_Click: {ex}");
-                MessageBox.Show($"Execution error: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Execution error: {ex.Message}");
             }
             finally
             {

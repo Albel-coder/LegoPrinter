@@ -29,145 +29,228 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            this.ConnectButton = new System.Windows.Forms.Button();
-            this.DisconnectButton = new System.Windows.Forms.Button();
-            this.Test = new System.Windows.Forms.Button();
-            this.MotorTest = new System.Windows.Forms.Button();
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainForm));
+            this.MainTabControl = new System.Windows.Forms.TabControl();
+            this.Generate = new System.Windows.Forms.TabPage();
+            this.Device = new System.Windows.Forms.TabPage();
+            this.ExecuteGcodeButton = new System.Windows.Forms.Button();
             this.LogTextBox = new System.Windows.Forms.TextBox();
+            this.ReadConfigButton = new System.Windows.Forms.Button();
+            this.DisconnectButton = new System.Windows.Forms.Button();
+            this.ConnectButton = new System.Windows.Forms.Button();
+            this.ForceMoveLeft_Button = new System.Windows.Forms.Button();
+            this.ForceMoveUp_Button = new System.Windows.Forms.Button();
+            this.ForceMoveRight_Button = new System.Windows.Forms.Button();
+            this.ForceMoveDown_Button = new System.Windows.Forms.Button();
+            this.HomeButton = new System.Windows.Forms.Button();
+            this.MainImageList = new System.Windows.Forms.ImageList(this.components);
             this.LogTimer = new System.Windows.Forms.Timer(this.components);
             this.StatusLabel = new System.Windows.Forms.Label();
-            this.LoadConfigButton = new System.Windows.Forms.Button();
             this.InterpreterTexBox = new System.Windows.Forms.TextBox();
-            this.ExecuteGcodeButton = new System.Windows.Forms.Button();
+            this.MainTabControl.SuspendLayout();
+            this.Device.SuspendLayout();
             this.SuspendLayout();
             // 
-            // ConnectButton
+            // MainTabControl
             // 
-            this.ConnectButton.Location = new System.Drawing.Point(51, 32);
-            this.ConnectButton.Name = "ConnectButton";
-            this.ConnectButton.Size = new System.Drawing.Size(104, 71);
-            this.ConnectButton.TabIndex = 0;
-            this.ConnectButton.Text = "Connect";
-            this.ConnectButton.UseVisualStyleBackColor = true;
-            this.ConnectButton.Click += new System.EventHandler(this.ConnectButton_Click);
+            this.MainTabControl.Controls.Add(this.Generate);
+            this.MainTabControl.Controls.Add(this.Device);
+            this.MainTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.MainTabControl.Location = new System.Drawing.Point(0, 0);
+            this.MainTabControl.Name = "MainTabControl";
+            this.MainTabControl.SelectedIndex = 0;
+            this.MainTabControl.Size = new System.Drawing.Size(867, 572);
+            this.MainTabControl.TabIndex = 0;
             // 
-            // DisconnectButton
+            // Generate
             // 
-            this.DisconnectButton.Location = new System.Drawing.Point(51, 137);
-            this.DisconnectButton.Name = "DisconnectButton";
-            this.DisconnectButton.Size = new System.Drawing.Size(104, 79);
-            this.DisconnectButton.TabIndex = 1;
-            this.DisconnectButton.Text = "Disconnect";
-            this.DisconnectButton.UseVisualStyleBackColor = true;
-            this.DisconnectButton.Click += new System.EventHandler(this.DisconnectButton_Click);
+            this.Generate.AutoScroll = true;
+            this.Generate.Location = new System.Drawing.Point(4, 25);
+            this.Generate.Name = "Generate";
+            this.Generate.Padding = new System.Windows.Forms.Padding(3);
+            this.Generate.Size = new System.Drawing.Size(859, 543);
+            this.Generate.TabIndex = 0;
+            this.Generate.Text = "Generate";
+            this.Generate.UseVisualStyleBackColor = true;
             // 
-            // Test
+            // Device
             // 
-            this.Test.Location = new System.Drawing.Point(51, 255);
-            this.Test.Name = "Test";
-            this.Test.Size = new System.Drawing.Size(104, 84);
-            this.Test.TabIndex = 2;
-            this.Test.Text = "Test";
-            this.Test.UseVisualStyleBackColor = true;
-            this.Test.Click += new System.EventHandler(this.Test_Click);
+            this.Device.AutoScroll = true;
+            this.Device.Controls.Add(this.InterpreterTexBox);
+            this.Device.Controls.Add(this.StatusLabel);
+            this.Device.Controls.Add(this.ExecuteGcodeButton);
+            this.Device.Controls.Add(this.LogTextBox);
+            this.Device.Controls.Add(this.ReadConfigButton);
+            this.Device.Controls.Add(this.DisconnectButton);
+            this.Device.Controls.Add(this.ConnectButton);
+            this.Device.Controls.Add(this.ForceMoveLeft_Button);
+            this.Device.Controls.Add(this.ForceMoveUp_Button);
+            this.Device.Controls.Add(this.ForceMoveRight_Button);
+            this.Device.Controls.Add(this.ForceMoveDown_Button);
+            this.Device.Controls.Add(this.HomeButton);
+            this.Device.Location = new System.Drawing.Point(4, 25);
+            this.Device.Name = "Device";
+            this.Device.Padding = new System.Windows.Forms.Padding(3);
+            this.Device.Size = new System.Drawing.Size(859, 543);
+            this.Device.TabIndex = 1;
+            this.Device.Text = "Device";
+            this.Device.UseVisualStyleBackColor = true;
             // 
-            // MotorTest
+            // ExecuteGcodeButton
             // 
-            this.MotorTest.Location = new System.Drawing.Point(51, 379);
-            this.MotorTest.Name = "MotorTest";
-            this.MotorTest.Size = new System.Drawing.Size(104, 83);
-            this.MotorTest.TabIndex = 3;
-            this.MotorTest.Text = "MotorTest";
-            this.MotorTest.UseVisualStyleBackColor = true;
-            this.MotorTest.Click += new System.EventHandler(this.MotorTest_Click);
+            this.ExecuteGcodeButton.Location = new System.Drawing.Point(9, 280);
+            this.ExecuteGcodeButton.Name = "ExecuteGcodeButton";
+            this.ExecuteGcodeButton.Size = new System.Drawing.Size(161, 61);
+            this.ExecuteGcodeButton.TabIndex = 9;
+            this.ExecuteGcodeButton.Text = "Run";
+            this.ExecuteGcodeButton.UseVisualStyleBackColor = true;
             // 
             // LogTextBox
             // 
-            this.LogTextBox.Location = new System.Drawing.Point(210, 255);
+            this.LogTextBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.LogTextBox.Location = new System.Drawing.Point(569, 6);
             this.LogTextBox.Multiline = true;
             this.LogTextBox.Name = "LogTextBox";
             this.LogTextBox.ReadOnly = true;
             this.LogTextBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.LogTextBox.Size = new System.Drawing.Size(211, 217);
-            this.LogTextBox.TabIndex = 4;
+            this.LogTextBox.Size = new System.Drawing.Size(256, 497);
+            this.LogTextBox.TabIndex = 8;
             // 
-            // LogTimer
+            // ReadConfigButton
             // 
-            this.LogTimer.Interval = 500;
-            this.LogTimer.Tick += new System.EventHandler(this.LogTimer_Tick);
+            this.ReadConfigButton.Location = new System.Drawing.Point(8, 199);
+            this.ReadConfigButton.Name = "ReadConfigButton";
+            this.ReadConfigButton.Size = new System.Drawing.Size(99, 38);
+            this.ReadConfigButton.TabIndex = 7;
+            this.ReadConfigButton.Text = "ReadConfig";
+            this.ReadConfigButton.UseVisualStyleBackColor = true;
+            // 
+            // DisconnectButton
+            // 
+            this.DisconnectButton.Location = new System.Drawing.Point(8, 148);
+            this.DisconnectButton.Name = "DisconnectButton";
+            this.DisconnectButton.Size = new System.Drawing.Size(98, 35);
+            this.DisconnectButton.TabIndex = 6;
+            this.DisconnectButton.Text = "Disconnect";
+            this.DisconnectButton.UseVisualStyleBackColor = true;
+            this.DisconnectButton.Click += new System.EventHandler(this.DisconnectButton_Click);
+            // 
+            // ConnectButton
+            // 
+            this.ConnectButton.Location = new System.Drawing.Point(8, 97);
+            this.ConnectButton.Name = "ConnectButton";
+            this.ConnectButton.Size = new System.Drawing.Size(98, 35);
+            this.ConnectButton.TabIndex = 5;
+            this.ConnectButton.Text = "Connect";
+            this.ConnectButton.UseVisualStyleBackColor = true;
+            this.ConnectButton.Click += new System.EventHandler(this.ConnectButton_Click);
+            // 
+            // ForceMoveLeft_Button
+            // 
+            this.ForceMoveLeft_Button.Location = new System.Drawing.Point(119, 153);
+            this.ForceMoveLeft_Button.Name = "ForceMoveLeft_Button";
+            this.ForceMoveLeft_Button.Size = new System.Drawing.Size(30, 30);
+            this.ForceMoveLeft_Button.TabIndex = 4;
+            this.ForceMoveLeft_Button.Text = "←";
+            this.ForceMoveLeft_Button.UseVisualStyleBackColor = true;
+            // 
+            // ForceMoveUp_Button
+            // 
+            this.ForceMoveUp_Button.Location = new System.Drawing.Point(155, 117);
+            this.ForceMoveUp_Button.Name = "ForceMoveUp_Button";
+            this.ForceMoveUp_Button.Size = new System.Drawing.Size(30, 30);
+            this.ForceMoveUp_Button.TabIndex = 3;
+            this.ForceMoveUp_Button.Text = "↑";
+            this.ForceMoveUp_Button.UseVisualStyleBackColor = true;
+            // 
+            // ForceMoveRight_Button
+            // 
+            this.ForceMoveRight_Button.Location = new System.Drawing.Point(191, 153);
+            this.ForceMoveRight_Button.Name = "ForceMoveRight_Button";
+            this.ForceMoveRight_Button.Size = new System.Drawing.Size(30, 30);
+            this.ForceMoveRight_Button.TabIndex = 2;
+            this.ForceMoveRight_Button.Text = "→";
+            this.ForceMoveRight_Button.UseVisualStyleBackColor = true;
+            // 
+            // ForceMoveDown_Button
+            // 
+            this.ForceMoveDown_Button.Location = new System.Drawing.Point(155, 189);
+            this.ForceMoveDown_Button.Name = "ForceMoveDown_Button";
+            this.ForceMoveDown_Button.Size = new System.Drawing.Size(30, 30);
+            this.ForceMoveDown_Button.TabIndex = 1;
+            this.ForceMoveDown_Button.Text = "↓";
+            this.ForceMoveDown_Button.UseVisualStyleBackColor = true;
+            // 
+            // HomeButton
+            // 
+            this.HomeButton.Location = new System.Drawing.Point(155, 153);
+            this.HomeButton.Name = "HomeButton";
+            this.HomeButton.Size = new System.Drawing.Size(30, 30);
+            this.HomeButton.TabIndex = 0;
+            this.HomeButton.Text = "H";
+            this.HomeButton.UseVisualStyleBackColor = true;
+            // 
+            // MainImageList
+            // 
+            this.MainImageList.ImageStream = ((System.Windows.Forms.ImageListStreamer)(resources.GetObject("MainImageList.ImageStream")));
+            this.MainImageList.TransparentColor = System.Drawing.Color.Transparent;
+            this.MainImageList.Images.SetKeyName(0, "Logo.jpg");
             // 
             // StatusLabel
             // 
             this.StatusLabel.AutoSize = true;
-            this.StatusLabel.Location = new System.Drawing.Point(207, 505);
+            this.StatusLabel.Location = new System.Drawing.Point(199, 477);
             this.StatusLabel.Name = "StatusLabel";
-            this.StatusLabel.Size = new System.Drawing.Size(50, 16);
-            this.StatusLabel.TabIndex = 5;
-            this.StatusLabel.Text = "Status: ";
-            // 
-            // LoadConfigButton
-            // 
-            this.LoadConfigButton.Location = new System.Drawing.Point(210, 137);
-            this.LoadConfigButton.Name = "LoadConfigButton";
-            this.LoadConfigButton.Size = new System.Drawing.Size(112, 79);
-            this.LoadConfigButton.TabIndex = 7;
-            this.LoadConfigButton.Text = "Read config";
-            this.LoadConfigButton.UseVisualStyleBackColor = true;
-            this.LoadConfigButton.Click += new System.EventHandler(this.LoadConfigButton_Click);
+            this.StatusLabel.Size = new System.Drawing.Size(44, 16);
+            this.StatusLabel.TabIndex = 10;
+            this.StatusLabel.Text = "label1";
             // 
             // InterpreterTexBox
             // 
-            this.InterpreterTexBox.Location = new System.Drawing.Point(446, 32);
+            this.InterpreterTexBox.Location = new System.Drawing.Point(298, 6);
             this.InterpreterTexBox.Multiline = true;
             this.InterpreterTexBox.Name = "InterpreterTexBox";
             this.InterpreterTexBox.ReadOnly = true;
             this.InterpreterTexBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.InterpreterTexBox.Size = new System.Drawing.Size(364, 494);
-            this.InterpreterTexBox.TabIndex = 8;
-            // 
-            // ExecuteGcodeButton
-            // 
-            this.ExecuteGcodeButton.Location = new System.Drawing.Point(210, 32);
-            this.ExecuteGcodeButton.Name = "ExecuteGcodeButton";
-            this.ExecuteGcodeButton.Size = new System.Drawing.Size(112, 71);
-            this.ExecuteGcodeButton.TabIndex = 9;
-            this.ExecuteGcodeButton.Text = "Run G-code";
-            this.ExecuteGcodeButton.UseVisualStyleBackColor = true;
-            this.ExecuteGcodeButton.Click += new System.EventHandler(this.ExecuteGcodeButton_Click);
+            this.InterpreterTexBox.Size = new System.Drawing.Size(256, 497);
+            this.InterpreterTexBox.TabIndex = 11;
             // 
             // MainForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(867, 572);
-            this.Controls.Add(this.ExecuteGcodeButton);
-            this.Controls.Add(this.InterpreterTexBox);
-            this.Controls.Add(this.LoadConfigButton);
-            this.Controls.Add(this.StatusLabel);
-            this.Controls.Add(this.LogTextBox);
-            this.Controls.Add(this.MotorTest);
-            this.Controls.Add(this.Test);
-            this.Controls.Add(this.DisconnectButton);
-            this.Controls.Add(this.ConnectButton);
+            this.Controls.Add(this.MainTabControl);
             this.Name = "MainForm";
-            this.Text = "Form1";
+            this.Text = "LP Studio 1.0";
+            this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
+            this.MainTabControl.ResumeLayout(false);
+            this.Device.ResumeLayout(false);
+            this.Device.PerformLayout();
             this.ResumeLayout(false);
-            this.PerformLayout();
 
         }
 
         #endregion
 
+        private System.Windows.Forms.TabControl MainTabControl;
+        private System.Windows.Forms.TabPage Generate;
+        private System.Windows.Forms.ImageList MainImageList;
+        private System.Windows.Forms.TabPage Device;
+        private System.Windows.Forms.Button HomeButton;
+        private System.Windows.Forms.Button ForceMoveLeft_Button;
+        private System.Windows.Forms.Button ForceMoveUp_Button;
+        private System.Windows.Forms.Button ForceMoveRight_Button;
+        private System.Windows.Forms.Button ForceMoveDown_Button;
         private System.Windows.Forms.Button ConnectButton;
         private System.Windows.Forms.Button DisconnectButton;
-        private System.Windows.Forms.Button Test;
-        private System.Windows.Forms.Button MotorTest;
+        private System.Windows.Forms.Button ReadConfigButton;
         private System.Windows.Forms.TextBox LogTextBox;
+        private System.Windows.Forms.Button ExecuteGcodeButton;
         private System.Windows.Forms.Timer LogTimer;
         private System.Windows.Forms.Label StatusLabel;
-        private System.Windows.Forms.Button LoadConfigButton;
         private System.Windows.Forms.TextBox InterpreterTexBox;
-        private System.Windows.Forms.Button ExecuteGcodeButton;
     }
 }
 

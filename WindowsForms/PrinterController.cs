@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -317,6 +318,31 @@ public class GCodeInterpreter : IDisposable
             return false;
         }
     }
+
+    public bool ExecuteLine(string Line, IPrinter printer)
+    {
+        if (string.IsNullOrEmpty(Line))
+        {
+            Console.WriteLine("C#: ERROR - Line is null or empty");
+            return false;
+        }
+
+        if (printer.VirtualTable == IntPtr.Zero)
+        {
+            Console.WriteLine("C#: ERROR - Printer VirtualTable is zero");
+            return false;
+        }
+
+        try
+        {
+            return ExecuteLine(InterpreterHandle, Line, printer);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"C#: Exception in ExecuteLine: {ex}");
+            throw;
+        }
+    }
     public void Pause() => PauseExecution(InterpreterHandle);
     public void Resume() => ResumeExecution(InterpreterHandle);
     public Status GetStatus() => (Status)GetStatus(InterpreterHandle);
@@ -397,6 +423,10 @@ public class GCodeInterpreter : IDisposable
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool ExecuteGcode(IntPtr interpreter, string filename, IPrinter printer);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ExecuteLine(IntPtr interpreter, string line, IPrinter printer);
 
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern void PauseExecution(IntPtr interpreter);
