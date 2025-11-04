@@ -131,18 +131,19 @@ private:
 		if (Lock.owns_lock())
 		{
 			// Size limit without recursion
-			if (ExecutionLog.size() > 999)
+			if (ExecutionLog.size() >= 1000)
 			{
-				ExecutionLog.erase(ExecutionLog.begin());
+				ExecutionLog.erase(ExecutionLog.begin(), ExecutionLog.begin() + 100);
+
+				static bool CleanupMessageAdded = false;
+				if (!CleanupMessageAdded)
+				{
+					ExecutionLog.push_back("Log buffer limit reached - old entries are being removed");
+					CleanupMessageAdded = true;
+				}	
 			}
 
 			ExecutionLog.push_back(Entry);
-
-			// Add a cleaning message only if it is not the message itself
-			if (Entry.find("cleared") == std::string::npos && ExecutionLog.size() == 1000)
-			{
-				ExecutionLog.push_back("Log buffer limit reached - old entries are being removed");
-			}
 		}
 	}
 
