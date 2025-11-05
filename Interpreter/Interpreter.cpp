@@ -125,6 +125,24 @@ private:
 
 	double ZDistanceToPrint = 0.0;
 
+	// Helper class for RAII-style lock management
+	class ScopedLogLock
+	{
+	private:
+		std::unique_lock<std::mutex> Lock;
+		bool OwnsLock;
+
+	public:
+		ScopedLogLock(std::mutex& Mutex) : Lock(Mutex, std::try_to_lock), OwnsLock(Lock.owns_lock())
+		{
+		}
+
+		bool OwnsLock() const
+		{
+			return OwnsLock;
+		}
+	};
+
 	void AddLogEntry(const std::string& Entry)
 	{
 		std::unique_lock<std::mutex> Lock(LogMutex, std::try_to_lock);
@@ -268,6 +286,10 @@ private:
 		{
 			return Value;
 		}
+
+		// TODO: Implement expression parsing if needed
+
+		return Value;
 	}
 
 	void SetConfigValue(Section section, ConfigKey Key, const std::string& Value)
@@ -469,6 +491,63 @@ private:
 		}
 	}
 
+	// Movement calculation helper
+	struct MovementCalculation
+	{
+		double Revolutions;
+		double BaseSpeed;
+		double Time;
+	};
+
+	MovementCalculation CalculateAxisMovement(const StepperConfig& Config, double Movement, double DefaultSpeed)
+	{
+		MovementCalculation Result;
+		Result.Revolutions = (std::abs(Movement) * Config.GearRatio) / Config.RotationDistance;
+
+		Result.BaseSpeed = DefaultSpeed;
+		if (Movement < 0)
+		{
+			Result.BaseSpeed = -Result.BaseSpeed;
+		}
+		if (!Config.Direction)
+		{
+			Result.BaseSpeed = -Result.BaseSpeed;
+		}
+
+		// Apply speed limits
+		if (Result.BaseSpeed > 0)
+		{
+			Result.BaseSpeed = std::min(Result.BaseSpeed, Config.MaximumFeedrate);
+			Result.BaseSpeed = std::max(Result.BaseSpeed, Config.MinimumFeedrate);
+		}
+		else
+		{
+			Result.BaseSpeed = std::max(Result.BaseSpeed, -Config.MaximumFeedrate);
+			Result.BaseSpeed = std::min(Result.BaseSpeed, -Config.MinimumFeedrate);
+		}
+
+		Result.Time = (Result.Revolutions > 0 && std::abs(Result.BaseSpeed) > 0)
+			? Result.Revolutions / std::abs(Result.BaseSpeed)
+			: 0.0;
+
+		return Result;
+	}
+
+	std::vector<MotorCommand> GenerateMotorCommands(const StepperConfig& Config, double SynchronizedSpeed, double Revolutions)
+	{
+		std::vector<MotorCommand> Commands;
+		for (uint8_t Port : Config.Ports)
+		{
+			MotorCommand Command;
+			Command.Port = Port;
+			Command.Speed = static_cast<signed char>(SynchronizedSpeed);
+			Command.Revolutions = Revolutions;
+			Commands.push_back(Command);
+		}
+
+		return Commands;
+	}
+
 public:	
 	Interpreter() // Constructor
 	{
@@ -497,7 +576,8 @@ public:
 
 		if (ExecutionThread && ExecutionThread->joinable())
 		{
-			for (int i = 0; i < 20; i++)
+			// Wait for thread to finish with timeout
+			for (int i = 0; i < 50; i++) // Increased timeout to 5 seconds
 			{
 				if (!ThreadRunning)
 				{
@@ -508,8 +588,8 @@ public:
 
 			if (ExecutionThread->joinable())
 			{
-				ExecutionThread->join();
-				AddLogEntry("Execution thread joined");
+				// Use detach instead of join to avoid blocking
+				ExecutionThread->detach();
 			}
 		}
 
@@ -543,10 +623,10 @@ public:
 			return false;
 		}
 
+		// Clean up previous thread
 		if (ExecutionThread && ExecutionThread->joinable())
 		{
 			ExecutionThread->detach();
-			ExecutionThread.reset();
 		}
 
 		AddLogEntry("Filename: " + std::string(Filename));
@@ -564,6 +644,7 @@ public:
 			return false;
 		}
 
+		// Check if file exists
 		std::ifstream TestFile(Filename);
 		if (!TestFile.is_open())
 		{
@@ -578,6 +659,7 @@ public:
 		ThreadRunning = true;
 		Progress = 0.0;
 
+		// Reset coordinates
 		CurrentX = 0.0;
 		CurrentY = 0.0;
 		CurrentZ = 0.0;
@@ -734,29 +816,20 @@ public:
 			return false;
 		}
 
-		MotorCommand Command[2];
-		Command[0].Port = 0x02;
-		Command[0].Speed = 50;
-		Command[0].Revolutions = 1;
-
-		Command[1].Port = 0x03;
-		Command[1].Speed = 50;
-		Command[1].Revolutions = 1;
-
-		CurrentPrinter->VirtualTable->RotateMotor(Printer, Command, 2);
-
-		Command[0].Port = 0x02;
-		Command[0].Speed = -50;
-		Command[0].Revolutions = 1;
-
-		Command[1].Port = 0x03;
-		Command[1].Speed = -50;
-		Command[1].Revolutions = 1;
+		std::vector<MotorCommand> Commands = {
+			{0x02, 50, 1.0},
+			{0x03, 50, 1.0}
+		};
 
 		AddLogEntry("Sending test commands to printer");
-		CurrentPrinter->VirtualTable->RotateMotor(Printer, Command, 2);
+		CurrentPrinter->VirtualTable->RotateMotor(Printer, Commands.data(), Commands.size());
 
-		std::string Line = "";
+		// Reverse direction
+		for (auto& Command : Commands)
+		{
+			Command.Speed = -50;
+		}
+		CurrentPrinter->VirtualTable->RotateMotor(Printer, Commands.data(), Commands.size());
 
 		AddLogEntry("Test function completed successfully");
 		return true;
@@ -789,7 +862,7 @@ public:
 					break;
 				}
 
-				// Remove comments
+				// Remove comments and trim
 				size_t CommentPos = Line.find('#');
 				if (CommentPos != std::string::npos)
 				{
@@ -924,10 +997,10 @@ public:
 			return false;
 		}
 
+		// Clean up previous thread
 		if (ExecutionThread && ExecutionThread->joinable())
 		{
 			ExecutionThread->detach();
-			ExecutionThread.reset();
 		}
 
 		try
@@ -1064,6 +1137,7 @@ private:
 
 		try
 		{
+			// First pass: syntax checing
 			status = CHECKING_CODE;
 			std::ifstream File(Filename);
 			if (!File.is_open())
@@ -1082,6 +1156,7 @@ private:
 			// Try interpret lines to find errors
 			while (std::getline(File, Line))
 			{
+				WaitIfPaused();
 				if (StopRequested)
 				{
 					break;
@@ -1140,6 +1215,7 @@ private:
 
 			while (std::getline(File2, Line))
 			{
+				WaitIfPaused();
 				if (StopRequested)
 				{
 					break;
@@ -1187,6 +1263,14 @@ private:
 		}		
 
 		ThreadRunning = false;
+	}
+
+	void WaitIfPaused()
+	{
+		while (PauseRequested && !StopRequested)
+		{
+			std::this_thread::sleep_for(std::chrono::microseconds(50));
+		}
 	}
 
 	// Process G-code line
@@ -1312,7 +1396,7 @@ private:
 			}
 		}
 	}
-
+	
 	//Process movement commands
 	void ProcessMovement(std::istringstream& String, int LineCount, bool IsTryingInterpret)
 	{
@@ -2072,7 +2156,7 @@ extern "C"
 		}
 	}
 
-	GCODE_API bool ReadConfing(InterpreterHandle Handle, const char* Filename)
+	GCODE_API bool ReadConfig(InterpreterHandle Handle, const char* Filename)
 	{
 		if (!Handle || !Filename)
 		{

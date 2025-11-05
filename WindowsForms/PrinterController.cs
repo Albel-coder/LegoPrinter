@@ -285,10 +285,10 @@ public class GCodeInterpreter : IDisposable
         }
     }
 
-    // Основные методы
+    // Basic methods
     public bool Test(IPrinter printer) => TestCode(InterpreterHandle, printer);
 
-    // ИСПРАВЛЕННЫЙ метод - правильный порядок параметров
+    // CORRECTED method - correct order of parameters
     public bool ExecuteFile(string filename, IPrinter printer)
     {
         if (string.IsNullOrEmpty(filename))
@@ -309,7 +309,7 @@ public class GCodeInterpreter : IDisposable
             Console.WriteLine($"C#: Executing file '{fullPath}'");
             Console.WriteLine($"C#: File exists: {File.Exists(fullPath)}");
 
-            // ПРАВИЛЬНЫЙ ПОРЯДОК ПАРАМЕТРОВ: interpreter, filename, printer
+            // CORRECT ORDER OF PARAMETERS: interpreter, filename, printer
             return ExecuteGcode(InterpreterHandle, fullPath, printer);
         }
         catch (Exception ex)
@@ -348,7 +348,7 @@ public class GCodeInterpreter : IDisposable
     public Status GetStatus() => (Status)GetStatus(InterpreterHandle);
     public double GetProgress() => GetProgress(InterpreterHandle);
 
-    // Строковые методы - ТЕПЕРЬ КАК В ДРАЙВЕРЕ!
+    // String methods - NOW LIKE IN THE DRIVER!
     public string GetLastError()
     {
         IntPtr errorPtr = GetLastInterpreterError(InterpreterHandle);
@@ -373,7 +373,7 @@ public class GCodeInterpreter : IDisposable
     public void ClearLog() => ClearLog(InterpreterHandle);
     public bool ReadConfig(string filename) => ReadConfing(InterpreterHandle, filename);
 
-    // Вспомогательные методы для С#
+    // Helper methods for C#
     public List<string> GetAllErrors()
     {
         var Errors = new List<string>();
@@ -419,7 +419,7 @@ public class GCodeInterpreter : IDisposable
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool TestCode(IntPtr interpreter, IPrinter printer);
 
-    // ИСПРАВЛЕННЫЙ DllImport с правильным порядком параметров
+    // FIXED DllImport with correct order of parameters
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool ExecuteGcode(IntPtr interpreter, string filename, IPrinter printer);
@@ -440,7 +440,7 @@ public class GCodeInterpreter : IDisposable
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern double GetProgress(IntPtr interpreter);
 
-    // ИЗМЕНЕНО: теперь возвращают IntPtr вместо string
+    // CHANGED: Now returns IntPtr instead of string
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr GetLastInterpreterError(IntPtr interpreter);
 
@@ -474,8 +474,8 @@ public class GCodeInterpreter : IDisposable
             {
                 Console.WriteLine("Disposing GCodeInterpreter...");
 
-                // Даем время на корректное завершение
-                for (int i = 0; i < 10; i++) // 10 попыток по 100 мс = 1 секунда
+                // We give time for proper completion
+                for (int i = 0; i < 10; i++) // 10 attempts of 100 ms = 1 second
                 {
                     if (!IsRunning)
                     {
@@ -485,7 +485,7 @@ public class GCodeInterpreter : IDisposable
                     System.Threading.Thread.Sleep(100);
                 }
 
-                // Уничтожаем интерпретатор
+                // Destroying the interpreter
                 DestroyInterpreter(InterpreterHandle);
                 InterpreterHandle = IntPtr.Zero;
                 Disposed = true;
@@ -495,8 +495,8 @@ public class GCodeInterpreter : IDisposable
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-                
-                // Все равно помечаем как disposed
+
+                // We'll mark it as disposed anyway.
                 Disposed = true;
             }
         }

@@ -8,7 +8,7 @@ namespace WindowsForms
         [STAThread]
         static void Main()
         {
-            // Добавляем обработчики необработанных исключений
+            // Adding handlers for unhandled exceptions
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += Application_ThreadException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;

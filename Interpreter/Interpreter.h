@@ -31,5 +31,5 @@ extern "C"
 	GCODE_API const char* GetLogEntry(InterpreterHandle Handle, int Index);
 	GCODE_API void ClearErrors(InterpreterHandle Handle);
 	GCODE_API void ClearLog(InterpreterHandle Handle);
-	GCODE_API bool ReadConfing(InterpreterHandle Handle, const char* Filename);
+	GCODE_API bool ReadConfig(InterpreterHandle Handle, const char* Filename);
 }

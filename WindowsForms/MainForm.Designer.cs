@@ -3,14 +3,14 @@
     partial class MainForm
     {
         /// <summary>
-        /// Обязательная переменная конструктора.
+        /// Required constructor variable.
         /// </summary>
         private System.ComponentModel.IContainer components = null;
 
         /// <summary>
-        /// Освободить все используемые ресурсы.
+        /// Release all used resources.
         /// </summary>
-        /// <param name="disposing">истинно, если управляемый ресурс должен быть удален; иначе ложно.</param>
+        /// <param name="disposing">true if the managed resource should be deleted; otherwise false.</param>
         protected override void Dispose(bool disposing)
         {
             if (disposing && (components != null))
@@ -23,8 +23,8 @@
         #region Код, автоматически созданный конструктором форм Windows
 
         /// <summary>
-        /// Требуемый метод для поддержки конструктора — не изменяйте 
-        /// содержимое этого метода с помощью редактора кода.
+        /// Required constructor support method - do not change 
+        /// requires this method using the code editor.
         /// </summary>
         private void InitializeComponent()
         {
