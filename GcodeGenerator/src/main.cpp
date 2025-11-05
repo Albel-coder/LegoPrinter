@@ -8,8 +8,9 @@
 #include <filesystem>
 
 #include "FontManager.h"
+#include "GenerateGcode.h"
 
-struct ContourInfo 
+struct ContourInfo
 {
     std::vector<cv::Point> points;
     cv::Rect boundingRect;
@@ -19,14 +20,14 @@ struct ContourInfo
     ContourInfo() : area(0.0), perimeter(0.0) {}
 };
 
-class SimpleContourDetector 
+class SimpleContourDetector
 {
 public:
-    std::vector<ContourInfo> detectAllContours(const std::string& imagePath) 
+    std::vector<ContourInfo> detectAllContours(const std::string& imagePath)
     {
         // Uploading an image
         cv::Mat image = cv::imread(imagePath);
-        if (image.empty()) 
+        if (image.empty())
         {
             std::cout << "Error: Could not load image " << imagePath << "\n";
             return {};
@@ -50,7 +51,7 @@ public:
 
         // Transformation into our structure
         std::vector<ContourInfo> result;
-        for (size_t i = 0; i < contours.size(); i++) 
+        for (size_t i = 0; i < contours.size(); i++)
         {
             if (contours[i].size() < 3)
             {
@@ -64,7 +65,7 @@ public:
             info.perimeter = cv::arcLength(contours[i], true);
 
             // Basic filter - remove too small contours
-            if (info.area > 5.0) 
+            if (info.area > 5.0)
             { // Minimum area 5 pixels
                 result.push_back(info);
             }
@@ -85,7 +86,7 @@ private:
         cv::Mat result = original.clone();
 
         // We draw all the contours
-        for (const auto& contour : contours) 
+        for (const auto& contour : contours)
         {
             // Random color for each outline
             cv::Scalar color(rand() % 256, rand() % 256, rand() % 256);
@@ -113,7 +114,7 @@ private:
 };
 
 // Function for create test png image with different characters
-void createTestShapes(const std::string& outputPath) 
+void createTestShapes(const std::string& outputPath)
 {
     cv::Mat image(600, 800, CV_8UC3, cv::Scalar(255, 255, 255));
 
@@ -121,14 +122,14 @@ void createTestShapes(const std::string& outputPath)
     cv::rectangle(image, cv::Point(50, 50), cv::Point(200, 200), cv::Scalar(0, 0, 0), 2);
     cv::circle(image, cv::Point(300, 125), 75, cv::Scalar(0, 0, 0), 2);
 
-        cv::ellipse(image, cv::Point(500, 125), cv::Size(100, 50), 0, 0, 360, cv::Scalar(0, 0, 0), 2);
+    cv::ellipse(image, cv::Point(500, 125), cv::Size(100, 50), 0, 0, 360, cv::Scalar(0, 0, 0), 2);
 
     // Triangle
     cv::Point triangle[3] = { cv::Point(100, 300), cv::Point(50, 400), cv::Point(150, 400) };
     cv::fillConvexPoly(image, triangle, 3, cv::Scalar(0, 0, 0));
 
     // Polygon
-    cv::Point polygon[6] = 
+    cv::Point polygon[6] =
     {
         cv::Point(250, 300), cv::Point(300, 250), cv::Point(350, 250),
         cv::Point(400, 300), cv::Point(350, 400), cv::Point(300, 400)
@@ -153,46 +154,17 @@ void SaveContoursToFiles(const std::vector<ContourInfo>& contours, const std::st
 
     if (simpleFile.is_open() && detailedFile.is_open())
     {
-        simpleFile << "Total contours found: " << contours.size() << "\n\n";
-        detailedFile << "Detailed contour analysis for: " << baseName << "\n";
-        detailedFile << "Total contours: " << contours.size() << "\n";
-        detailedFile << "========================================\n\n";
 
         for (size_t i = 0; i < contours.size(); i++)
         {
             const auto& contour = contours[i];
 
-            // Simple information
-            simpleFile << "Contour " << i << ":\n";
-            simpleFile << "  Bounding Rect: [" << contour.boundingRect.x << ", " << contour.boundingRect.y
-                << ", " << contour.boundingRect.width << "x" << contour.boundingRect.height << "]\n";
-            simpleFile << "  Area: " << contour.area << "\n";
-            simpleFile << "  Perimeter: " << contour.perimeter << "\n";
-            simpleFile << "  Points: " << contour.points.size() << "\n\n";
-
             // Detailed information
             detailedFile << "CONTOUR " << i << ":\n";
-            detailedFile << "Bounding Rect: x=" << contour.boundingRect.x
-                << " y=" << contour.boundingRect.y
-                << " width=" << contour.boundingRect.width
-                << " height=" << contour.boundingRect.height << "\n";
-            detailedFile << "Area: " << contour.area << "\n";
-            detailedFile << "Perimeter: " << contour.perimeter << "\n";
-            detailedFile << "Number of points: " << contour.points.size() << "\n";
-
-            // We save all contour points
-            detailedFile << "Points (x, y):\n";
             for (size_t j = 0; j < contour.points.size(); j++)
             {
-                detailedFile << "  " << contour.points[j].x << ", " << contour.points[j].y;
-                if (j < contour.points.size() - 1) 
-                {
-                    detailedFile << " ->";
-                }
-                detailedFile << "\n";
+                detailedFile << contour.points[j].x << " " << contour.points[j].y << "\n";
             }
-
-            detailedFile << "----------------------------------------\n\n";
         }
 
         simpleFile.close();
@@ -203,6 +175,126 @@ void SaveContoursToFiles(const std::vector<ContourInfo>& contours, const std::st
     {
         std::cout << "Error: Could not open contour files for writing: " << baseName << "\n";
     }
+}
+
+struct ContourGroup
+{
+    std::vector<cv::Point> OtherContour;
+    std::vector<std::vector<cv::Point>> InnerContours;
+    cv::Rect BoundingRect;
+};
+
+class AdvancedContourDetector
+{
+public:
+    std::vector<ContourGroup> ExtractContourGroups(const std::string& ImagePath)
+    {
+        cv::Mat Image = cv::imread(ImagePath, cv::IMREAD_GRAYSCALE);
+        if (Image.empty())
+        {
+            std::cout << "Error: could not load image " << ImagePath << "\n";
+            return {};
+        }
+
+        // Binarization with adaptive thresholding for better quality
+        cv::Mat Binary;
+        cv::threshold(Image, Binary, 128, 255, cv::THRESH_BINARY_INV);
+
+        // Finding contours with hierarchy to determine nesting
+        std::vector<std::vector<cv::Point>> Contours;
+        std::vector<cv::Vec4i> Hierarchy;
+        cv::findContours(Binary, Contours, Hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_TC89_KCOS);
+
+        return GroupContoursByTopology(Contours, Hierarchy);
+    }
+
+    void SaveContoursGroupToFile(const std::vector<ContourGroup>& Groups, const std::string& Filename)
+    {
+        std::ofstream File(Filename);
+        if (!File.is_open())
+        {
+            std::cout << "Error: could not open file " << Filename << " for writing\n";
+            return;
+        }
+        else
+        {
+            for (size_t GroupIndex = 0; GroupIndex < Groups.size(); GroupIndex++)
+            {
+                const auto& Group = Groups[GroupIndex];
+
+                // External contour
+                File << "OUTER_CONTOUR " << GroupIndex << ":\n";
+                for (const auto& Point : Group.OtherContour)
+                {
+                    File << Point.x << " " << Point.y << "\n";
+                }
+
+                // Internal contours
+                for (size_t InnerIndex = 0; InnerIndex < Group.InnerContours.size(); InnerIndex++)
+                {
+                    File << "INNER_CONTOUR " << GroupIndex << "_" << InnerIndex << ":\n";
+                    for (const auto& Point : Group.InnerContours[InnerIndex])
+                    {
+                        File << Point.x << " " << Point.y << "\n";
+                    }
+                }
+            }
+        }
+
+        File.close();
+        std::cout << "Contour group saved to: " << Filename << "\n";
+    }
+
+private:
+    std::vector<ContourGroup> GroupContoursByTopology(const std::vector<std::vector<cv::Point>> Contours,
+        const std::vector<cv::Vec4i>& Hierarchy)
+    {
+        std::vector<ContourGroup> Groups;
+        std::vector<bool> Processed(Contours.size(), false);
+
+        for (size_t i = 0; i < Contours.size(); i++)
+        {
+            if (Processed[i] || Hierarchy[i][3] != -1) // We skip already processed and internal contours
+            {
+                continue;
+            }
+            else
+            {
+                ContourGroup Group;
+                Group.OtherContour = Contours[i];
+                Group.BoundingRect = cv::boundingRect(Contours[i]);
+                Processed[i] = true;
+
+                // We are looking for internal contours for this external contour
+                int ChildIndex = Hierarchy[i][2]; // First child circuit
+                while (ChildIndex != -1)
+                {
+                    if (!Processed[ChildIndex])
+                    {
+                        Group.InnerContours.push_back(Contours[ChildIndex]);
+                        Processed[ChildIndex] = true;
+                    }
+                    ChildIndex = Hierarchy[ChildIndex][0]; // The next contour is at the same level
+                }
+
+                // Filter by area - remove too small contours
+                double Area = cv::contourArea(Group.OtherContour);
+                if (Area > 10.0) // Minimum area - 10 pixels
+                {
+                    Groups.push_back(Group);
+                }
+            }
+
+            return Groups;
+        }
+    }
+};
+
+void SaveAdvancedContours(const std::vector<ContourGroup>& ContourGroups, const std::string& BaseName)
+{
+    AdvancedContourDetector Detector;
+    std::string Filename = "advanced_contours_" + BaseName + ".txt";
+    Detector.SaveContoursGroupToFile(ContourGroups, Filename);
 }
 
 int main(int argc, char* argv[])
@@ -231,10 +323,29 @@ int main(int argc, char* argv[])
         if (fontManager.LoadAndCreateNormalizedFont("MyCustomFont", fontSourcePath))
         {
             // Rendering test texts
-            std::vector<std::string> testTexts = 
+            std::vector<std::string> testTexts;
+
+            std::ifstream Input("Input\\Input.txt");
+            if (Input.is_open())
             {
-                "HELLO", "WORLD", "TEST", "123", "FONT"
-            };
+                std::cout << "Open File: Input/Input.txt\n\n";
+                std::string Line;
+                while (std::getline(Input, Line))
+                {
+                    testTexts.push_back(Line);
+                }
+            }
+            else
+            {
+                std::cout << "Error with open file: Input/Input.txt\n\n";
+            }
+
+            std::cout << "Text to render:\n\n";
+
+            for (const auto& text : testTexts)
+            {
+                std::cout << text << "\n";
+            }
 
             for (const auto& text : testTexts)
             {
@@ -252,12 +363,14 @@ int main(int argc, char* argv[])
                     cv::imwrite(filename, result);
                     std::cout << "Saved rendered text: " << filename << "\n";
 
-                    // Analyzing contours in rendered text
-                    auto textContours = contourDetector.detectAllContours(filename);
-                    std::cout << "Found " << textContours.size() << " contours in rendered text\n";
+                    AdvancedContourDetector AdvancedDetector;
+                    auto ContourGroup = AdvancedDetector.ExtractContourGroups(filename);
+                    std::cout << "Found " << ContourGroup.size() << " contour groups in rendered text\n";
 
-                    // Preserve outline information for this text
-                    SaveContoursToFiles(textContours, "rendered_" + safeText);
+                    // Preserve extended contours
+                    SaveAdvancedContours(ContourGroup, "rendered_" + safeText);
+
+                    GenerateTestGcode("all_contours_data_rendered_" + filename);
                 }
             }
         }
@@ -266,5 +379,7 @@ int main(int argc, char* argv[])
     {
         std::cout << "Font source not found: " << fontSourcePath << "\n";
         std::cout << "Please create the font directory structure manually." << "\n";
-    }
+    }       
+
+    return 0;
 }
