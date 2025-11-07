@@ -15,6 +15,13 @@ extern "C" {
         PROFILE = 3      // Speed ​​profile mode
     } MotorMode;
 
+    typedef struct
+    {
+        unsigned char Port;
+        signed char Speed;
+        double Revolutions;
+    } MotorCommand;
+
     // Optimized motor command
     typedef struct 
     {
@@ -28,7 +35,7 @@ extern "C" {
         signed char MaxSpeed;
 
         // For profile mode
-        struct 
+        struct Profile
         {
             signed char StartSpeed;
             signed char EndSpeed;
@@ -44,7 +51,7 @@ extern "C" {
         unsigned char Port;
         MotorCommandExe* Commands;
         int Count;
-        uint32_t Timestamp;
+        unsigned int Timestamp;
     } CommandStream;
 
     // Encoder event types
@@ -56,12 +63,12 @@ extern "C" {
     } EncoderEventType;
 
     // Callback for encoder events
-    typedef void (*EncoderCallback)(uint8_t port, EncoderEventType event, double position, void* user_data);
+    typedef void (*EncoderCallback)(unsigned char port, EncoderEventType event, double position, void* user_data);
 
     // Event structure
     typedef struct 
     {
-        uint8_t Port;
+        unsigned char Port;
         EncoderEventType Type;
         double TargetPosition; // Target position in turnover
         double Tolerance;      // Tolerance
@@ -78,21 +85,23 @@ extern "C" {
         bool (*IsConnected)(IPrinter* Self);
         void (*Destroy)(IPrinter* Self);
 
+        void (*RotateMotor)(IPrinter* Self, const MotorCommand* Commands, int Count);
+
         // Continuous motor control
         void (*StartCommandStream)(IPrinter* Self, const CommandStream* Stream);
         void (*UpdateCommandStream)(IPrinter* Self, const CommandStream* Stream);
         void (*StopCommandStream)(IPrinter* Self);
 
         // Direct control (for backward compatibility)
-        void (*RotateMotor)(IPrinter* Self, const MotorCommandExe* Commands, int Count);
+        void (*RotateMotorExe)(IPrinter* Self, const MotorCommandExe* Commands, int Count);
 
         // Raw teams
         void (*SendRawCommand)(IPrinter* Self, const unsigned char* Command, int Length);
 
         // Encoder event system
         bool (*SubscribeToEncoderEvents)(IPrinter* Self, const EncoderEvent* events, int count);
-        bool (*UnsubscribeFromEncoderEvents)(IPrinter* Self, uint8_t port);
-        bool (*WaitForEncoderEvent)(IPrinter* Self, uint8_t port, EncoderEventType event_type,
+        bool (*UnsubscribeFromEncoderEvents)(IPrinter* Self, unsigned char port);
+        bool (*WaitForEncoderEvent)(IPrinter* Self, unsigned char port, EncoderEventType event_type,
             double target_position, double tolerance, int timeout_ms);
 
         // Monitoring
@@ -104,6 +113,7 @@ extern "C" {
         const char* (*GetLogEntry)(IPrinter* Self, int Index);
         void (*ClearLog)(IPrinter* Self);
         const char* (*GetLastError)(IPrinter* Self);
+        void (*PrintConnectionInfo)(IPrinter* Self);
 
     } IPrinterVirtualTable;
 
