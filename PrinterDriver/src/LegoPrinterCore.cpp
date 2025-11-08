@@ -14,6 +14,7 @@
 #include <cstdarg>
 #include <iomanip>
 #include <sstream>
+#include <cmath>
 
 using namespace std::chrono_literals;
 
@@ -38,23 +39,24 @@ private:
     std::atomic<bool> StopRequested;
     std::atomic<bool> IsValid;
     std::atomic<int> Status;
-    std::atomic<bool> WasConnected { false };
+    std::atomic<bool> WasConnected {false};
 
     struct MotorState
     {
-        std::atomic<double> CurrentPosition{0.0}; // В оборотах
-        std::atomic<double> CurrentSpeed{0.0}; // В оборотах / секунду
-        std::atomic<bool> IsMoving{false};
+        std::atomic<double> CurrentPosition{0.0}; // In revolutions
+        std::atomic<double> CurrentSpeed{0.0}; // In revolutions / second
+        std::atomic<bool> IsMoving{false};        
+        std::atomic<bool> Processing{false};
+        std::atomic<bool> ThreadRunning{false};
         std::queue<MotorCommandExe> CommandQueue;
         std::mutex QueueMutex;
-        std::atomic<bool> Processing{false};
+        unsigned char ActivePort{0}; // Current active port
     };
 
     std::map<uint8_t, MotorState> MotorStates;
     std::map<uint8_t, std::thread> MotorThreads;
-    std::mutex GlobalMutex;
 
-    // Система событий энкодера
+    // Encoder event system
     struct EncoderEventState
     {
         std::vector<EncoderEvent> ActiveEvents;
@@ -102,10 +104,7 @@ public:
     }
 
     ~PrinterImplementation()
-    {
-        IsValid = false;
-        StopRequested = true;
-
+    {      
         try
         {
             std::lock_guard<std::mutex> Lock(CompletionMutex);
@@ -119,6 +118,14 @@ public:
         // Automatic shutdown when variable is destroyed
         if (WasConnected)
         {
+            IsValid = false;
+            StopRequested = true;
+            // Stop all motor threads
+            for (auto& [Port, State] : MotorStates)
+            {
+                State.ThreadRunning = false;
+            }
+
             for (auto& [Port, Thread] : MotorThreads)
             {
                 if (Thread.joinable())
@@ -146,6 +153,35 @@ public:
 
 private:
 
+    // Start motor thread for a specific port
+    void StartMotorThread(uint8_t Port)
+    {
+        if (MotorThreads.count(Port) && MotorThreads[Port].joinable())
+        {
+            return; // Thread already running
+        }
+
+        MotorStates[Port].ThreadRunning = true;
+        MotorThreads[Port] = std::thread(&PrinterImplementation::MotorCommandProcessor, this, Port);
+        AddLog("Started motor thread for port 0x%02X", Port);
+    }
+
+    // Stop motor thread for a specific port
+    void StopMotorThread(uint8_t Port)
+    {
+        if (MotorStates.count(Port))
+        {
+            MotorStates[Port].ThreadRunning = false;
+        }
+
+        if (MotorThreads.count(Port) && MotorThreads[Port].joinable())
+        {
+            MotorThreads[Port].join();
+            MotorThreads.erase(Port);
+            AddLog("Stopped motor thread for port 0x%02X", Port);
+        }
+    }
+
     // Set notification handler
     void SetupNotificationHandler()
     {
@@ -167,24 +203,32 @@ private:
 
     void HandleHubNotification(const std::vector<uint8_t>& Data)
     {
-        if (!IsValid || StopRequested || Data.size() < 5 || Data[2] != 0x82)
+        if (!IsValid || StopRequested || Data.size() < 5)
         {
             return;
         }
 
-        uint8_t Port = Data[3];
-        uint8_t Feedback = Data[4];
-
-        // Command ends
-        if (Feedback == 0x0A)
+        // Handle different notification types
+        if (Data[2] == 0x82) // Command feedback
         {
-            std::lock_guard<std::mutex> lock(CompletionMutex);
+            uint8_t Port = Data[3];
+            uint8_t Feedback = Data[4];
 
-            if (CommandStatus[Port].Waiting && !CommandStatus[Port].Completed)
+            // Command completion
+            if (Feedback == 0x0A)
             {
-                CommandStatus[Port].Completed = true;
-                CompletionCV.notify_all();
+                std::lock_guard<std::mutex> lock(CompletionMutex);
+
+                if (CommandStatus[Port].Waiting && !CommandStatus[Port].Completed)
+                {
+                    CommandStatus[Port].Completed = true;
+                    CompletionCV.notify_all();
+                }
             }
+        }
+        else if (Data[2] == 0x04) // Encoder data
+        {
+            HandleEncoderNotification(Data);
         }
     }
 
@@ -266,7 +310,6 @@ private:
         }
     }
 
-    // Обработчик уведомлений от энкодера
     void HandleEncoderNotification(const std::vector<uint8_t>& Data)
     {
         if (!IsValid)
@@ -289,13 +332,13 @@ private:
 
         double PositionRevolutions = static_cast<double>(PositionRaw) / 360.0;
 
-        // Обновляем состояние мотора
+        // Update motor state
         if (MotorStates.count(Port))
         {
             MotorStates[Port].CurrentPosition = PositionRevolutions;
         }
 
-        // Проверяем события для этого порта
+        // Check encoder events
         CheckEncoderEvents(Port, PositionRevolutions);
     }
 
@@ -317,17 +360,7 @@ private:
             switch (Item->Type)
             {
             case ENCODER_POSITION_REACHED:
-                if (std::abs(CurrentPosition - Item->TargetPosition) <= Item->Tolerance)
-                {
-                    Triggered = true;
-                }
-                break;
             case ENCODER_SEGMENT_COMPLETED:
-                if (std::abs(CurrentPosition - Item->TargetPosition) <= Item->Tolerance)
-                {
-                    Triggered = true;
-                }
-                break;
             case ENCODER_MOVEMENT_FINISHED:
                 if (std::abs(CurrentPosition - Item->TargetPosition) <= Item->Tolerance)
                 {
@@ -402,12 +435,10 @@ private:
         {
             Progress = static_cast<double>(i) / SEGMENTS;
 
-            // Плавное изменение скорости
             signed char CurrentSpeed = static_cast<signed char>(
                 Command.Profile.StartSpeed + (Command.Profile.EndSpeed - Command.Profile.StartSpeed) * Progress
                 );
 
-            // Отправляем команду скорости
             std::vector<uint8_t> Payload = 
             {
                 0x09, 0x00, 0x81, Port, 0x07,
@@ -417,7 +448,7 @@ private:
 
             SendCommandVector(Payload);
 
-            // Ждем завершения сегмента по энкодеру
+            // Wait for segment completion
             if (i < SEGMENTS && EncoderEvents.count(Port))
             {
                 double TargetPosition = MotorStates[Port].CurrentPosition + SegmentDistance;
@@ -426,7 +457,6 @@ private:
         }
     }
 
-    // Внутренняя функция ожидания события энкодера
     bool WaitForEncoderEventInternal(uint8_t Port, EncoderEventType EventType,
         double TargetPosition, double Tolerance, int TimeoutMs)
     {
@@ -452,7 +482,7 @@ private:
                 return EventState.EventTriggered.load();
             });
 
-        // Удаляем временное событие
+        // Remove temporary event
         auto Item = std::find(EventState.ActiveEvents.begin(),
             EventState.ActiveEvents.end(), TempEvent);
 
@@ -466,7 +496,6 @@ private:
         return Success;
     }
 
-    // Поток непрерывного выполнения команд для каждого мотора
     void MotorCommandProcessor(uint8_t Port)
     {
         MotorState& State = MotorStates[Port];
@@ -489,10 +518,10 @@ private:
             State.IsMoving = true;
             State.Processing = true;
 
-            // Выполняем команду
+            // Execute command
             SendMotorCommand(Port, Command);
 
-            // Обновляем состояние
+            // Update state
             if (Command.Mode == POSITION)
             {
                 State.CurrentPosition = Command.TargetRevolutions;
@@ -500,7 +529,7 @@ private:
 
             State.Processing = false;
 
-            // Если очередь пуста, отмечаем, что мотор остановился
+            // Check if motor should stop
             Lock.lock();
             if (State.CommandQueue.empty())
             {
@@ -510,7 +539,6 @@ private:
         }
     }
 
-    // Настройка уведомлений для энкодера
     void SetupEncoderNotification()
     {
         try
@@ -797,28 +825,20 @@ public:
         AddLog("========================================");
     }
 
-    // Новый метод: запуск потока команд
     void StartCommandStream(const CommandStream* Stream)
     {
         if (!IsValid || !Stream || Stream->Count < 1)
         {
             return;
         }
-
-        for (int i = 0; i < Stream->Count; i++)
-        {
-            const MotorCommandExe& Command = Stream->Commands[i];
-            MotorState& State = MotorStates[Stream->Port];
-
-            std::lock_guard<std::mutex> Lock(State.QueueMutex);
-            State.CommandQueue.push(Command);
-        }
+        
+        std::queue<MotorCommandExe> Empty;
+        std::swap(MotorStates.CommandQueue);
 
         AddLog("Started command stream with " + std::to_string(Stream->Count) + " commands on port " +
         std::to_string(Stream->Port));
     }
 
-    // Новый метод: обновление потока команд
     void UpdateCommandStream(const CommandStream* Stream)
     {
         if (!IsValid || !Stream)
@@ -826,23 +846,17 @@ public:
             return;
         }
 
-        // Очищаем очереди для указанных портов
+        uint8_t Port = Stream->Port;
+        MotorState& State = MotorStates[Port];
+        std::lock_guard<std::mutex> Lock(State.QueueMutex);
+
+        // Clear queue and add new commands
+        std::queue<MotorCommandExe> Empty;
+        std::swap(State.CommandQueue, Empty);
+
         for (int i = 0; i < Stream->Count; i++)
         {
-            uint8_t Port = Stream->Port;
-            MotorState& State = MotorStates[Port];
-
-            std::lock_guard<std::mutex> Lock(State.QueueMutex);
-
-            // Очищаем очередь и добавляем новые команды
-            std::queue<MotorCommandExe> Empty;
-            std::swap(State.CommandQueue, Empty);
-
-            // Добавляем все команды из потока
-            for (int j = 0; j < Stream->Count; j++)
-            {
-                State.CommandQueue.push(Stream->Commands[j]);
-            }
+            State.CommandQueue.push(Stream->Commands[i]);
         }
 
         AddLog("Updated command stream for port " + std::to_string(Stream->Port));
@@ -855,6 +869,7 @@ public:
             std::lock_guard<std::mutex> Lock(State.QueueMutex);
             std::queue<MotorCommandExe> Empty;
             std::swap(State.CommandQueue, Empty);
+            State.IsMoving = false;
         }
 
         AddLog("Stopped all commands streams");
@@ -881,12 +896,10 @@ public:
         std::lock_guard<std::mutex> OperationLock(OperationMutex);        
 
         // Prepare command tracking
+        for (int i = 0; i < Count; i++)
         {
-            for (int i = 0; i < Count; i++)
-            {
-                CommandStatus[Commands[i].Port].Completed = false;
-                CommandStatus[Commands[i].Port].Waiting = true;
-            }
+            CommandStatus[Commands[i].Port].Completed = false;
+            CommandStatus[Commands[i].Port].Waiting = true;
         }
 
         // Send all commands
@@ -903,9 +916,11 @@ public:
     {
         if (!IsValid || !Command || Length < 1)
         {
-            std::vector<uint8_t> command(Command, Command + Length);
-            SendMotorCommand(command);
+            return;
         }
+
+        std::vector<uint8_t> command(Command, Command + Length);
+        SendMotorCommand(command);
     }
 
     void RotateMotorExe(const MotorCommandExe* Commands, int Count)
@@ -915,15 +930,16 @@ public:
             return;
         }
 
-        // Берем временный поток команд
+        // Create temporary command stream
         CommandStream Stream;
+        Stream.Port = Commands[0].Port;
         Stream.Commands = const_cast<MotorCommandExe*>(Commands);
         Stream.Count = Count;
 
         StartCommandStream(&Stream);
     }
 
-    // Система событий энкодера
+    // Encoder event system
     bool SubscribeToEncoderEvents(const EncoderEvent* Events, int Count)
     {
         if (!Events || Count < 1)
@@ -959,7 +975,7 @@ public:
         return WaitForEncoderEventInternal(Port, EventType, TargetPosition, Tolerance, TimeoutMs);
     }
 
-    // Мониторинг
+    // Monitoring
     bool IsMotorMoving(unsigned char Port)
     {
         if (MotorStates.count(Port))
