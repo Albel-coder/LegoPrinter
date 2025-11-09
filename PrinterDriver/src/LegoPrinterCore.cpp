@@ -53,6 +53,8 @@ private:
         unsigned char ActivePort{0}; // Current active port
     };
 
+    std::mutex SendCommandMutex;
+
     std::map<uint8_t, MotorState> MotorStates;
     std::map<uint8_t, std::thread> MotorThreads;
 
@@ -268,6 +270,8 @@ private:
 
     void SendCommandVector(std::vector<uint8_t> Command)
     {
+        std::lock_guard<std::mutex> Lock(SendCommandMutex);
+
         if (!IsValid)
         {
             AddLog("SendCommandVector: Printer implementation is not valid");
@@ -400,7 +404,7 @@ private:
             Payload =
             {
                 0x09, 0x00, 0x81, Port, 0x07,
-                static_cast<uint8_t>(Command.Speed),
+                static_cast<uint8_t>(static_cast<int8_t>(Command.Speed)),
                 0x64, 0x00
             };
             break;
@@ -413,8 +417,10 @@ private:
                 static_cast<uint8_t>((Degrees >> 8) & 0xFF),
                 static_cast<uint8_t>((Degrees >> 16) & 0xFF),
                 static_cast<uint8_t>((Degrees >> 24) & 0xFF),
-                static_cast<uint8_t>(Command.Speed),
-                100, 0x01, 0x00
+                static_cast<uint8_t>(static_cast<int8_t>(Command.Speed)),
+                100, // Maximum speed
+                0x01, // Last state
+                0x00 // Use profile
             };
             break;
         case PROFILE:
@@ -507,6 +513,13 @@ private:
             if (State.CommandQueue.empty())
             {
                 Lock.unlock();
+
+                // We notify about the completion of all commands
+                if (State.IsMoving)
+                {
+                    State.IsMoving = false;
+                }
+
                 std::this_thread::sleep_for(1ms);
                 continue;
             }
@@ -522,12 +535,22 @@ private:
             SendMotorCommand(Port, Command);
 
             // Update state
+            if (Command.Mode == POSITION && EncoderEvents.count(Port))
+            {
+                WaitForEncoderEventInternal(Port, ENCODER_POSITION_REACHED,
+                    Command.TargetRevolutions, 0, 10000);
+            }
+            else if (Command.Mode == CONST_SPEED)
+            {
+                std::this_thread::sleep_for(50ms);
+            }
+
+            State.Processing = false;
+
             if (Command.Mode == POSITION)
             {
                 State.CurrentPosition = Command.TargetRevolutions;
             }
-
-            State.Processing = false;
 
             // Check if motor should stop
             Lock.lock();
@@ -537,6 +560,9 @@ private:
             }
             Lock.unlock();
         }
+
+        State.IsMoving = false;
+        State.Processing = false;
     }
 
     void SetupEncoderNotification()
@@ -831,9 +857,12 @@ public:
         {
             return;
         }
-        
-        std::queue<MotorCommandExe> Empty;
-        std::swap(MotorStates.CommandQueue);
+
+        uint8_t Port = Stream->Port;
+        StartMotorThread(Port); // Turn on thread
+
+        //Update commands
+        UpdateCommandStream(Stream);
 
         AddLog("Started command stream with " + std::to_string(Stream->Count) + " commands on port " +
         std::to_string(Stream->Port));
@@ -848,18 +877,29 @@ public:
 
         uint8_t Port = Stream->Port;
         MotorState& State = MotorStates[Port];
-        std::lock_guard<std::mutex> Lock(State.QueueMutex);
-
-        // Clear queue and add new commands
-        std::queue<MotorCommandExe> Empty;
-        std::swap(State.CommandQueue, Empty);
-
-        for (int i = 0; i < Stream->Count; i++)
+        
         {
-            State.CommandQueue.push(Stream->Commands[i]);
+            std::lock_guard<std::mutex> Lock(State.QueueMutex);
+
+            // Clear queue and add new commands
+            std::queue<MotorCommandExe> Empty;
+            std::swap(State.CommandQueue, Empty);
+
+            for (int i = 0; i < Stream->Count; i++)
+            {
+                State.CommandQueue.push(Stream->Commands[i]);
+            }
+
+            AddLog("Updated command stream for port " + std::to_string(Stream->Port));
         }
 
-        AddLog("Updated command stream for port " + std::to_string(Stream->Port));
+        // Start the stream if it is not running
+        if (!State.ThreadRunning)
+        {
+            StartMotorThread(Port);
+        }
+
+        AddLog("Command stream update for port 0x%02X", Port);
     }
 
     void StopCommandStream()
@@ -910,33 +950,6 @@ public:
 
         WaitForCommandsCompletion(Commands, Count);
         AddLog("RotateMotor completed");
-    }
-
-    void SendRawCommand(const unsigned char* Command, int Length)
-    {
-        if (!IsValid || !Command || Length < 1)
-        {
-            return;
-        }
-
-        std::vector<uint8_t> command(Command, Command + Length);
-        SendMotorCommand(command);
-    }
-
-    void RotateMotorExe(const MotorCommandExe* Commands, int Count)
-    {
-        if (!IsValid || Count < 1 || !Commands)
-        {
-            return;
-        }
-
-        // Create temporary command stream
-        CommandStream Stream;
-        Stream.Port = Commands[0].Port;
-        Stream.Commands = const_cast<MotorCommandExe*>(Commands);
-        Stream.Count = Count;
-
-        StartCommandStream(&Stream);
     }
 
     // Encoder event system
@@ -994,6 +1007,19 @@ public:
         }
 
         return 0.0;
+    }
+
+    void SetMotorSpeed(uint8_t Port, int8_t Speed)
+    {
+        if (!IsValid || !peripheral.is_connected())
+        {
+            return;
+        }
+
+        MotorCommandExe Command;
+        Command.Mode = CONST_SPEED;
+        Command.Speed = Speed;
+        SendMotorCommand(Port, Command);
     }
 
 private:
@@ -1066,6 +1092,97 @@ private:
         }
     }
 
+    bool WaitForCommandStreamCompletion(uint8_t Port, int TimeoutMs = 120000)
+    {
+        if (!MotorStates.count(Port))
+        {
+            return true; // No active commands
+        }
+
+        MotorState& State = MotorStates[Port];
+
+        auto StartTime = std::chrono::steady_clock::now();
+
+        while (!StopRequested && IsValid)
+        {
+            // Condition 1: The command queue is empty and there is no active processing
+            std::unique_lock<std::mutex> Lock(State.QueueMutex);
+            bool ConditionsMet = State.CommandQueue.empty() &&
+                !State.Processing &&
+                !State.IsMoving;
+            Lock.unlock();
+            if (ConditionsMet)
+            {
+                // Condition 2: Additional check - the motor has actually stopped
+                // Let's wait a bit and check if the position has changed
+                double InitialPosition = State.CurrentPosition;
+                std::this_thread::sleep_for(50ms);
+
+                if (std::abs(State.CurrentSpeed - InitialPosition) < 0.000001)
+                {
+                    return true; // Movement completed
+                }
+            }
+
+            // If the conditions are not met, we use smart waiting.
+            if (EncoderEvents.count(Port))
+            {
+                // Get the target position from the queue (if any)
+                double NextTarget = GetNextTargetPosition(Port);
+                if (NextTarget > 0)
+                {
+                    // We are waiting for the next target position
+                    WaitForEncoderEventInternal(Port, ENCODER_POSITION_REACHED,
+                        NextTarget, 0.02, 100);
+                }
+                else
+                {
+                    // If there is no target position, pause briefly.
+                    std::this_thread::sleep_for(20ms);
+                }
+            }
+            else
+            {
+                std::this_thread::sleep_for(20ms);
+            }
+
+            // Check timeout
+            auto CurrentTime = std::chrono::steady_clock::now();
+            auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                CurrentTime - StartTime);
+
+            if (Elapsed.count() > TimeoutMs)
+            {
+                AddLog("Timeout waiting for command stream completion on port 0x%02X", Port);
+                return false;
+            }            
+        }
+
+        return false;
+    }
+
+    double GetNextTargetPosition(uint8_t Port)
+    {
+        if (!MotorStates.count(Port))
+        {
+            return 0.0;
+        }
+
+        MotorState& State = MotorStates[Port];
+        std::lock_guard<std::mutex> Lock(State.QueueMutex);
+
+        if (!State.CommandQueue.empty())
+        {
+            const MotorCommandExe& NextCommand = State.CommandQueue.front();
+            if (NextCommand.Mode == POSITION)
+            {
+                return NextCommand.TargetRevolutions;
+            }
+        }
+
+        return 0.0;
+    }
+
 public:
 
     void SendCommand(const unsigned char* Command, int Length)
@@ -1125,6 +1242,99 @@ public:
             // Ignoring all errors
         }
     }
+
+  //----- Execute speed profile methods -----
+
+public:
+
+    bool ExecuteSpeedProfile(const SpeedProfile* Profile)
+    {
+        if (!IsValid || !Profile || Profile->Count < 1)
+        {
+            AddLog("Error in ExecuteSpeedProfile function");
+            return false;
+        }
+
+        uint8_t Port = Profile->Port;
+
+        // Starting motor thread if it not on
+        if (!MotorStates[Port].ThreadRunning)
+        {
+            StartMotorThread(Port);
+        }
+
+        // Cleaning current queue
+        {
+            std::lock_guard<std::mutex> Lock(MotorStates[Port].QueueMutex);
+            std::queue<MotorCommandExe> Empty;
+            std::swap(MotorStates[Port].CommandQueue, Empty);
+        }
+
+        MotorCommandExe InitialCommand;
+        InitialCommand.Mode = CONST_SPEED;
+        InitialCommand.Speed = Profile->Points[0].Speed;
+
+        {
+            std::lock_guard<std::mutex> Lock(MotorStates[Port].QueueMutex);
+            MotorStates[Port].CommandQueue.push(InitialCommand);
+        }
+
+        return ProcessSpeedProfile(Profile);
+    }
+
+private:
+
+    bool ProcessSpeedProfile(const SpeedProfile* Profile)
+    {
+        uint8_t Port = Profile->Port;
+        auto StartTime = std::chrono::steady_clock::now();
+
+        int PointTimeout = std::max(10000, Profile->TimeoutMs / Profile->Count);
+
+        for (int i = 1; i < Profile->Count && IsValid; i++)
+        {
+            const SpeedProfilePoint& Point = Profile->Points[i];
+
+            // We are waiting to achieve the position
+            bool Success = WaitForEncoderEventInternal(Port, ENCODER_POSITION_REACHED,
+                Point.Position, Point.Tolerance, PointTimeout);
+
+            if (!Success)
+            {
+                AddLog("Timeout waiting for position %.2f on port 0x%02X",
+                    Point.Position, Port);
+                return false;
+            }
+
+            // Update speed
+            MotorCommandExe Command;
+            Command.Mode = CONST_SPEED;
+            Command.Speed = Point.Speed;
+
+            {
+                std::lock_guard<std::mutex> Lock(MotorStates[Port].QueueMutex);
+                MotorStates[Port].CommandQueue.push(Command);
+            }
+
+            AddLog("Position %.2f reached, speed changed to %d",
+                Point.Position, Point.Speed);
+
+            // Check general timeout
+            auto CurrentTime = std::chrono::steady_clock::now();
+            auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                CurrentTime - StartTime
+            );
+
+            if (Elapsed.count() > Profile->TimeoutMs)
+            {
+                AddLog("Overall timeout reached for speed profile");
+                return false;
+            }
+        }
+
+        return WaitForCommandStreamCompletion(Port);
+    }
+
 };
 
 // Main context and virtual table
@@ -1227,6 +1437,17 @@ namespace
         Implementation->StopCommandStream();
     }
 
+    void Printer_SetMotorSpeed(IPrinter* Self, unsigned char Port, signed char Speed)
+    {
+        if (!Self || !Self->VirtualTable)
+        {
+            return;
+        }
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
+        Implementation->SetMotorSpeed(Port, Speed);
+    }
+
     void Printer_RotateMotor(IPrinter* Self, const MotorCommand* Commands, int Count)
     {
         if (!Self || !Self->VirtualTable || !Commands || Count <= 0)
@@ -1238,18 +1459,18 @@ namespace
         Implementation->RotateMotor(Commands, Count);
     }
 
-    void Printer_RotateMotorExe(IPrinter* Self, const MotorCommandExe* Command, int Count)
+    bool Printer_PrinterExecuteSpeedProfile(IPrinter* Self, const SpeedProfile* Profile)
     {
-        if (!Self || !Self->VirtualTable || !Command || Count < 1)
+        if (!Self || !Self->VirtualTable || !Profile)
         {
-            return;
+            return false;
         }
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->RotateMotorExe(Command, Count);
+        return Implementation->ExecuteSpeedProfile(Profile);
     }
 
-    void Printer_SendRawCommand(IPrinter* Self, const unsigned char* Command, int Length)
+    void Printer_SendCommand(IPrinter* Self, const unsigned char* Command, int Length)
     {
         if (!Self || !Self->VirtualTable || !Command || Length <= 0)
         {
@@ -1257,7 +1478,7 @@ namespace
         }
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->SendRawCommand(Command, Length);
+        Implementation->SendCommand(Command, Length);
     }
 
     bool Printer_SubscribeToEncoderEvents(IPrinter* Self, const EncoderEvent* Events, int Count)
@@ -1379,11 +1600,12 @@ static IPrinterVirtualTable PrinterVTable = {
     Printer_IsConnected,
     Printer_Destroy,
     Printer_RotateMotor,
+    Printer_SetMotorSpeed,
     Printer_StartCommandStream,
     Printer_UpdateCommandStream,
     Printer_StopCommandStream,
-    Printer_RotateMotorExe,
-    Printer_SendRawCommand,
+    Printer_SendCommand,
+    Printer_PrinterExecuteSpeedProfile,
     Printer_SubscribeToEncoderEvents,
     Printer_UnSubscribeFromEncoderEvents,
     Printer_WaitForEncoderEvent,
@@ -1482,6 +1704,16 @@ extern "C"
         return Printer->VirtualTable->SendCommand(Printer, Command, Length);
     }
 
+    PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* Printer, unsigned char Port, signed char Speed)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->SetMotorSpeed)
+        {
+            return;
+        }
+
+        return Printer->VirtualTable->SetMotorSpeed(Printer, Port, Speed);
+    }
+
     PRINTER_DRIVER_API int GetLogCount(IPrinter* Printer)
     {
         if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->GetLogCount)
@@ -1498,6 +1730,7 @@ extern "C"
         {
             return "";
         }
+
         return Printer->VirtualTable->GetLogEntry(Printer, Index);
     }
 
@@ -1507,6 +1740,7 @@ extern "C"
         {
             return;
         }
+
         return Printer->VirtualTable->ClearLog(Printer);
     }
 
@@ -1516,14 +1750,108 @@ extern "C"
         {
             return "";
         }
+
         return Printer->VirtualTable->GetLastError(Printer);
+    }
+
+    // ===========================
+
+    PRINTER_DRIVER_API void PrinterStartCommandStream(IPrinter* Printer, const CommandStream* Stream)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->StartCommandStream || !Stream)
+        {
+            return;
+        }
+
+        return Printer->VirtualTable->StartCommandStream(Printer, Stream);
+    }
+
+    PRINTER_DRIVER_API void PrinterUpdateCommandStream(IPrinter* Printer, const CommandStream* Stream)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->UpdateCommandStream || !Stream)
+        {
+            return;
+        }
+
+        return Printer->VirtualTable->UpdateCommandStream(Printer, Stream);
+    }
+
+    PRINTER_DRIVER_API void PrinterStopCommandStream(IPrinter* Printer)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->StopCommandStream)
+        {
+            return;
+        }
+
+        return Printer->VirtualTable->StopCommandStream(Printer);
+    }
+
+    PRINTER_DRIVER_API bool PrinterSubscribeToEncoderEvents(IPrinter* Printer, const EncoderEvent* Events, int Count)
+    {
+        if (!Events || !Printer || !Printer->VirtualTable || !Printer->VirtualTable->SubscribeToEncoderEvents)
+        {
+            return false;
+        }
+
+        return Printer->VirtualTable->SubscribeToEncoderEvents(Printer, Events, Count);
+    }
+
+    PRINTER_DRIVER_API bool PrinterUnsubscribeFromEncoderEvents(IPrinter* Printer, unsigned char Port)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->UnsubscribeFromEncoderEvents)
+        {
+            return false;
+        }
+
+        return Printer->VirtualTable->UnsubscribeFromEncoderEvents(Printer, Port);
+    }
+
+    PRINTER_DRIVER_API bool PrinterWaitForEncoderEvent(IPrinter* Printer, unsigned char Port, EncoderEventType EventType, double TargetPosition, double Tolerance, int TimeoutMs)
+    {
+        if (!EventType || !Printer || !Printer->VirtualTable || !Printer->VirtualTable->WaitForEncoderEvent)
+        {
+            return false;
+        }
+
+        return Printer->VirtualTable->WaitForEncoderEvent(Printer, Port, EventType, TargetPosition, Tolerance, TimeoutMs);
+    }
+
+    PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* Printer, int Count)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->IsMotorMoving)
+        {
+            return false;
+        }
+
+        return Printer->VirtualTable->IsMotorMoving(Printer, Count);
+    }
+
+    PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* Printer, unsigned char Port)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->GetMotorPosition)
+        {
+            return 0.0;
+        }
+
+        return Printer->VirtualTable->GetMotorPosition(Printer, Port);
     }
 
     PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer)
     {
         if (Printer)
         {
-            Printer->VirtualTable->PrinterConnectionInfo(Printer);
+            Printer->VirtualTable->PrintConnectionInfo(Printer);
         }
     }
+
+    PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* Printer, const SpeedProfile* Profile)
+    {
+        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->PrinterExecuteSpeedProfile)
+        {
+            return false;
+        }
+
+        return Printer->VirtualTable->PrinterExecuteSpeedProfile(Printer, Profile);
+    }
+    
 }

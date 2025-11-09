@@ -22,6 +22,7 @@ extern "C"
 	PRINTER_DRIVER_API bool IsConnected(IPrinter* Printer);
 	PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* Printer, MotorCommand* Commands, int Count);
 	PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* Printer, const unsigned char* Command, int Length);
+	PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* Printer, unsigned char Port, signed char Speed);
 
 	PRINTER_DRIVER_API int GetLogCount(IPrinter* Printer);
 	PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* Printer, int Index);
@@ -29,12 +30,11 @@ extern "C"
 	PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* Printer);
 	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer);
 
+	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* Printer, const SpeedProfile* Profile);
+
 	PRINTER_DRIVER_API void PrinterStartCommandStream(IPrinter* Printer, const CommandStream* Stream);
 	PRINTER_DRIVER_API void PrinterUpdateCommandStream(IPrinter* Printer, const CommandStream* Stream);
 	PRINTER_DRIVER_API void PrinterStopCommandStream(IPrinter* Printer);
-	PRINTER_DRIVER_API void PrinterStopCommandStreamForPort(IPrinter* Printer, unsigned char Port);
-
-	PRINTER_DRIVER_API bool PrinterRotateMotorExe(IPrinter* Printer, const MotorCommandExe* Commands, int Count);
 
 	PRINTER_DRIVER_API bool PrinterSubscribeToEncoderEvents(IPrinter* Printer, const EncoderEvent* Events, int Count);
 	PRINTER_DRIVER_API bool PrinterUnsubscribeFromEncoderEvents(IPrinter* Printer, unsigned char Port);
@@ -43,12 +43,4 @@ extern "C"
 
 	PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* Printer, int Count);
 	PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* Printer, unsigned char Port);
-
-	PRINTER_DRIVER_API int PrinterGetQueueSize(IPrinter* Printer, unsigned char Port);
-	PRINTER_DRIVER_API bool PrinterIsQueueProcessing(IPrinter* Printer, unsigned char Port);
-	PRINTER_DRIVER_API void PrinterClearQueue(IPrinter* Printer, unsigned char Port);
-
-	PRINTER_DRIVER_API void PrinterPauseCommandStream(IPrinter* Printer, unsigned char Port);
-	PRINTER_DRIVER_API void PrinterResumeCommandStream(IPrinter* Printer, unsigned char Port);
-	PRINTER_DRIVER_API bool PrinterIsCommandStreamPaused(IPrinter* Printer, unsigned char Port);
 }

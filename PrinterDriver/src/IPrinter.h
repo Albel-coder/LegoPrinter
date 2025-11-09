@@ -76,6 +76,21 @@ extern "C" {
         void* UserData;
     } EncoderEvent;
 
+    typedef struct
+    {
+        double Position; // Target position in revolutions
+        signed char Speed; // Speed for current position (-100 to 100)
+        double Tolerance; // Tolerance for position
+    } SpeedProfilePoint;
+
+    typedef struct
+    {
+        unsigned char Port;
+        SpeedProfilePoint* Points;
+        int Count;
+        int TimeoutMs; // Timeout for all profile
+    } SpeedProfile;
+
     // Virtual table - ONLY low-level methods
     typedef struct 
     {
@@ -87,16 +102,17 @@ extern "C" {
 
         void (*RotateMotor)(IPrinter* Self, const MotorCommand* Commands, int Count);
 
+        void (*SetMotorSpeed)(IPrinter* Self, unsigned char Port, signed char Speed);
+
         // Continuous motor control
         void (*StartCommandStream)(IPrinter* Self, const CommandStream* Stream);
         void (*UpdateCommandStream)(IPrinter* Self, const CommandStream* Stream);
         void (*StopCommandStream)(IPrinter* Self);
 
-        // Direct control (for backward compatibility)
-        void (*RotateMotorExe)(IPrinter* Self, const MotorCommandExe* Commands, int Count);
+        // Raw command
+        void (*SendCommand)(IPrinter* Self, const unsigned char* Command, int Length);
 
-        // Raw teams
-        void (*SendRawCommand)(IPrinter* Self, const unsigned char* Command, int Length);
+        bool (*PrinterExecuteSpeedProfile)(IPrinter* Self, const SpeedProfile* Profile);
 
         // Encoder event system
         bool (*SubscribeToEncoderEvents)(IPrinter* Self, const EncoderEvent* events, int count);
