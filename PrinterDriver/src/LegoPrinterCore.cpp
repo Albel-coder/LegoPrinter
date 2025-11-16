@@ -83,6 +83,19 @@ private:
     {
         std::atomic<bool> Completed{ false };
         std::atomic<bool> Waiting{ false };
+
+        CommandExecution()
+        {
+            Completed = true;
+            Waiting = false;
+        }
+
+        CommandExecution(const CommandExecution&) = delete;
+        CommandExecution& operator=(const CommandExecution&) = delete;
+
+        CommandExecution(CommandExecution&& Other) noexcept
+            : Completed(Other.Completed.load()), Waiting(Other.Waiting.load())
+        {}
     };
 
     std::map<uint8_t, CommandExecution> CommandStatus;
@@ -95,12 +108,6 @@ public:
         IsValid(true),
         Status(0)
     {
-        // Init motors status
-        for (uint8_t Port = 0x00; Port <= 0x3F; Port++)
-        {
-            CommandStatus[Port].Completed = true;
-            CommandStatus[Port].Waiting = false;
-        }
 
         AddLog("PrinterImplementation created");
     }
@@ -216,15 +223,19 @@ private:
             uint8_t Port = Data[3];
             uint8_t Feedback = Data[4];
 
+            AddLog("Command feedback: Port=0x%02X, Feedback=0x%02X", Port, Feedback);
+
             // Command completion
-            if (Feedback == 0x0A)
+            if (Feedback == 0x0A) // Command completed successfully
             {
                 std::lock_guard<std::mutex> lock(CompletionMutex);
 
-                if (CommandStatus[Port].Waiting && !CommandStatus[Port].Completed)
+                auto it = CommandStatus.find(Port);
+                if (it != CommandStatus.end() && it->second.Waiting.load() && !it->second.Completed.load())
                 {
-                    CommandStatus[Port].Completed = true;
+                    it->second.Completed = true;
                     CompletionCV.notify_all();
+                    AddLog("Command completed notification for port 0x%02X", Port);
                 }
             }
         }
@@ -316,35 +327,38 @@ private:
 
     void HandleEncoderNotification(const std::vector<uint8_t>& Data)
     {
-        if (!IsValid)
+        if (!IsValid || Data.size() < 8 || Data[2] != 0x04)
         {
-            AddLog("HandleEncoderNotification: Printer implementation is not valid");
-            return;
-        }
-        if (Data.size() < 8 || Data[2] != 0x04)
-        {
-            AddLog("HandleEncoderNotification: invalid data params");
             return;
         }
 
         uint8_t Port = Data[3];
-        int32_t PositionRaw =
-            (Data[4] & 0xFF) |
-            ((Data[5] & 0xFF) << 8) |
-            ((Data[6] & 0xFF) << 16) |
-            ((Data[7] & 0xFF) << 24);
 
+        // Правильное декодирование позиции энкодера
+        int32_t PositionRaw =
+            (static_cast<int32_t>(Data[4]) & 0xFF) |
+            ((static_cast<int32_t>(Data[5]) & 0xFF) << 8) |
+            ((static_cast<int32_t>(Data[6]) & 0xFF) << 16) |
+            ((static_cast<int32_t>(Data[7]) & 0xFF) << 24);
+
+        // Конвертация в обороты (360° = 1 оборот)
         double PositionRevolutions = static_cast<double>(PositionRaw) / 360.0;
 
-        // Update motor state
+        // Обновление состояния мотора
         if (MotorStates.count(Port))
         {
+            double oldPos = MotorStates[Port].CurrentPosition;
             MotorStates[Port].CurrentPosition = PositionRevolutions;
+
+            // Логируем ВСЕ обновления энкодера для отладки
+            AddLog("ENCODER: Port=0x%02X, Raw=%d, Rev=%.3f (delta=%.3f)",
+                Port, PositionRaw, PositionRevolutions, PositionRevolutions - oldPos);
         }
 
-        // Check encoder events
+        // Проверка событий энкодера
         CheckEncoderEvents(Port, PositionRevolutions);
     }
+
 
     void CheckEncoderEvents(uint8_t Port, double CurrentPosition)
     {
@@ -366,9 +380,13 @@ private:
             case ENCODER_POSITION_REACHED:
             case ENCODER_SEGMENT_COMPLETED:
             case ENCODER_MOVEMENT_FINISHED:
-                if (std::abs(CurrentPosition - Item->TargetPosition) <= Item->Tolerance)
+                double Difference = std::abs(CurrentPosition - Item->TargetPosition);
+
+                if (Difference <= Item->Tolerance)
                 {
                     Triggered = true;
+                    AddLog("Encoder event triggered: Port=0x%02X, Type=%d, Current=%.3f, Target=%.3f",
+                        Port, Item->Type, CurrentPosition, Item->TargetPosition);
                 }
                 break;
             }
@@ -398,21 +416,48 @@ private:
         switch (Command.Mode)
         {
         case STOP:
-            Payload = { 0x06, 0x00, 0x81, Port, 0x09 };
-            break;
-        case CONST_SPEED:
-            Payload =
-            {
-                0x09, 0x00, 0x81, Port, 0x07,
-                static_cast<uint8_t>(static_cast<int8_t>(Command.Speed)),
-                0x64, 0x00
+        {
+            Payload = 
+            { 
+                0x06, 
+                0x00, 
+                0x81, 
+                Port, 
+                0x09 
             };
             break;
+        }
+        case CONST_SPEED:
+        {
+            Payload =
+            {
+                0x09, 
+                0x00, 
+                0x81, 
+                Port, 
+                0x07,
+                static_cast<uint8_t>(static_cast<int8_t>(Command.Speed)),
+                0x64, 
+                0x00
+            };
+
+            AddLog("CONST_SPEED command: Port=0x%02X, Speed=%d, Payload: 0%02X 0%02X 0%02X 0%02X 0%02X 0%02X 0%02X 0%02X",
+                Port, Command.Speed,
+                Payload[0], Payload[1], Payload[2], Payload[3],
+                Payload[4], Payload[5], Payload[6], Payload[7]);
+            break;
+        }
         case POSITION:
+        {
             int32_t Degrees = static_cast<int32_t>(std::round(Command.TargetRevolutions * 360.0));
             Payload =
             {
-                0x0F, 0x00, 0x81, Port, 0x11, 0x0B,
+                0x0F, 
+                0x00, 
+                0x81, 
+                Port, 
+                0x11, 
+                0x0B,
                 static_cast<uint8_t>(Degrees & 0xFF),
                 static_cast<uint8_t>((Degrees >> 8) & 0xFF),
                 static_cast<uint8_t>((Degrees >> 16) & 0xFF),
@@ -423,12 +468,18 @@ private:
                 0x00 // Use profile
             };
             break;
+        }
         case PROFILE:
+        {
             ExecuteSpeedProfile(Port, Command);
             return;
         }
+        }
 
-        SendCommandVector(Payload);
+        if (!Payload.empty())
+        {
+            SendCommandVector(Payload);
+        }
     }
 
     void ExecuteSpeedProfile(uint8_t Port, const MotorCommandExe Command)
@@ -489,8 +540,22 @@ private:
             });
 
         // Remove temporary event
-        auto Item = std::find(EventState.ActiveEvents.begin(),
-            EventState.ActiveEvents.end(), TempEvent);
+        auto Item = EventState.ActiveEvents.begin();
+        while (Item != EventState.ActiveEvents.end())
+        {
+            if (Item->Port == TempEvent.Port &&
+                Item->Type == TempEvent.Type &&
+                std::abs(Item->TargetPosition - TempEvent.TargetPosition) < 1e-9 &&
+                std::abs(Item->Tolerance - TempEvent.Tolerance) < 1e-9)
+            {
+                Item = EventState.ActiveEvents.erase(Item);
+                break;
+            }
+            else
+            {
+                ++Item;
+            }
+        }
 
         if (Item != EventState.ActiveEvents.end())
         {
@@ -1161,6 +1226,48 @@ private:
         return false;
     }
 
+    bool WaitForCommandCompletion(uint8_t Port, int TimeoutMs = 15000)
+    {
+        std::unique_lock<std::mutex> lock(CompletionMutex);
+
+        // Убедитесь, что элемент существует в map
+        if (CommandStatus.find(Port) == CommandStatus.end())
+        {
+            return false;
+        }
+
+        // Устанавливаем состояние ожидания
+        CommandStatus[Port].Completed = false;
+        CommandStatus[Port].Waiting = true;
+
+        // Ждем уведомления о завершении
+        bool success = CompletionCV.wait_for(lock, std::chrono::milliseconds(TimeoutMs),
+            [this, Port]() {
+                auto it = CommandStatus.find(Port);
+                if (it != CommandStatus.end())
+                {
+                    return it->second.Completed.load();
+                }
+                return true; // Если порта нет, считаем завершенным
+            });
+
+        if (CommandStatus.find(Port) != CommandStatus.end())
+        {
+            CommandStatus[Port].Waiting = false;
+        }
+
+        if (!success)
+        {
+            AddLog("WaitForCommandCompletion timeout for port 0x%02X", Port);
+        }
+        else
+        {
+            AddLog("WaitForCommandCompletion success for port 0x%02X", Port);
+        }
+
+        return success;
+    }
+
     double GetNextTargetPosition(uint8_t Port)
     {
         if (!MotorStates.count(Port))
@@ -1257,6 +1364,9 @@ public:
 
         uint8_t Port = Profile->Port;
 
+        // Сбрасываем позиции перед началом профиля
+        ResetEncoderPosition(Port);
+
         // Starting motor thread if it not on
         if (!MotorStates[Port].ThreadRunning)
         {
@@ -1287,54 +1397,93 @@ private:
     bool ProcessSpeedProfile(const SpeedProfile* Profile)
     {
         uint8_t Port = Profile->Port;
-        auto StartTime = std::chrono::steady_clock::now();
 
-        int PointTimeout = std::max(10000, Profile->TimeoutMs / Profile->Count);
+        if (!MotorStates.count(Port))
+        {
+            AddLog("Motor state not found for port 0x%02X", Port);
+            return false;
+        }
 
-        for (int i = 1; i < Profile->Count && IsValid; i++)
+        AddLog("Using ABSOLUTE POSITIONING approach");
+
+        for (int i = 0; i < Profile->Count && IsValid && !StopRequested; i++)
         {
             const SpeedProfilePoint& Point = Profile->Points[i];
 
-            // We are waiting to achieve the position
-            bool Success = WaitForEncoderEventInternal(Port, ENCODER_POSITION_REACHED,
-                Point.Position, Point.Tolerance, PointTimeout);
+            // Используем абсолютное позиционирование как в работающем RotateMotor
+            MotorCommand cmd;
+            cmd.Port = Port;
+            cmd.Speed = Point.Speed;
+            cmd.Revolutions = Point.Position;
 
-            if (!Success)
+            AddLog("Moving to position %.3f with speed %d", Point.Position, Point.Speed);
+
+            // Используем старый работающий метод
+            SendSingleMotorCommand(cmd);
+
+            // Ждем завершения команды через работающий механизм
+            if (!WaitForCommandCompletion(Port, 15000))
             {
-                AddLog("Timeout waiting for position %.2f on port 0x%02X",
-                    Point.Position, Port);
+                AddLog("Timeout waiting for position %.3f", Point.Position);
                 return false;
             }
 
-            // Update speed
-            MotorCommandExe Command;
-            Command.Mode = CONST_SPEED;
-            Command.Speed = Point.Speed;
+            AddLog("Successfully reached position %.3f", Point.Position);
 
-            {
-                std::lock_guard<std::mutex> Lock(MotorStates[Port].QueueMutex);
-                MotorStates[Port].CommandQueue.push(Command);
-            }
-
-            AddLog("Position %.2f reached, speed changed to %d",
-                Point.Position, Point.Speed);
-
-            // Check general timeout
-            auto CurrentTime = std::chrono::steady_clock::now();
-            auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                CurrentTime - StartTime
-            );
-
-            if (Elapsed.count() > Profile->TimeoutMs)
-            {
-                AddLog("Overall timeout reached for speed profile");
-                return false;
-            }
+            // Небольшая пауза между командами
+            std::this_thread::sleep_for(100ms);
         }
 
-        return WaitForCommandStreamCompletion(Port);
+        AddLog("Speed profile completed successfully");
+        return true;
     }
 
+    void ResetEncoderPosition(uint8_t Port)
+    {
+        // Команда сброса позиции энкодера для LEGO Hub
+        std::vector<uint8_t> ResetCommand = {
+            0x08,
+            0x00,
+            0x81,
+            Port,
+            0x51,
+            0x02,
+            0x00,
+            0x00,
+        };
+
+        SendCommandVector(ResetCommand);
+        AddLog("Encoder position reset for port 0x%02X", Port);
+
+        // Сброс в внутреннем состоянии
+        if (MotorStates.count(Port))
+        {
+            MotorStates[Port].CurrentPosition = 0.0;
+        }
+
+        std::this_thread::sleep_for(100ms);
+    }
+
+    void ActivateEncoder(uint8_t Port)
+    {
+        // Команда активации энкодера для ЛЕГО хаба
+        std::vector<uint8_t> ActivateCommand = {
+            0x08,
+            0x00,
+            0x81,
+            Port,
+            0x11,
+            0x00,
+            0x00,
+            0x00,
+            0x00
+        };
+
+        SendCommandVector(ActivateCommand);
+        AddLog("Encoder activated for port 0x%02X", Port);
+
+        std::this_thread::sleep_for(200ms);
+    }
 };
 
 // Main context and virtual table
@@ -1485,7 +1634,7 @@ namespace
     {
         if (!Self || !Self->VirtualTable || !Events || Count <= 0)
         {
-            return;
+            return false;
         }
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
@@ -1617,6 +1766,209 @@ static IPrinterVirtualTable PrinterVTable = {
     Printer_GetLastError,
     Printer_PrinterConnectionInfo
 };
+
+// Tested function - remove after deep testing
+bool TestConstantSpeed(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    // Test 1: Forward speed
+    PrinterSetMotorSpeed(Printer, 0x00, 50);
+    std::this_thread::sleep_for(2s);
+
+    // Test 2: Reverse Speed
+    PrinterSetMotorSpeed(Printer, 0x00, -30);
+    std::this_thread::sleep_for(2s);
+
+    // Test 3: Stop
+    PrinterSetMotorSpeed(Printer, 0x00, 0);
+    std::this_thread::sleep_for(1s);
+
+    return true;
+}
+
+bool TestSpeedProfileBasic(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    SpeedProfilePoint Points[] = {
+        {0.0, 30, 0.1}, // Start at 30%
+        {1.0, 60, 0.05}, // Accelerate to 60% at 1 revolution
+        {3.0, 30, 0.05}, // Slow down to 30% at 3 revolutions
+        {5.0, 0, 0.02} // Stop at 5 revolutions
+    };
+
+    SpeedProfile Profile;
+    Profile.Port = 0x00;
+    Profile.Points = Points;
+    Profile.Count = 4;
+    Profile.TimeoutMs = 30000;
+
+    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
+    return Result;
+}
+
+bool TestSpeedProfileAdvanced(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    SpeedProfilePoint Points[] = {
+        {0.0, 20, 0.1}, // Gentle start
+        {0.5, 40, 0.05},
+        {1.0, 60, 0.05}, // Medium speed
+        {2.0, 80, 0.05}, // High speed
+        {4.0, 60, 0.05}, // Slow speed
+        {6.0, 40, 0.05},
+        {7.0, 20, 0.05},
+        {8.0, 0, 0.02}, // Precise stop
+    };
+
+    SpeedProfile Profile;
+    Profile.Port = 0x00;
+    Profile.Points = Points;
+    Profile.Count = 8;
+    Profile.TimeoutMs = 60000;
+
+    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
+    return Result;
+}
+
+bool TestEncoderEvents(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    std::atomic<int> EventCount{ 0 };
+
+    // Create encoder event callback
+    auto EncoderCallback = [](unsigned char Port, EncoderEventType Event,
+        double Position, void* UserData)
+        {
+            std::atomic<int>* Count = static_cast<std::atomic<int>*>(UserData);
+            (*Count)++;
+        };
+
+    // Subscribe to encoder events
+    EncoderEvent events[2];
+    events[0].Port = 0x00;
+    events[0].Type = ENCODER_POSITION_REACHED;
+    events[0].TargetPosition = 1.0;
+    events[0].Tolerance = 0.05;
+    events[0].Callback = EncoderCallback;
+    events[0].UserData = &EventCount;
+
+    events[1].Port = 0x00;
+    events[1].Type = ENCODER_POSITION_REACHED;
+    events[1].TargetPosition = 2.0;
+    events[1].Tolerance = 0.05;
+    events[1].Callback = EncoderCallback;
+    events[1].UserData = &EventCount;
+
+    PrinterSubscribeToEncoderEvents(Printer, events, 2);
+
+    // Move motor through the positions
+    SpeedProfilePoint Points[] = {
+        {0.0, 40, 0.1},
+        {2.5, 0, 0.02}
+    };
+
+    SpeedProfile Profile;
+    Profile.Port = 0x00;
+    Profile.Points = Points;
+    Profile.Count = 2;
+    Profile.TimeoutMs = 600000;
+
+    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
+
+    // Wait a bit more for events
+    std::this_thread::sleep_for(1s);
+
+    // Cleanup
+    PrinterUnsubscribeFromEncoderEvents(Printer, Profile.Port);
+
+    return Result && (EventCount >= 2);
+}
+
+bool TestMultipleMotors(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    auto StartTime = std::chrono::steady_clock::now();
+
+    // Create a profile that should take about 10 seconds
+    SpeedProfilePoint Points[] = {
+        {0.0, 50, 0.1},
+        {2.0, 70, 0.05},
+        {5.0, 30, 0.05},
+        {8.0, 0, 0.02},
+    };
+
+    SpeedProfile Profile;
+    Profile.Port = 0x00;
+    Profile.Points = Points;
+    Profile.Count = 4;
+    Profile.TimeoutMs = 200000;
+
+    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
+
+    auto EndTime = std::chrono::steady_clock::now();
+    auto Duration = std::chrono::duration_cast<std::chrono::microseconds>(EndTime - StartTime);
+
+    // Verify it took reasonable time (not too fast, not too slow)
+    bool TimeReasonable = (Duration.count() > 5000) && (Duration.count() < 25000);
+    return Result && TimeReasonable;
+}
+
+bool TestErrorConditions(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    // Test two motors simultaneously
+    std::atomic<bool> FirstMotorDone{ false };
+    std::atomic<bool> SecondMotorDone{ false };
+
+    auto FirstMotorThread = std::thread([&]() {
+        SpeedProfilePoint Points[] = {
+            {0.0, 40, 0.1},
+            {3.0, 0, 0.02},
+        };
+
+        SpeedProfile Profile = { 0x00, Points, 2, 20000 };
+        FirstMotorDone = PrinterExecuteSpeedProfile(Printer, &Profile);
+        });
+
+    auto SecondMotorThread = std::thread([&]() {
+        SpeedProfilePoint Points[] = {
+            {0.0, 30, 0.1},
+            {2.0, 0, 0.02},
+        };
+
+        SpeedProfile Profile = { 0x01, Points, 2, 20000 };
+        SecondMotorDone = PrinterExecuteSpeedProfile(Printer, &Profile);
+        });
+
+    FirstMotorThread.join();
+    SecondMotorThread.join();
+
+    return FirstMotorDone && SecondMotorDone;;
+}
 
 // C-INTERFACE functions are exported to DLL
 extern "C"
@@ -1834,6 +2186,42 @@ extern "C"
         }
 
         return Printer->VirtualTable->GetMotorPosition(Printer, Port);
+    }
+
+    // Test function
+    PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* Printer, const char* TestName)
+    {
+        if (!Printer || !TestName)
+        {
+            return false;
+        }
+
+        std::string Name(TestName);
+
+        if (Name == "ConstantSpeed")
+        {
+            return TestConstantSpeed(Printer);
+        }
+        else if (Name == "SpeedProfileBasic")
+        {
+            return TestSpeedProfileBasic(Printer);
+        }
+        else if (Name == "SpeedProfileAdvanced")
+        {
+            return TestSpeedProfileAdvanced(Printer);
+        }
+        else if (Name == "EncoderEvents")
+        {
+            return TestEncoderEvents(Printer);
+        }
+        else if (Name == "MultipleMotors")
+        {
+            return TestMultipleMotors(Printer);
+        }
+        else
+        {
+            return false;
+        }
     }
 
     PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer)

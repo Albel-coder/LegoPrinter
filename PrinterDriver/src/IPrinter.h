@@ -136,7 +136,7 @@ extern "C" {
     struct IPrinter 
     {
         IPrinterVirtualTable* VirtualTable;
-    };
+    };    
 
 #ifdef __cplusplus
 }

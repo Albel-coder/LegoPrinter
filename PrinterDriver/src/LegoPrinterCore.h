@@ -43,4 +43,7 @@ extern "C"
 
 	PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* Printer, int Count);
 	PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* Printer, unsigned char Port);
+
+	// Test functions
+	PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* Printer, const char* TestName);
 }
