@@ -51,12 +51,14 @@ private:
         std::queue<MotorCommandExe> CommandQueue;
         std::mutex QueueMutex;
         unsigned char ActivePort{0}; // Current active port
+        bool HasFirstNotification = false;
     };
 
     std::mutex SendCommandMutex;
 
     std::map<uint8_t, MotorState> MotorStates;
     std::map<uint8_t, std::thread> MotorThreads;
+    std::condition_variable MotorStatesCV;
 
     // Encoder event system
     struct EncoderEventState
@@ -100,6 +102,21 @@ private:
 
     std::map<uint8_t, CommandExecution> CommandStatus;
 
+    struct SpeedControlState 
+    {
+        std::atomic<bool> Active{false};
+        std::atomic<size_t> CurrentPointIndex{0};
+        std::thread ControlThread;
+
+        std::vector<SpeedProfilePoint> ProfilePoints;
+        int TimeoutMs;
+    };
+
+    std::map<uint8_t, SpeedControlState> SpeedControlStates;
+    std::mutex SpeedControlMutex;
+
+    std::mutex MotorStatesMutex;
+
 public:
 
     PrinterImplementation() :
@@ -118,6 +135,14 @@ public:
         {
             std::lock_guard<std::mutex> Lock(CompletionMutex);
             CompletionCV.notify_all();
+            for (auto& [Port, State] : SpeedControlStates)
+            {
+                State.Active = false;
+                if (State.ControlThread.joinable())
+                {
+                    State.ControlThread.join();
+                }
+            }
         }
         catch (...)
         {
@@ -162,35 +187,6 @@ public:
 
 private:
 
-    // Start motor thread for a specific port
-    void StartMotorThread(uint8_t Port)
-    {
-        if (MotorThreads.count(Port) && MotorThreads[Port].joinable())
-        {
-            return; // Thread already running
-        }
-
-        MotorStates[Port].ThreadRunning = true;
-        MotorThreads[Port] = std::thread(&PrinterImplementation::MotorCommandProcessor, this, Port);
-        AddLog("Started motor thread for port 0x%02X", Port);
-    }
-
-    // Stop motor thread for a specific port
-    void StopMotorThread(uint8_t Port)
-    {
-        if (MotorStates.count(Port))
-        {
-            MotorStates[Port].ThreadRunning = false;
-        }
-
-        if (MotorThreads.count(Port) && MotorThreads[Port].joinable())
-        {
-            MotorThreads[Port].join();
-            MotorThreads.erase(Port);
-            AddLog("Stopped motor thread for port 0x%02X", Port);
-        }
-    }
-
     // Set notification handler
     void SetupNotificationHandler()
     {
@@ -212,36 +208,72 @@ private:
 
     void HandleHubNotification(const std::vector<uint8_t>& Data)
     {
-        if (!IsValid || StopRequested || Data.size() < 5)
-        {
+        if (!IsValid || Data.empty()) {
             return;
         }
 
-        // Handle different notification types
-        if (Data[2] == 0x82) // Command feedback
-        {
+        // Логируем ВСЕ уведомления для отладки
+        std::string hexData = "RAW NOTIFICATION: ";
+        for (size_t i = 0; i < Data.size() && i < 12; i++) {
+            char hex[4];
+            snprintf(hex, sizeof(hex), "%02X", Data[i]);
+            hexData += hex;
+        }
+        AddLog(hexData.c_str());
+
+        // Обрабатываем данные энкодера (тип 0x04)
+        if (Data.size() >= 8 && Data[2] == 0x04) {
             uint8_t Port = Data[3];
-            uint8_t Feedback = Data[4];
 
-            AddLog("Command feedback: Port=0x%02X, Feedback=0x%02X", Port, Feedback);
+            // Декодируем позицию - исправленный код
+            int32_t PositionRaw =
+                (static_cast<int32_t>(Data[4]) << 0) |
+                (static_cast<int32_t>(Data[5]) << 8) |
+                (static_cast<int32_t>(Data[6]) << 16) |
+                (static_cast<int32_t>(Data[7]) << 24);
 
-            // Command completion
-            if (Feedback == 0x0A) // Command completed successfully
-            {
-                std::lock_guard<std::mutex> lock(CompletionMutex);
+            // Преобразуем в знаковое число (дополнение до двух)
+            if (PositionRaw & 0x80000000) {
+                PositionRaw |= 0xFFFFFFFF00000000;
+            }
 
-                auto it = CommandStatus.find(Port);
-                if (it != CommandStatus.end() && it->second.Waiting.load() && !it->second.Completed.load())
-                {
-                    it->second.Completed = true;
-                    CompletionCV.notify_all();
-                    AddLog("Command completed notification for port 0x%02X", Port);
+            double PositionRevolutions = static_cast<double>(PositionRaw) / 360.0;
+
+            AddLog("ENCODER UPDATE FIXED: Port=0x%02X, Raw=%d, Rev=%.3f",
+                Port, PositionRaw, PositionRevolutions);
+
+            // Обновляем состояние мотора
+            if (MotorStates.count(Port)) {
+                MotorStates[Port].CurrentPosition.store(PositionRevolutions);
+
+                // Логируем значимые изменения
+                static std::map<uint8_t, double> lastLogged;
+                if (!lastLogged.count(Port) ||
+                    std::abs(PositionRevolutions - lastLogged[Port]) > 0.01) {
+                    AddLog("POSITION CHANGED: Port=0x%02X, Position=%.3f",
+                        Port, PositionRevolutions);
+                    lastLogged[Port] = PositionRevolutions;
                 }
             }
+
+            // Проверка событий энкодера
+            CheckEncoderEvents(Port, PositionRevolutions);
         }
-        else if (Data[2] == 0x04) // Encoder data
-        {
-            HandleEncoderNotification(Data);
+        // Обрабатываем фидбэк команд (0x82)
+        else if (Data.size() >= 5 && Data[2] == 0x82) {
+            uint8_t Port = Data[3];
+            uint8_t Feedback = Data[4];
+            AddLog("COMMAND FEEDBACK: Port=0x%02X, Feedback=0x%02X", Port, Feedback);
+
+            // Command completion
+            if (Feedback == 0x0A) {
+                std::lock_guard<std::mutex> lock(CompletionMutex);
+                if (CommandStatus[Port].Waiting && !CommandStatus[Port].Completed) {
+                    CommandStatus[Port].Completed = true;
+                    CompletionCV.notify_all();
+                    AddLog("Command completed for port 0x%02X", Port);
+                }
+            }
         }
     }
 
@@ -327,38 +359,51 @@ private:
 
     void HandleEncoderNotification(const std::vector<uint8_t>& Data)
     {
-        if (!IsValid || Data.size() < 8 || Data[2] != 0x04)
+        if (!IsValid || Data.size() < 8 || Data[2] != 0x04) 
         {
             return;
         }
 
         uint8_t Port = Data[3];
 
-        // Правильное декодирование позиции энкодера
+        // Декодируем позицию
         int32_t PositionRaw =
             (static_cast<int32_t>(Data[4]) & 0xFF) |
             ((static_cast<int32_t>(Data[5]) & 0xFF) << 8) |
             ((static_cast<int32_t>(Data[6]) & 0xFF) << 16) |
             ((static_cast<int32_t>(Data[7]) & 0xFF) << 24);
 
-        // Конвертация в обороты (360° = 1 оборот)
         double PositionRevolutions = static_cast<double>(PositionRaw) / 360.0;
 
-        // Обновление состояния мотора
-        if (MotorStates.count(Port))
+        AddLog("Encoder raw: Port=0x%02X, Data=%02X%02X%02X%02X, Raw=%d, Rev=%.3f",
+            Port, Data[4], Data[5], Data[6], Data[7],
+            PositionRaw, PositionRevolutions);
+
+        // Обновляем состояние мотора
+        if (MotorStates.count(Port)) 
         {
-            double oldPos = MotorStates[Port].CurrentPosition;
+            double OldPosition = MotorStates[Port].CurrentPosition;
             MotorStates[Port].CurrentPosition = PositionRevolutions;
 
-            // Логируем ВСЕ обновления энкодера для отладки
-            AddLog("ENCODER: Port=0x%02X, Raw=%d, Rev=%.3f (delta=%.3f)",
-                Port, PositionRaw, PositionRevolutions, PositionRevolutions - oldPos);
+            if (std::abs(PositionRevolutions - OldPosition) > 0)
+            {
+                AddLog("Encoder update: Port=0x%02X, Position=%3.f (delta=%.3f)",
+                    Port, PositionRevolutions, PositionRevolutions - OldPosition);
+            }
+        }
+
+        // Логируем значимые изменения (реже чтобы не засорять логи)
+        static std::map<uint8_t, double> lastLoggedPositions;
+        if (!lastLoggedPositions.count(Port) ||
+            std::abs(PositionRevolutions - lastLoggedPositions[Port]) > 0.05) 
+        {
+            AddLog("Encoder: Port=0x%02X, Position=%.3f", Port, PositionRevolutions);
+            lastLoggedPositions[Port] = PositionRevolutions;
         }
 
         // Проверка событий энкодера
         CheckEncoderEvents(Port, PositionRevolutions);
     }
-
 
     void CheckEncoderEvents(uint8_t Port, double CurrentPosition)
     {
@@ -405,111 +450,6 @@ private:
             else
             {
                 ++Item;
-            }
-        }
-    }
-
-    void SendMotorCommand(uint8_t Port, const MotorCommandExe& Command)
-    {
-        std::vector<uint8_t> Payload;
-
-        switch (Command.Mode)
-        {
-        case STOP:
-        {
-            Payload = 
-            { 
-                0x06, 
-                0x00, 
-                0x81, 
-                Port, 
-                0x09 
-            };
-            break;
-        }
-        case CONST_SPEED:
-        {
-            Payload =
-            {
-                0x09, 
-                0x00, 
-                0x81, 
-                Port, 
-                0x07,
-                static_cast<uint8_t>(static_cast<int8_t>(Command.Speed)),
-                0x64, 
-                0x00
-            };
-
-            AddLog("CONST_SPEED command: Port=0x%02X, Speed=%d, Payload: 0%02X 0%02X 0%02X 0%02X 0%02X 0%02X 0%02X 0%02X",
-                Port, Command.Speed,
-                Payload[0], Payload[1], Payload[2], Payload[3],
-                Payload[4], Payload[5], Payload[6], Payload[7]);
-            break;
-        }
-        case POSITION:
-        {
-            int32_t Degrees = static_cast<int32_t>(std::round(Command.TargetRevolutions * 360.0));
-            Payload =
-            {
-                0x0F, 
-                0x00, 
-                0x81, 
-                Port, 
-                0x11, 
-                0x0B,
-                static_cast<uint8_t>(Degrees & 0xFF),
-                static_cast<uint8_t>((Degrees >> 8) & 0xFF),
-                static_cast<uint8_t>((Degrees >> 16) & 0xFF),
-                static_cast<uint8_t>((Degrees >> 24) & 0xFF),
-                static_cast<uint8_t>(static_cast<int8_t>(Command.Speed)),
-                100, // Maximum speed
-                0x01, // Last state
-                0x00 // Use profile
-            };
-            break;
-        }
-        case PROFILE:
-        {
-            ExecuteSpeedProfile(Port, Command);
-            return;
-        }
-        }
-
-        if (!Payload.empty())
-        {
-            SendCommandVector(Payload);
-        }
-    }
-
-    void ExecuteSpeedProfile(uint8_t Port, const MotorCommandExe Command)
-    {
-        const int SEGMENTS = std::max(10, static_cast<int>(Command.Profile.Distance * 10));
-        double SegmentDistance = Command.Profile.Distance / SEGMENTS;
-
-        double Progress;
-        for (int i = 0; i < SEGMENTS + 1 && !StopRequested; i++)
-        {
-            Progress = static_cast<double>(i) / SEGMENTS;
-
-            signed char CurrentSpeed = static_cast<signed char>(
-                Command.Profile.StartSpeed + (Command.Profile.EndSpeed - Command.Profile.StartSpeed) * Progress
-                );
-
-            std::vector<uint8_t> Payload = 
-            {
-                0x09, 0x00, 0x81, Port, 0x07,
-                static_cast<uint8_t>(CurrentSpeed),
-                0x64, 0x00
-            };
-
-            SendCommandVector(Payload);
-
-            // Wait for segment completion
-            if (i < SEGMENTS && EncoderEvents.count(Port))
-            {
-                double TargetPosition = MotorStates[Port].CurrentPosition + SegmentDistance;
-                WaitForEncoderEventInternal(Port, ENCODER_POSITION_REACHED, TargetPosition, 0.01, 10000);
             }
         }
     }
@@ -565,69 +505,6 @@ private:
         EventState.EventTriggered = false;
 
         return Success;
-    }
-
-    void MotorCommandProcessor(uint8_t Port)
-    {
-        MotorState& State = MotorStates[Port];
-
-        while (!StopRequested && IsValid)
-        {
-            std::unique_lock<std::mutex> Lock(State.QueueMutex);
-
-            if (State.CommandQueue.empty())
-            {
-                Lock.unlock();
-
-                // We notify about the completion of all commands
-                if (State.IsMoving)
-                {
-                    State.IsMoving = false;
-                }
-
-                std::this_thread::sleep_for(1ms);
-                continue;
-            }
-
-            MotorCommandExe Command = State.CommandQueue.front();
-            State.CommandQueue.pop();
-            Lock.unlock();
-
-            State.IsMoving = true;
-            State.Processing = true;
-
-            // Execute command
-            SendMotorCommand(Port, Command);
-
-            // Update state
-            if (Command.Mode == POSITION && EncoderEvents.count(Port))
-            {
-                WaitForEncoderEventInternal(Port, ENCODER_POSITION_REACHED,
-                    Command.TargetRevolutions, 0, 10000);
-            }
-            else if (Command.Mode == CONST_SPEED)
-            {
-                std::this_thread::sleep_for(50ms);
-            }
-
-            State.Processing = false;
-
-            if (Command.Mode == POSITION)
-            {
-                State.CurrentPosition = Command.TargetRevolutions;
-            }
-
-            // Check if motor should stop
-            Lock.lock();
-            if (State.CommandQueue.empty())
-            {
-                State.IsMoving = false;
-            }
-            Lock.unlock();
-        }
-
-        State.IsMoving = false;
-        State.Processing = false;
     }
 
     void SetupEncoderNotification()
@@ -916,70 +793,6 @@ public:
         AddLog("========================================");
     }
 
-    void StartCommandStream(const CommandStream* Stream)
-    {
-        if (!IsValid || !Stream || Stream->Count < 1)
-        {
-            return;
-        }
-
-        uint8_t Port = Stream->Port;
-        StartMotorThread(Port); // Turn on thread
-
-        //Update commands
-        UpdateCommandStream(Stream);
-
-        AddLog("Started command stream with " + std::to_string(Stream->Count) + " commands on port " +
-        std::to_string(Stream->Port));
-    }
-
-    void UpdateCommandStream(const CommandStream* Stream)
-    {
-        if (!IsValid || !Stream)
-        {
-            return;
-        }
-
-        uint8_t Port = Stream->Port;
-        MotorState& State = MotorStates[Port];
-        
-        {
-            std::lock_guard<std::mutex> Lock(State.QueueMutex);
-
-            // Clear queue and add new commands
-            std::queue<MotorCommandExe> Empty;
-            std::swap(State.CommandQueue, Empty);
-
-            for (int i = 0; i < Stream->Count; i++)
-            {
-                State.CommandQueue.push(Stream->Commands[i]);
-            }
-
-            AddLog("Updated command stream for port " + std::to_string(Stream->Port));
-        }
-
-        // Start the stream if it is not running
-        if (!State.ThreadRunning)
-        {
-            StartMotorThread(Port);
-        }
-
-        AddLog("Command stream update for port 0x%02X", Port);
-    }
-
-    void StopCommandStream()
-    {
-        for (auto& [Port, State] : MotorStates)
-        {
-            std::lock_guard<std::mutex> Lock(State.QueueMutex);
-            std::queue<MotorCommandExe> Empty;
-            std::swap(State.CommandQueue, Empty);
-            State.IsMoving = false;
-        }
-
-        AddLog("Stopped all commands streams");
-    }
-
     void RotateMotor(const MotorCommand* Commands, int Count)
     {      
         // Check parameters
@@ -1081,10 +894,35 @@ public:
             return;
         }
 
-        MotorCommandExe Command;
-        Command.Mode = CONST_SPEED;
-        Command.Speed = Speed;
-        SendMotorCommand(Port, Command);
+        AddLog("Setting motor speed: Port=0x%02X, Speed=%d", Port, Speed);
+
+        // First command: Activate mode
+        std::vector<uint8_t> SetupCommand = {
+            0x09,       // Package length
+            0x00,       // Hub ID
+            0x41,       // Port configuration command
+            Port,       // Motor port
+            0x01,       // Mode: Power (1)
+            0x00,       // Data Format
+            0x00,       // Unit
+            0x00,       // Range min
+            0x00        // Range max
+        };
+
+        SendCommandVector(SetupCommand);
+
+        // Second Team: motor control
+        std::vector<uint8_t> MotorCommand = {
+            0x08,       // Package length
+            0x00,       // Hub ID
+            0x81,       // Output control command
+            Port,       // Motor port
+            0x02,       // Subcommand: WriteDirectModeData
+            0x01,       // Mode: Power (1)
+            static_cast<uint8_t>(Speed) // Speed
+        };
+
+        SendCommandVector(MotorCommand);
     }
 
 private:
@@ -1356,90 +1194,65 @@ public:
 
     bool ExecuteSpeedProfile(const SpeedProfile* Profile)
     {
-        if (!IsValid || !Profile || Profile->Count < 1)
-        {
-            AddLog("Error in ExecuteSpeedProfile function");
+        if (!IsValid || !Profile || Profile->Count < 1) {
+            AddLog("Error in ExecuteSpeedProfile: invalid parameters");
             return false;
         }
 
         uint8_t Port = Profile->Port;
 
-        // Сбрасываем позиции перед началом профиля
-        ResetEncoderPosition(Port);
+        // Используем непрерывный контроль скорости
+        bool started = StartSpeedProfileFromCurrentPosition(Profile);
 
-        // Starting motor thread if it not on
-        if (!MotorStates[Port].ThreadRunning)
-        {
-            StartMotorThread(Port);
+        if (!started) {
+            return false;
         }
 
-        // Cleaning current queue
-        {
-            std::lock_guard<std::mutex> Lock(MotorStates[Port].QueueMutex);
-            std::queue<MotorCommandExe> Empty;
-            std::swap(MotorStates[Port].CommandQueue, Empty);
+        // Ждем завершения профиля
+        auto startTime = std::chrono::steady_clock::now();
+
+        while (IsValid && !StopRequested) {
+            // Проверяем завершение
+            {
+                std::lock_guard<std::mutex> lock(SpeedControlMutex);
+                if (!SpeedControlStates.count(Port) || !SpeedControlStates[Port].Active) {
+                    break;
+                }
+            }
+
+            // Проверяем таймаут
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
+
+            if (elapsed.count() > Profile->TimeoutMs) {
+                AddLog("Speed profile timeout in ExecuteSpeedProfile");
+                StopContinuousSpeedControl(Port);
+                return false;
+            }
+
+            std::this_thread::sleep_for(100ms);
         }
 
-        MotorCommandExe InitialCommand;
-        InitialCommand.Mode = CONST_SPEED;
-        InitialCommand.Speed = Profile->Points[0].Speed;
-
+        // Проверяем успешное завершение
+        bool success = false;
         {
-            std::lock_guard<std::mutex> Lock(MotorStates[Port].QueueMutex);
-            MotorStates[Port].CommandQueue.push(InitialCommand);
+            std::lock_guard<std::mutex> lock(MotorStatesMutex);
+            double OldPosition = MotorStates[Port].CurrentPosition;
+            if (SpeedControlStates.count(Port)) 
+            {
+                success = SpeedControlStates[Port].CurrentPointIndex >= Profile->Count;
+            }
         }
 
-        return ProcessSpeedProfile(Profile);
+        AddLog("Speed profile %s", success ? "completed successfully" : "failed");
+        return success;
     }
 
 private:
 
-    bool ProcessSpeedProfile(const SpeedProfile* Profile)
-    {
-        uint8_t Port = Profile->Port;
-
-        if (!MotorStates.count(Port))
-        {
-            AddLog("Motor state not found for port 0x%02X", Port);
-            return false;
-        }
-
-        AddLog("Using ABSOLUTE POSITIONING approach");
-
-        for (int i = 0; i < Profile->Count && IsValid && !StopRequested; i++)
-        {
-            const SpeedProfilePoint& Point = Profile->Points[i];
-
-            // Используем абсолютное позиционирование как в работающем RotateMotor
-            MotorCommand cmd;
-            cmd.Port = Port;
-            cmd.Speed = Point.Speed;
-            cmd.Revolutions = Point.Position;
-
-            AddLog("Moving to position %.3f with speed %d", Point.Position, Point.Speed);
-
-            // Используем старый работающий метод
-            SendSingleMotorCommand(cmd);
-
-            // Ждем завершения команды через работающий механизм
-            if (!WaitForCommandCompletion(Port, 15000))
-            {
-                AddLog("Timeout waiting for position %.3f", Point.Position);
-                return false;
-            }
-
-            AddLog("Successfully reached position %.3f", Point.Position);
-
-            // Небольшая пауза между командами
-            std::this_thread::sleep_for(100ms);
-        }
-
-        AddLog("Speed profile completed successfully");
-        return true;
-    }
-
     void ResetEncoderPosition(uint8_t Port)
     {
+        AddLog("=== Resetting encoder position for port 0x%02X ===", Port);
         // Команда сброса позиции энкодера для LEGO Hub
         std::vector<uint8_t> ResetCommand = {
             0x08,
@@ -1455,34 +1268,498 @@ private:
         SendCommandVector(ResetCommand);
         AddLog("Encoder position reset for port 0x%02X", Port);
 
+        std::this_thread::sleep_for(500ms);
+
         // Сброс в внутреннем состоянии
         if (MotorStates.count(Port))
         {
             MotorStates[Port].CurrentPosition = 0.0;
+            AddLog("Encoder position set to 0.0 internally for port 0x%02X", Port);
         }
 
-        std::this_thread::sleep_for(100ms);
+        std::this_thread::sleep_for(300ms);
+        AddLog("=== Encoder reset complete ===");
     }
 
     void ActivateEncoder(uint8_t Port)
     {
-        // Команда активации энкодера для ЛЕГО хаба
+        AddLog("=== Activate encoder for port 0x%02X ===", Port);
+
+        // Стандартная команда активации энкодера для LEGO Technic Hub
         std::vector<uint8_t> ActivateCommand = {
-            0x08,
-            0x00,
-            0x81,
-            Port,
-            0x11,
-            0x00,
-            0x00,
-            0x00,
-            0x00
+            0x0A,       // Длина пакета
+            0x00,       // Hub ID  
+            0x41,       // Port configuration command
+            Port,       // Порт
+            0x00,       // Mode: position (0x00 для абсолютной позиции)
+            0x00,       // Delta interval
+            0x01,       // Unit: градусы
+            0x00,       // Notifications enabled
+            0x00,       // Padding
+            0x00        // Padding
         };
 
         SendCommandVector(ActivateCommand);
         AddLog("Encoder activated for port 0x%02X", Port);
 
+        // Дополнительная команда для включения обновлений
+        std::vector<uint8_t> SubscribeCommand = {
+            0x08,       // Длина пакета
+            0x00,       // Hub ID
+            0x47,       // Hub Attached IO
+            Port,       // Порт  
+            0x02,       // Subcommand: Subscribe
+            0x00,       // Mode
+            0x01,       // Subscribe flag
+            0x00        // Padding
+        };
+
+        SendCommandVector(SubscribeCommand);
+        AddLog("Encoder subscriptions enabled for port 0x%02X", Port);
+
+        std::this_thread::sleep_for(300ms);
+        AddLog("=== Encoder activation complete ===");
+    }
+
+    // New try
+
+public:
+
+    bool StartSpeedProfileFromCurrentPosition(const SpeedProfile* Profile)
+    {
+        if (!IsValid || !Profile || Profile->Count < 1) {
+            AddLog("Invalid profile for speed control");
+            return false;
+        }
+
+        uint8_t Port = Profile->Port;
+
+        AddLog("=== STARTING SPEED PROFILE FROM CURRENT POSITION ===");
+
+        // АКТИВИРУЕМ ЭНКОДЕР ПЕРЕД НАЧАЛОМ
+        ActivateEncoder(Port);
+        ResetEncoderPosition(Port);
+
+        // Ждем немного для инициализации
         std::this_thread::sleep_for(200ms);
+
+        // Запоминаем начальную позицию
+        double startPosition = MotorStates[Port].CurrentPosition;
+        AddLog("Starting from position: %.3f", startPosition);
+
+        // Пересчитываем целевые позиции относительно текущей позиции
+        std::vector<SpeedProfilePoint> relativePoints;
+        for (int i = 0; i < Profile->Count; i++) {
+            SpeedProfilePoint point = Profile->Points[i];
+            point.Position = startPosition + point.Position; // Делаем абсолютными относительно старта
+            relativePoints.push_back(point);
+            AddLog("Target %d: absolute position=%.3f, speed=%d",
+                i, point.Position, point.Speed);
+        }
+
+        // Запускаем контроль скорости
+        return StartSpeedControlInternal(Port, relativePoints, Profile->TimeoutMs);
+    }
+
+    bool StartSpeedControlInternal(uint8_t Port,
+        const std::vector<SpeedProfilePoint>& Points, int TimeoutMs)
+    {
+        StopContinuousSpeedControl(Port);
+
+        std::lock_guard<std::mutex> lock(SpeedControlMutex);
+        auto& State = SpeedControlStates[Port];
+
+        State.Active = true;
+        State.CurrentPointIndex = 0;
+        State.ProfilePoints = Points;
+
+        // Запускаем поток контроля
+        State.ControlThread = std::thread([this, Port, TimeoutMs]() {
+            this->PreciseSpeedControlProcessor(Port, TimeoutMs);
+            });
+
+        AddLog("Precise speed control started for port 0x%02X", Port);
+        return true;
+    }
+
+    void StopContinuousSpeedControl(uint8_t Port)
+    {
+        std::lock_guard<std::mutex> lock(SpeedControlMutex);
+
+        if (SpeedControlStates.count(Port)) 
+        {
+            auto& State = SpeedControlStates[Port];
+            State.Active = false;
+
+            if (State.ControlThread.joinable()) 
+            {
+                State.ControlThread.join();
+            }
+
+            // Останавливаем мотор
+            SetMotorSpeed(Port, 0);
+
+            AddLog("Continuous speed control stopped for port 0x%02X", Port);
+        }
+    }
+
+    bool TestEncoderFunctionality(IPrinter* Printer)
+    {
+        if (!Printer) return false;
+
+        AddLog("=== Comprehensive encoder diagnostics ===");
+
+        // Проверяем тип мотора
+        CheckMotorType(0x00);
+        std::this_thread::sleep_for(1000ms);
+
+        // Проверяем физическое подключение
+        TestPhysicalConnection(0x00);
+        std::this_thread::sleep_for(1000ms);
+
+        // Тестируем все порты
+        TestAllMotorPorts();
+        std::this_thread::sleep_for(1000ms);
+
+        AddLog("=== Final recommendation ===");
+        AddLog("If encoder don`t work, use positioning commands instead");
+    }
+
+private:
+    
+    void CheckMotorType(uint8_t Port)
+    {
+        AddLog("=== Checking motor type for port 0x%02X ===", Port);
+
+        // Команда для запроса информации об устройстве
+        std::vector<uint8_t> InfoCommand = {
+            0x05,
+            0x00,
+            0x21,
+            Port,
+            0x01
+        };
+
+        SendCommandVector(InfoCommand);
+        std::this_thread::sleep_for(500ms);
+
+        // Дополнительная команда для запроса типа устройства
+        std::vector<uint8_t> TypeCommand = {
+            0x05,
+            0x00,
+            0x21,
+            Port,
+            0x00
+        };
+
+        SendCommandVector(TypeCommand);
+        std::this_thread::sleep_for(500ms);
+    }
+
+    bool ActivateEncoderAlternative(uint8_t Port)
+    {
+        AddLog("=== ALTERNATIVE ENCODER ACTIVATION ===");
+
+        // 1. Сначала деактивируем порт полностью
+        std::vector<uint8_t> deactivateCmd = {
+            0x05,       // Длина
+            0x00,       // Hub ID
+            0x41,       // Port Configuration
+            Port,       // Порт  
+            0x00        // Deactivate
+        };
+        SendCommandVector(deactivateCmd);
+        std::this_thread::sleep_for(200ms);
+
+        // 2. Активируем порт в режиме энкодера с разными настройками
+        std::vector<std::vector<uint8_t>> activationAttempts = {
+            // Попытка 1: Стандартная активация
+            {0x09, 0x00, 0x41, Port, 0x00, 0x00, 0x01, 0x01, 0x00},
+            // Попытка 2: Альтернативные настройки
+            {0x09, 0x00, 0x41, Port, 0x00, 0x01, 0x01, 0x01, 0x00},
+            // Попытка 3: Другие параметры
+            {0x09, 0x00, 0x41, Port, 0x00, 0x00, 0x02, 0x01, 0x00}
+        };
+
+        for (size_t i = 0; i < activationAttempts.size(); i++) {
+            AddLog("Activation attempt %zu", i + 1);
+            SendCommandVector(activationAttempts[i]);
+            std::this_thread::sleep_for(300ms);
+
+            // Проверяем, появились ли обновления
+            double pos = MotorStates[Port].CurrentPosition.load();
+            if (pos != 0.0) {
+                AddLog("SUCCESS: Position updated to %.3f", pos);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void TestPhysicalConnection(uint8_t Port)
+    {
+        AddLog("=== PHYSICAL CONNECTION TEST ===");
+
+        // Тест 1: Проверяем, вращается ли мотор вообще
+        AddLog("1. Testing motor rotation without encoder");
+        SetMotorSpeed(Port, 50);
+        std::this_thread::sleep_for(2000ms);
+
+        // Останавливаем и слушаем звук/наблюдаем вращение
+        SetMotorSpeed(Port, 0);
+        std::this_thread::sleep_for(1000ms);
+
+        // Тест 2: Проверяем разные скорости
+        AddLog("2. Testing different speeds");
+        for (int speed = 30; speed <= 80; speed += 20) {
+            AddLog("   Speed %d", speed);
+            SetMotorSpeed(Port, speed);
+            std::this_thread::sleep_for(1000ms);
+
+            double pos = MotorStates[Port].CurrentPosition.load();
+            AddLog("   Position: %.3f", pos);
+
+            if (pos != 0.0) {
+                AddLog("   ENCODER WORKING AT SPEED %d!", speed);
+                SetMotorSpeed(Port, 0);
+                return;
+            }
+        }
+
+        SetMotorSpeed(Port, 0);
+        AddLog("3. Motor rotates but encoder doesn't update - likely encoder hardware issue");
+    }
+
+    void TestAllMotorPorts()
+    {
+        AddLog("=== TESTING ALL MOTOR PORTS ===");
+
+        std::vector<uint8_t> motorPorts = { 0x00, 0x01, 0x02, 0x03 };
+
+        for (uint8_t port : motorPorts) {
+            AddLog("--- Testing port 0x%02X ---", port);
+
+            // Активируем энкодер
+            ActivateEncoderAlternative(port);
+            std::this_thread::sleep_for(500ms);
+
+            // Сбрасываем позицию
+            std::vector<uint8_t> resetCmd = { 0x08, 0x00, 0x81, port, 0x51, 0x02, 0x00, 0x00 };
+            SendCommandVector(resetCmd);
+            std::this_thread::sleep_for(500ms);
+
+            // Вращаем и проверяем
+            double initialPos = MotorStates[port].CurrentPosition.load();
+            AddLog("Initial position: %.3f", initialPos);
+
+            SetMotorSpeed(port, 40);
+            std::this_thread::sleep_for(2000ms);
+            SetMotorSpeed(port, 0);
+
+            double finalPos = MotorStates[port].CurrentPosition.load();
+            AddLog("Final position: %.3f", finalPos);
+
+            bool encoderWorking = (std::abs(finalPos - initialPos) > 0.1);
+            AddLog("Encoder on port 0x%02X: %s", port, encoderWorking ? "WORKING" : "NOT WORKING");
+
+            if (encoderWorking) {
+                AddLog("*** FOUND WORKING ENCODER ON PORT 0x%02X ***", port);
+                return;
+            }
+
+            std::this_thread::sleep_for(1000ms);
+        }
+
+        AddLog("*** NO WORKING ENCODERS FOUND ON ANY PORT ***");
+    }
+
+    void SpeedControlProcessor(uint8_t Port, const SpeedProfile* Profile)
+    {
+        AddLog("Speed control processor started for port 0x%02X", Port);
+
+        // Получаем начальную позицию ИЗ MOTORSTATES
+        double startPosition = MotorStates[Port].CurrentPosition;
+        AddLog("Starting from position: %.3f", startPosition);
+
+        size_t currentPointIndex = 0;
+        auto& State = SpeedControlStates[Port];
+
+        // Устанавливаем начальную скорость
+        if (Profile->Count > 0) {
+            const SpeedProfilePoint& firstPoint = Profile->Points[0];
+            SetMotorSpeed(Port, firstPoint.Speed);
+            AddLog("Initial speed set to %d for target position %.3f",
+                firstPoint.Speed, firstPoint.Position);
+        }
+
+        auto startTime = std::chrono::steady_clock::now();
+
+        while (State.Active && IsValid && !StopRequested) {
+            // Получаем текущую позицию ИЗ MOTORSTATES
+            double currentPosition = MotorStates[Port].CurrentPosition;
+
+            // Проверяем достижение текущей целевой точки
+            if (currentPointIndex < Profile->Count) {
+                const SpeedProfilePoint& targetPoint = Profile->Points[currentPointIndex];
+                double distanceToTarget = std::abs(currentPosition - targetPoint.Position);
+
+                // Логируем прогресс каждую секунду
+                auto currentTime = std::chrono::steady_clock::now();
+                static auto lastLogTime = startTime;
+                if (std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastLogTime).count() > 1000) {
+                    AddLog("Progress: current=%.3f, target=%.3f, distance=%.3f, speed=%d",
+                        currentPosition, targetPoint.Position, distanceToTarget,
+                        currentPointIndex < Profile->Count ?
+                        Profile->Points[currentPointIndex].Speed : 0);
+                    lastLogTime = currentTime;
+                }
+
+                if (distanceToTarget <= targetPoint.Tolerance) {
+                    // Достигли точки - переходим к следующей
+                    currentPointIndex++;
+                    State.CurrentPointIndex = currentPointIndex;
+
+                    if (currentPointIndex < Profile->Count) {
+                        // Устанавливаем новую скорость для следующей точки
+                        const SpeedProfilePoint& nextPoint = Profile->Points[currentPointIndex];
+                        SetMotorSpeed(Port, nextPoint.Speed);
+                        AddLog("Point %zu reached: position=%.3f, new speed=%d",
+                            currentPointIndex - 1, currentPosition, nextPoint.Speed);
+                    }
+                    else {
+                        // Все точки пройдены
+                        AddLog("All profile points completed");
+                        SetMotorSpeed(Port, 0); // Останавливаем мотор
+                        State.Active = false;
+                        break;
+                    }
+                }
+            }
+
+            // Проверяем общий таймаут
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
+            if (elapsed.count() > Profile->TimeoutMs) {
+                AddLog("Speed profile timeout after %d ms", elapsed.count());
+                SetMotorSpeed(Port, 0);
+                State.Active = false;
+                break;
+            }
+
+            // Небольшая пауза
+            std::this_thread::sleep_for(10ms);
+        }
+
+        // Освобождаем копию профиля
+        delete Profile;
+
+        AddLog("Speed control processor stopped for port 0x%02X", Port);
+    }
+
+    void PreciseSpeedControlProcessor(uint8_t Port, int TimeoutMs)
+    {
+        auto& State = SpeedControlStates[Port];
+        AddLog("Precise speed control processor started for port 0x%02X", Port);
+
+        double startPosition = MotorStates[Port].CurrentPosition.load();
+        AddLog("Starting position: %.3f", startPosition);
+
+        // Устанавливаем начальную скорость
+        if (State.ProfilePoints.size() > 0) {
+            SetMotorSpeed(Port, State.ProfilePoints[0].Speed);
+            AddLog("Initial speed set to %d", State.ProfilePoints[0].Speed);
+        }
+
+        auto startTime = std::chrono::steady_clock::now();
+        size_t currentPointIndex = 0;
+
+        while (State.Active && IsValid && !StopRequested) {
+            // Получаем текущую позицию
+            double currentPosition = MotorStates[Port].CurrentPosition.load();
+
+            // Улучшенное логирование - каждые 10 итераций
+            static int logCounter = 0;
+            if (++logCounter % 10 == 0) {
+                AddLog("Control Loop: current=%.3f, target=%.3f, point=%zu/%zu",
+                    currentPosition,
+                    currentPointIndex < State.ProfilePoints.size() ?
+                    State.ProfilePoints[currentPointIndex].Position : 0.0,
+                    currentPointIndex,
+                    State.ProfilePoints.size());
+            }
+
+            // Проверяем достижение текущей целевой точки
+            if (currentPointIndex < State.ProfilePoints.size()) {
+                const auto& targetPoint = State.ProfilePoints[currentPointIndex];
+                double distanceToTarget = targetPoint.Position - currentPosition;
+
+                // Проверяем, достигли ли мы целевой позиции
+                bool positionReached = std::abs(distanceToTarget) <= targetPoint.Tolerance;
+
+                if (positionReached) {
+                    // Достигли точки - устанавливаем новую скорость
+                    currentPointIndex++;
+
+                    if (currentPointIndex < State.ProfilePoints.size()) {
+                        const auto& nextPoint = State.ProfilePoints[currentPointIndex];
+                        SetMotorSpeed(Port, nextPoint.Speed);
+                        AddLog("=== TARGET REACHED: position=%.3f, new speed=%d ===",
+                            currentPosition, nextPoint.Speed);
+                    }
+                    else {
+                        // Все точки пройдены - останавливаемся
+                        SetMotorSpeed(Port, 0);
+                        AddLog("=== ALL TARGETS COMPLETED ===");
+                        State.Active = false;
+                        break;
+                    }
+                }
+            }
+
+            // Проверяем таймаут
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
+            if (elapsed.count() > TimeoutMs) {
+                AddLog("=== CONTROL TIMEOUT ===");
+                SetMotorSpeed(Port, 0);
+                State.Active = false;
+                break;
+            }
+
+            std::this_thread::sleep_for(5ms);
+        }
+
+        AddLog("Precise speed control processor stopped for port 0x%02X", Port);
+    }
+
+    bool TestWorkingPort(uint8_t Port)
+    {
+        AddLog("=== TESTING WORKING PORT 0x%02X ===", Port);
+
+        // 1. Активируем энкодер
+        if (!ActivateEncoderAlternative(Port)) {
+            AddLog("Failed to activate encoder");
+            return false;
+        }
+
+        // 2. Сбрасываем позицию
+        std::vector<uint8_t> resetCmd = { 0x08, 0x00, 0x81, Port, 0x51, 0x02, 0x00, 0x00 };
+        SendCommandVector(resetCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 3. Запускаем тестовый профиль
+        SpeedProfilePoint points[] = {
+            {0.5, 30, 0.05},   // 0.5 оборота на скорости 30
+            {1.0, 50, 0.05},   // 1.0 оборот на скорости 50  
+            {1.5, 30, 0.05},   // 1.5 оборотов на скорости 30
+            {2.0, 0, 0.02}     // 2.0 оборота - остановка
+        };
+
+        SpeedProfile profile = { Port, points, 4, 30000 };
+
+        AddLog("Starting test profile on working port 0x%02X", Port);
+        return ExecuteSpeedProfile(&profile);
     }
 };
 
@@ -1551,39 +1828,6 @@ namespace
         {
             // Ignore all errors
         }
-    }
-
-    void Printer_StartCommandStream(IPrinter* Self, const CommandStream* Stream)
-    {
-        if (!Self || !Self->VirtualTable || !Stream)
-        {
-            return;
-        }
-
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->StartCommandStream(Stream);
-    }
-
-    void Printer_UpdateCommandStream(IPrinter* Self, const CommandStream* Stream)
-    {
-        if (!Self || !Self->VirtualTable || !Stream)
-        {
-            return;
-        }
-
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->UpdateCommandStream(Stream);
-    }
-
-    void Printer_StopCommandStream(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return;
-        }
-
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->StopCommandStream();
     }
 
     void Printer_SetMotorSpeed(IPrinter* Self, unsigned char Port, signed char Speed)
@@ -1740,6 +1984,16 @@ namespace
         return Implementation->GetLastErrorMessage();
     }
 
+    bool Printer_TestEncoderFunctionality(IPrinter* Self)
+    {
+        if (!Self || !Self->VirtualTable)
+        {
+            return false;
+        }
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
+        return Implementation->TestEncoderFunctionality(Self);
+    }
 }
 
 // Virtual Method Table - C-INTERFACE
@@ -1750,9 +2004,6 @@ static IPrinterVirtualTable PrinterVTable = {
     Printer_Destroy,
     Printer_RotateMotor,
     Printer_SetMotorSpeed,
-    Printer_StartCommandStream,
-    Printer_UpdateCommandStream,
-    Printer_StopCommandStream,
     Printer_SendCommand,
     Printer_PrinterExecuteSpeedProfile,
     Printer_SubscribeToEncoderEvents,
@@ -1764,7 +2015,8 @@ static IPrinterVirtualTable PrinterVTable = {
     Printer_GetLogEntry,
     Printer_ClearLog,
     Printer_GetLastError,
-    Printer_PrinterConnectionInfo
+    Printer_PrinterConnectionInfo,
+    Printer_TestEncoderFunctionality
 };
 
 // Tested function - remove after deep testing
@@ -1970,6 +2222,41 @@ bool TestErrorConditions(IPrinter* Printer)
     return FirstMotorDone && SecondMotorDone;;
 }
 
+bool TestMode(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+
+    MotorCommand* Command = new MotorCommand[1];
+    Command[0].Port = 0x00;
+    Command[0].Revolutions = 20;
+    Command[0].Speed = 100;
+
+    PrinterRotateMotor(Printer, Command, 1);
+
+    std::this_thread::sleep_for(2s);
+    PrinterSetMotorSpeed(Printer, Command[0].Port, 40);
+
+    std::this_thread::sleep_for(4s);
+    PrinterSetMotorSpeed(Printer, Command[0].Port, 0);
+
+    delete[] Command;
+}
+
+bool EncoderTests(IPrinter* Printer)
+{
+    if (!Printer)
+    {
+        return false;
+    }
+    else
+    {
+        return Printer_TestEncoderFunctionality(Printer);
+    }
+}
+
 // C-INTERFACE functions are exported to DLL
 extern "C"
 {
@@ -2106,38 +2393,6 @@ extern "C"
         return Printer->VirtualTable->GetLastError(Printer);
     }
 
-    // ===========================
-
-    PRINTER_DRIVER_API void PrinterStartCommandStream(IPrinter* Printer, const CommandStream* Stream)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->StartCommandStream || !Stream)
-        {
-            return;
-        }
-
-        return Printer->VirtualTable->StartCommandStream(Printer, Stream);
-    }
-
-    PRINTER_DRIVER_API void PrinterUpdateCommandStream(IPrinter* Printer, const CommandStream* Stream)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->UpdateCommandStream || !Stream)
-        {
-            return;
-        }
-
-        return Printer->VirtualTable->UpdateCommandStream(Printer, Stream);
-    }
-
-    PRINTER_DRIVER_API void PrinterStopCommandStream(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->StopCommandStream)
-        {
-            return;
-        }
-
-        return Printer->VirtualTable->StopCommandStream(Printer);
-    }
-
     PRINTER_DRIVER_API bool PrinterSubscribeToEncoderEvents(IPrinter* Printer, const EncoderEvent* Events, int Count)
     {
         if (!Events || !Printer || !Printer->VirtualTable || !Printer->VirtualTable->SubscribeToEncoderEvents)
@@ -2218,6 +2473,14 @@ extern "C"
         {
             return TestMultipleMotors(Printer);
         }
+        else if (Name == "Test")
+        {
+            return TestMode(Printer);
+        }
+        else if (Name == "EncoderTests")
+        {
+            return EncoderTests(Printer);
+        }
         else
         {
             return false;
@@ -2240,6 +2503,5 @@ extern "C"
         }
 
         return Printer->VirtualTable->PrinterExecuteSpeedProfile(Printer, Profile);
-    }
-    
+    }    
 }

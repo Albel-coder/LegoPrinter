@@ -91,6 +91,13 @@ extern "C" {
         int TimeoutMs; // Timeout for all profile
     } SpeedProfile;
 
+    typedef struct
+    {
+        unsigned char Port;
+        signed char Speed;
+        bool Immediate;
+    } SpeedChangeCommand;
+
     // Virtual table - ONLY low-level methods
     typedef struct 
     {
@@ -103,11 +110,6 @@ extern "C" {
         void (*RotateMotor)(IPrinter* Self, const MotorCommand* Commands, int Count);
 
         void (*SetMotorSpeed)(IPrinter* Self, unsigned char Port, signed char Speed);
-
-        // Continuous motor control
-        void (*StartCommandStream)(IPrinter* Self, const CommandStream* Stream);
-        void (*UpdateCommandStream)(IPrinter* Self, const CommandStream* Stream);
-        void (*StopCommandStream)(IPrinter* Self);
 
         // Raw command
         void (*SendCommand)(IPrinter* Self, const unsigned char* Command, int Length);
@@ -130,6 +132,8 @@ extern "C" {
         void (*ClearLog)(IPrinter* Self);
         const char* (*GetLastError)(IPrinter* Self);
         void (*PrintConnectionInfo)(IPrinter* Self);
+
+        bool (*TestEncoderFunctionality)(IPrinter* Self);
 
     } IPrinterVirtualTable;
 
