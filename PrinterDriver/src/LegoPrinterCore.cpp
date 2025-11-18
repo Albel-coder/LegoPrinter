@@ -212,68 +212,54 @@ private:
             return;
         }
 
-        // Логируем ВСЕ уведомления для отладки
-        std::string hexData = "RAW NOTIFICATION: ";
-        for (size_t i = 0; i < Data.size() && i < 12; i++) {
-            char hex[4];
-            snprintf(hex, sizeof(hex), "%02X", Data[i]);
-            hexData += hex;
-        }
-        AddLog(hexData.c_str());
-
         // Обрабатываем данные энкодера (тип 0x04)
         if (Data.size() >= 8 && Data[2] == 0x04) {
             uint8_t Port = Data[3];
 
-            // Декодируем позицию - исправленный код
+            // ПРАВИЛЬНОЕ ДЕКОДИРОВАНИЕ ПОЗИЦИИ
             int32_t PositionRaw =
-                (static_cast<int32_t>(Data[4]) << 0) |
-                (static_cast<int32_t>(Data[5]) << 8) |
-                (static_cast<int32_t>(Data[6]) << 16) |
-                (static_cast<int32_t>(Data[7]) << 24);
+                (static_cast<int32_t>(Data[4]) |
+                    (static_cast<int32_t>(Data[5]) << 8) |
+                    (static_cast<int32_t>(Data[6]) << 16) |
+                    (static_cast<int32_t>(Data[7]) << 24));
 
-            // Преобразуем в знаковое число (дополнение до двух)
-            if (PositionRaw & 0x80000000) {
-                PositionRaw |= 0xFFFFFFFF00000000;
-            }
-
+            // Конвертируем в обороты
             double PositionRevolutions = static_cast<double>(PositionRaw) / 360.0;
-
-            AddLog("ENCODER UPDATE FIXED: Port=0x%02X, Raw=%d, Rev=%.3f",
-                Port, PositionRaw, PositionRevolutions);
 
             // Обновляем состояние мотора
             if (MotorStates.count(Port)) {
+                double oldPos = MotorStates[Port].CurrentPosition.load();
                 MotorStates[Port].CurrentPosition.store(PositionRevolutions);
 
-                // Логируем значимые изменения
-                static std::map<uint8_t, double> lastLogged;
-                if (!lastLogged.count(Port) ||
-                    std::abs(PositionRevolutions - lastLogged[Port]) > 0.01) {
-                    AddLog("POSITION CHANGED: Port=0x%02X, Position=%.3f",
-                        Port, PositionRevolutions);
-                    lastLogged[Port] = PositionRevolutions;
-                }
+                // Логируем ВСЕ обновления для отладки
+                AddLog("ENCODER: Port=0x%02X, Raw=%d, Position=%.3f (delta=%.3f)",
+                    Port, PositionRaw, PositionRevolutions, PositionRevolutions - oldPos);
             }
 
             // Проверка событий энкодера
             CheckEncoderEvents(Port, PositionRevolutions);
         }
+
         // Обрабатываем фидбэк команд (0x82)
         else if (Data.size() >= 5 && Data[2] == 0x82) {
             uint8_t Port = Data[3];
             uint8_t Feedback = Data[4];
-            AddLog("COMMAND FEEDBACK: Port=0x%02X, Feedback=0x%02X", Port, Feedback);
 
             // Command completion
             if (Feedback == 0x0A) {
                 std::lock_guard<std::mutex> lock(CompletionMutex);
-                if (CommandStatus[Port].Waiting && !CommandStatus[Port].Completed) {
+                if (CommandStatus.count(Port) && CommandStatus[Port].Waiting &&
+                    !CommandStatus[Port].Completed) {
                     CommandStatus[Port].Completed = true;
                     CompletionCV.notify_all();
-                    AddLog("Command completed for port 0x%02X", Port);
                 }
             }
+        }
+
+        // Обрабатываем информацию о порте (0x21)
+        else if (Data.size() >= 5 && Data[2] == 0x21) {
+            uint8_t Port = Data[3];
+            AddLog("PORT INFO: Port=0x%02X", Port);
         }
     }
 
@@ -1252,33 +1238,36 @@ private:
 
     void ResetEncoderPosition(uint8_t Port)
     {
-        AddLog("=== Resetting encoder position for port 0x%02X ===", Port);
-        // Команда сброса позиции энкодера для LEGO Hub
-        std::vector<uint8_t> ResetCommand = {
-            0x08,
-            0x00,
-            0x81,
-            Port,
-            0x51,
-            0x02,
-            0x00,
-            0x00,
+        AddLog("=== ПРАВИЛЬНЫЙ СБРОС ПОЗИЦИИ ЭНКОДЕРА ===");
+
+        // 1. Команда сброса позиции
+        std::vector<uint8_t> resetCmd = {
+            0x08,       // Длина
+            0x00,       // Hub ID  
+            0x81,       // Output command
+            Port,       // Порт
+            0x51,       // Subcommand: Preset Encoder
+            0x02,       // Preset value
+            0x00,       // Value low byte
+            0x00        // Value high byte
         };
+        SendCommandVector(resetCmd);
 
-        SendCommandVector(ResetCommand);
-        AddLog("Encoder position reset for port 0x%02X", Port);
+        // 2. Дополнительная команда для подтверждения
+        std::vector<uint8_t> confirmCmd = {
+            0x05,       // Длина
+            0x00,       // Hub ID
+            0x21,       // Port Information Request
+            Port,       // Порт
+            0x00        // Mode
+        };
+        SendCommandVector(confirmCmd);
 
+        // 3. Обнуляем внутреннее состояние
+        MotorStates[Port].CurrentPosition.store(0.0);
+
+        AddLog("Позиция энкодера сброшена для порта 0x%02X", Port);
         std::this_thread::sleep_for(500ms);
-
-        // Сброс в внутреннем состоянии
-        if (MotorStates.count(Port))
-        {
-            MotorStates[Port].CurrentPosition = 0.0;
-            AddLog("Encoder position set to 0.0 internally for port 0x%02X", Port);
-        }
-
-        std::this_thread::sleep_for(300ms);
-        AddLog("=== Encoder reset complete ===");
     }
 
     void ActivateEncoder(uint8_t Port)
@@ -1334,36 +1323,38 @@ public:
 
         uint8_t Port = Profile->Port;
 
-        AddLog("=== STARTING SPEED PROFILE FROM CURRENT POSITION ===");
+        AddLog("=== STARTING SPEED PROFILE WITH ACTIVE ENCODER POLLING ===");
 
-        // АКТИВИРУЕМ ЭНКОДЕР ПЕРЕД НАЧАЛОМ
-        ActivateEncoder(Port);
-        ResetEncoderPosition(Port);
+        EnhancedEncoderMonitoring(Port);
 
-        // Ждем немного для инициализации
-        std::this_thread::sleep_for(200ms);
+        // Активируем энкодер для опроса
+        if (!ActivateEncoderForPolling(Port)) {
+            AddLog("Failed to activate encoder for polling");
+            return false;
+        }
 
         // Запоминаем начальную позицию
-        double startPosition = MotorStates[Port].CurrentPosition;
+        double startPosition = MotorStates[Port].CurrentPosition.load();
         AddLog("Starting from position: %.3f", startPosition);
 
-        // Пересчитываем целевые позиции относительно текущей позиции
-        std::vector<SpeedProfilePoint> relativePoints;
+        // Пересчитываем целевые позиции
+        std::vector<SpeedProfilePoint> absolutePoints;
         for (int i = 0; i < Profile->Count; i++) {
             SpeedProfilePoint point = Profile->Points[i];
-            point.Position = startPosition + point.Position; // Делаем абсолютными относительно старта
-            relativePoints.push_back(point);
-            AddLog("Target %d: absolute position=%.3f, speed=%d",
-                i, point.Position, point.Speed);
+            point.Position = startPosition + point.Position;
+            absolutePoints.push_back(point);
+            AddLog("Target %d: position=%.3f, speed=%d, tolerance=%.3f",
+                i, point.Position, point.Speed, point.Tolerance);
         }
 
         // Запускаем контроль скорости
-        return StartSpeedControlInternal(Port, relativePoints, Profile->TimeoutMs);
+        return StartSpeedControlInternal(Port, absolutePoints, Profile->TimeoutMs);
     }
 
     bool StartSpeedControlInternal(uint8_t Port,
         const std::vector<SpeedProfilePoint>& Points, int TimeoutMs)
     {
+        // Останавливаем предыдущий контроль
         StopContinuousSpeedControl(Port);
 
         std::lock_guard<std::mutex> lock(SpeedControlMutex);
@@ -1372,13 +1363,14 @@ public:
         State.Active = true;
         State.CurrentPointIndex = 0;
         State.ProfilePoints = Points;
+        State.TimeoutMs = TimeoutMs;
 
-        // Запускаем поток контроля
+        // Запускаем поток контроля с активным опросом
         State.ControlThread = std::thread([this, Port, TimeoutMs]() {
             this->PreciseSpeedControlProcessor(Port, TimeoutMs);
             });
 
-        AddLog("Precise speed control started for port 0x%02X", Port);
+        AddLog("Speed control with ACTIVE POLLING started for port 0x%02X", Port);
         return true;
     }
 
@@ -1407,22 +1399,7 @@ public:
     {
         if (!Printer) return false;
 
-        AddLog("=== Comprehensive encoder diagnostics ===");
-
-        // Проверяем тип мотора
-        CheckMotorType(0x00);
-        std::this_thread::sleep_for(1000ms);
-
-        // Проверяем физическое подключение
-        TestPhysicalConnection(0x00);
-        std::this_thread::sleep_for(1000ms);
-
-        // Тестируем все порты
-        TestAllMotorPorts();
-        std::this_thread::sleep_for(1000ms);
-
-        AddLog("=== Final recommendation ===");
-        AddLog("If encoder don`t work, use positioning commands instead");
+        RealTimeEncoderTest(0x00);
     }
 
 private:
@@ -1660,10 +1637,11 @@ private:
     void PreciseSpeedControlProcessor(uint8_t Port, int TimeoutMs)
     {
         auto& State = SpeedControlStates[Port];
-        AddLog("Precise speed control processor started for port 0x%02X", Port);
+        AddLog("Precise speed control started for port 0x%02X", Port);
 
-        double startPosition = MotorStates[Port].CurrentPosition.load();
-        AddLog("Starting position: %.3f", startPosition);
+        // СБРАСЫВАЕМ ПОЗИЦИЮ ПЕРЕД НАЧАЛОМ
+        ResetEncoderPosition(Port);
+        double startPosition = 0.0; // Начинаем с 0
 
         // Устанавливаем начальную скорость
         if (State.ProfilePoints.size() > 0) {
@@ -1675,29 +1653,34 @@ private:
         size_t currentPointIndex = 0;
 
         while (State.Active && IsValid && !StopRequested) {
+            // Получаем текущее время в начале итерации
+            auto currentTime = std::chrono::steady_clock::now();
+
             // Получаем текущую позицию
             double currentPosition = MotorStates[Port].CurrentPosition.load();
 
-            // Улучшенное логирование - каждые 10 итераций
-            static int logCounter = 0;
-            if (++logCounter % 10 == 0) {
-                AddLog("Control Loop: current=%.3f, target=%.3f, point=%zu/%zu",
-                    currentPosition,
-                    currentPointIndex < State.ProfilePoints.size() ?
-                    State.ProfilePoints[currentPointIndex].Position : 0.0,
-                    currentPointIndex,
-                    State.ProfilePoints.size());
-            }
+            // Запрашиваем обновление позиции
+            RequestEncoderPosition(Port);
+            std::this_thread::sleep_for(10ms);
 
             // Проверяем достижение текущей целевой точки
             if (currentPointIndex < State.ProfilePoints.size()) {
                 const auto& targetPoint = State.ProfilePoints[currentPointIndex];
-                double distanceToTarget = targetPoint.Position - currentPosition;
+                double absoluteTarget = startPosition + targetPoint.Position;
+                double distanceToTarget = absoluteTarget - currentPosition;
 
-                // Проверяем, достигли ли мы целевой позиции
-                bool positionReached = std::abs(distanceToTarget) <= targetPoint.Tolerance;
+                // Логируем прогресс
+                static auto lastLogTime = startTime;
+                if (std::chrono::duration_cast<std::chrono::milliseconds>(
+                    currentTime - lastLogTime).count() > 500) {
+                    AddLog("CONTROL: Current=%.3f, Target=%.3f, Distance=%.3f, Speed=%d",
+                        currentPosition, absoluteTarget, distanceToTarget,
+                        targetPoint.Speed);
+                    lastLogTime = currentTime;
+                }
 
-                if (positionReached) {
+                // Проверяем достижение целевой позиции
+                if (std::abs(distanceToTarget) <= targetPoint.Tolerance) {
                     // Достигли точки - устанавливаем новую скорость
                     currentPointIndex++;
 
@@ -1718,8 +1701,8 @@ private:
             }
 
             // Проверяем таймаут
-            auto currentTime = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - startTime);
             if (elapsed.count() > TimeoutMs) {
                 AddLog("=== CONTROL TIMEOUT ===");
                 SetMotorSpeed(Port, 0);
@@ -1727,10 +1710,139 @@ private:
                 break;
             }
 
-            std::this_thread::sleep_for(5ms);
+            std::this_thread::sleep_for(10ms);
         }
 
-        AddLog("Precise speed control processor stopped for port 0x%02X", Port);
+        AddLog("Speed control processor stopped for port 0x%02X", Port);
+    }
+
+    void RequestEncoderPosition(uint8_t Port)
+    {
+        if (!IsValid || !peripheral.is_connected()) {
+            return;
+        }
+
+        // Команда запроса информации о позиции энкодера
+        std::vector<uint8_t> requestCommand = {
+            0x05,       // Длина пакета
+            0x00,       // Hub ID
+            0x21,       // Port Information Request
+            Port,       // Порт
+            0x00        // Информация о режиме
+        };
+
+        SendCommandVector(requestCommand);
+
+        // Не логируем каждый запрос, чтобы не засорять логи
+        static int requestCount = 0;
+        if (++requestCount % 50 == 0) { // Логируем каждые 50 запросов
+            AddLog("Encoder position request sent for port 0x%02X (request #%d)",
+                Port, requestCount);
+        }
+    }
+
+    bool ActivateEncoderForPolling(uint8_t Port)
+    {
+        AddLog("=== ПРАВИЛЬНАЯ АКТИВАЦИЯ ЭНКОДЕРА ДЛЯ LEGO TECHNIC HUB ===");
+
+        // 1. Полная деактивация порта
+        AddLog("1. Деактивация порта");
+        std::vector<uint8_t> deactivateCmd = { 0x05, 0x00, 0x41, Port, 0x00 };
+        SendCommandVector(deactivateCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 2. Активация порта как устройства ввода (input) - КРИТИЧЕСКИ ВАЖНО!
+        AddLog("2. Активация порта как устройства ввода");
+        std::vector<uint8_t> setupCmd = {
+            0x09,       // Длина
+            0x00,       // Hub ID
+            0x41,       // Port Configuration
+            Port,       // Порт
+            0x00,       // Режим: Position (0x00)
+            0x01,       // Delta interval
+            0x01,       // Unit: Degrees
+            0x01,       // Notifications: ON
+            0x00        // Padding
+        };
+        SendCommandVector(setupCmd);
+        std::this_thread::sleep_for(1000ms);
+
+        // 3. Включение обновлений позиции
+        AddLog("3. Включение обновлений позиции");
+        std::vector<uint8_t> subscribeCmd = {
+            0x08,       // Длина
+            0x00,       // Hub ID
+            0x47,       // Hub Attached IO
+            Port,       // Порт
+            0x02,       // Subcommand: Subscribe
+            0x00,       // Mode
+            0x01,       // Subscribe: ON
+            0x00        // Padding
+        };
+        SendCommandVector(subscribeCmd);
+        std::this_thread::sleep_for(1000ms);
+
+        // 4. Сброс позиции
+        AddLog("4. Сброс позиции энкодера");
+        std::vector<uint8_t> resetCmd = {
+            0x08,       // Длина
+            0x00,       // Hub ID  
+            0x81,       // Output command
+            Port,       // Порт
+            0x51,       // Subcommand: Preset Encoder
+            0x02,       // Mode: Preset value
+            0x00,       // Value low byte
+            0x00        // Value high byte
+        };
+        SendCommandVector(resetCmd);
+        std::this_thread::sleep_for(1000ms);
+
+        // Обнуляем внутреннюю позицию
+        MotorStates[Port].CurrentPosition.store(0.0);
+
+        AddLog("Энкодер активирован для порта 0x%02X", Port);
+
+        // Тестируем сразу
+        TestEncoderResponse(Port, "После активации");
+
+        return true;
+    }
+
+    void EnhancedEncoderMonitoring(uint8_t Port)
+    {
+        AddLog("=== ENHANCED ENCODER MONITORING STARTED ===");
+
+        // Запускаем фоновый мониторинг позиции
+        std::thread monitorThread([this, Port]() {
+            auto lastLogTime = std::chrono::steady_clock::now();
+            double lastPosition = MotorStates[Port].CurrentPosition.load();
+
+            while (IsValid && !StopRequested) {
+                // Запрашиваем позицию
+                RequestEncoderPosition(Port);
+
+                // Ждем ответа
+                std::this_thread::sleep_for(25ms);
+
+                // Проверяем текущую позицию
+                double currentPosition = MotorStates[Port].CurrentPosition.load();
+
+                // Логируем изменения
+                auto currentTime = std::chrono::steady_clock::now();
+                if (std::abs(currentPosition - lastPosition) > 0.01 ||
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        currentTime - lastLogTime).count() >= 2) {
+
+                    AddLog("MONITOR: Port=0x%02X, Position=%.3f", Port, currentPosition);
+                    lastPosition = currentPosition;
+                    lastLogTime = currentTime;
+                }
+
+                std::this_thread::sleep_for(25ms);
+            }
+            });
+
+        monitorThread.detach();
     }
 
     bool TestWorkingPort(uint8_t Port)
@@ -1761,6 +1873,569 @@ private:
         AddLog("Starting test profile on working port 0x%02X", Port);
         return ExecuteSpeedProfile(&profile);
     }
+
+    void DebugMotorAndEncoder(uint8_t Port)
+    {
+        AddLog("=== DEEP MOTOR/ENCODER DEBUG FOR PORT 0x%02X ===", Port);
+
+        // 1. Проверяем, что мотор вообще реагирует на команды
+        AddLog("1. Testing motor basic functionality");
+        SetMotorSpeed(Port, 30);
+        std::this_thread::sleep_for(1000ms);
+        SetMotorSpeed(Port, 0);
+        std::this_thread::sleep_for(500ms);
+
+        // 2. Проверяем начальное состояние энкодера
+        double initialPos = MotorStates[Port].CurrentPosition.load();
+        AddLog("2. Initial encoder position: %.3f", initialPos);
+
+        // 3. Отправляем команду запроса статуса порта
+        AddLog("3. Requesting port status");
+        std::vector<uint8_t> statusCmd = { 0x05, 0x00, 0x21, Port, 0x01 }; // Port information request
+        SendCommandVector(statusCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 4. Пробуем разные методы активации энкодера
+        AddLog("4. Trying different encoder activation methods");
+
+        // Метод 1: Стандартная активация LEGO
+        std::vector<uint8_t> activate1 = { 0x09, 0x00, 0x41, Port, 0x00, 0x00, 0x01, 0x01, 0x00 };
+        SendCommandVector(activate1);
+        std::this_thread::sleep_for(300ms);
+
+        // Метод 2: Альтернативная активация
+        std::vector<uint8_t> activate2 = { 0x09, 0x00, 0x41, Port, 0x02, 0x02, 0x00, 0x01, 0x00 };
+        SendCommandVector(activate2);
+        std::this_thread::sleep_for(300ms);
+
+        // Метод 3: Другой подход
+        std::vector<uint8_t> activate3 = { 0x0A, 0x00, 0x41, Port, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00 };
+        SendCommandVector(activate3);
+        std::this_thread::sleep_for(300ms);
+
+        // 5. Сбрасываем позицию
+        AddLog("5. Resetting encoder position");
+        std::vector<uint8_t> resetCmd = { 0x08, 0x00, 0x81, Port, 0x51, 0x02, 0x00, 0x00 };
+        SendCommandVector(resetCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 6. Проверяем позицию после сброса
+        double afterReset = MotorStates[Port].CurrentPosition.load();
+        AddLog("6. Position after reset: %.3f", afterReset);
+
+        // 7. Вращаем мотор и мониторим энкодер в реальном времени
+        AddLog("7. Real-time encoder monitoring during rotation");
+        SetMotorSpeed(Port, 40);
+
+        auto startTime = std::chrono::steady_clock::now();
+        bool encoderUpdated = false;
+
+        for (int i = 0; i < 50; i++) { // 5 секунд мониторинга
+            std::this_thread::sleep_for(100ms);
+            double currentPos = MotorStates[Port].CurrentPosition.load();
+
+            if (std::abs(currentPos - afterReset) > 0.01) {
+                AddLog("   ENCODER UPDATED! Position: %.3f at %d ms",
+                    currentPos, (i + 1) * 100);
+                encoderUpdated = true;
+                break;
+            }
+
+            // Логируем каждую секунду
+            if ((i + 1) % 10 == 0) {
+                AddLog("   Still monitoring... position: %.3f", currentPos);
+            }
+        }
+
+        SetMotorSpeed(Port, 0);
+
+        if (!encoderUpdated) {
+            AddLog("8. CRITICAL: Encoder never updated during rotation");
+            AddLog("   Possible causes:");
+            AddLog("   - Motor doesn't have encoder hardware");
+            AddLog("   - Wrong port configuration");
+            AddLog("   - Hub firmware issue");
+            AddLog("   - Physical connection problem");
+        }
+        else {
+            AddLog("8. SUCCESS: Encoder is working!");
+        }
+    }
+
+    void HardwareDiagnostics()
+    {
+        AddLog("=== HARDWARE DIAGNOSTICS ===");
+
+        // Тестируем все основные порты
+        std::vector<uint8_t> portsToTest = { 0x00, 0x01, 0x02, 0x03 };
+
+        for (uint8_t port : portsToTest) {
+            AddLog("--- Testing port 0x%02X ---", port);
+
+            // Проверяем, есть ли вообще устройство на порту
+            AddLog("Checking if device exists on port...");
+
+            // Отправляем команду запроса информации о порту
+            std::vector<uint8_t> infoCmd = { 0x05, 0x00, 0x21, port, 0x01 };
+            SendCommandVector(infoCmd);
+            std::this_thread::sleep_for(500ms);
+
+            // Проверяем базовую функциональность мотора
+            AddLog("Testing motor basic function...");
+            SetMotorSpeed(port, 25);
+            std::this_thread::sleep_for(1000ms);
+            SetMotorSpeed(port, 0);
+            std::this_thread::sleep_for(500ms);
+
+            // Проверяем энкодер
+            DebugMotorAndEncoder(port);
+
+            std::this_thread::sleep_for(1000ms);
+        }
+
+        AddLog("=== HARDWARE DIAGNOSTICS COMPLETE ===");
+    }
+
+    bool ActivateEncoderWithFeedback(uint8_t Port)
+    {
+        AddLog("=== ACTIVATING ENCODER WITH FEEDBACK FOR PORT 0x%02X ===", Port);
+
+        // 1. Полностью деактивируем порт
+        std::vector<uint8_t> deactivateCmd = { 0x05, 0x00, 0x41, Port, 0x00 };
+        SendCommandVector(deactivateCmd);
+        std::this_thread::sleep_for(200ms);
+
+        // 2. Активируем с разными настройками и проверяем отклик
+        std::vector<std::pair<std::string, std::vector<uint8_t>>> activationMethods = {
+            {"Standard Position Mode", {0x09, 0x00, 0x41, Port, 0x00, 0x00, 0x01, 0x01, 0x00}},
+            {"Alternative Mode", {0x09, 0x00, 0x41, Port, 0x02, 0x02, 0x00, 0x01, 0x00}},
+            {"Extended Mode", {0x0A, 0x00, 0x41, Port, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00}}
+        };
+
+        for (const auto& method : activationMethods) {
+            AddLog("Trying: %s", method.first.c_str());
+            SendCommandVector(method.second);
+            std::this_thread::sleep_for(400ms);
+
+            // Проверяем, появились ли обновления энкодера
+            double posBefore = MotorStates[Port].CurrentPosition.load();
+
+            // Вращаем мотор немного чтобы проверить обновления
+            SetMotorSpeed(Port, 20);
+            std::this_thread::sleep_for(500ms);
+            SetMotorSpeed(Port, 0);
+            std::this_thread::sleep_for(200ms);
+
+            double posAfter = MotorStates[Port].CurrentPosition.load();
+
+            if (std::abs(posAfter - posBefore) > 0.01) {
+                AddLog("SUCCESS: %s WORKED! Position changed: %.3f -> %.3f",
+                    method.first.c_str(), posBefore, posAfter);
+                return true;
+            }
+        }
+
+        AddLog("FAILED: No activation method worked");
+        return false;
+    }
+
+    void CheckMotorTypeAndConnection()
+    {
+        AddLog("=== MOTOR TYPE AND CONNECTION CHECK ===");
+
+        // Вопросы для диагностики:
+        AddLog("Please verify:");
+        AddLog("1. Is this a Technic Large/Medium Angular Motor?");
+        AddLog("2. Is the motor firmly connected to port A (0x00)?");
+        AddLog("3. Is the hub battery charged?");
+        AddLog("4. Have you tried a different motor?");
+        AddLog("5. Have you tried a different port?");
+
+        // Тест для порта 0x00
+        AddLog("Running detailed test for port 0x00...");
+        DebugMotorAndEncoder(0x00);
+    }
+
+    bool SimpleEncoderTest(uint8_t Port)
+    {
+        AddLog("=== SIMPLE ENCODER TEST FOR PORT 0x%02X ===", Port);
+
+        // 1. Активируем энкодер ПРАВИЛЬНЫМ способом
+        if (!ActivateEncoderProperly(Port)) {
+            AddLog("FAILED: Encoder not working after proper activation");
+            return false;
+        }
+
+        // 2. Проверяем базовую функциональность
+        double startPos = MotorStates[Port].CurrentPosition.load();
+        AddLog("Starting position: %.3f", startPos);
+
+        // 3. Вращаем мотор и следим за обновлениями
+        AddLog("Rotating motor and monitoring encoder...");
+        SetMotorSpeed(Port, 50);
+
+        std::vector<double> positions;
+        for (int i = 0; i < 30; i++) {
+            std::this_thread::sleep_for(100ms);
+            double pos = MotorStates[Port].CurrentPosition.load();
+            positions.push_back(pos);
+
+            // Логируем изменения
+            if (i == 0 || std::abs(pos - positions[i - 1]) > 0.01) {
+                AddLog("  Time %dms: position = %.3f", (i + 1) * 100, pos);
+            }
+        }
+
+        SetMotorSpeed(Port, 0);
+
+        // 4. Анализируем результаты
+        double maxPos = *std::max_element(positions.begin(), positions.end());
+        double minPos = *std::min_element(positions.begin(), positions.end());
+        double range = maxPos - minPos;
+
+        AddLog("Results: min=%.3f, max=%.3f, range=%.3f", minPos, maxPos, range);
+
+        bool success = (range > 0.1); // Должен пройти хотя бы 0.1 оборота
+        AddLog("Encoder test %s", success ? "PASSED" : "FAILED");
+
+        return success;
+    }
+
+    void DeepEncoderDiagnostics(uint8_t Port)
+    {
+        AddLog("=== ГЛУБОКАЯ ДИАГНОСТИКА ЭНКОДЕРА ПОРТ 0x%02X ===", Port);
+
+        // 1. Проверяем, что мотор вообще вращается
+        AddLog("1. Проверка вращения мотора без энкодера");
+        SetMotorSpeed(Port, 50);
+        std::this_thread::sleep_for(3000ms);
+        SetMotorSpeed(Port, 0);
+        AddLog("   Мотор должен был вращаться 3 секунды");
+        std::this_thread::sleep_for(1000ms);
+
+        // 2. Проверяем тип мотора и подключение
+        AddLog("2. Запрос информации об устройстве");
+        std::vector<uint8_t> deviceInfoCmd = { 0x05, 0x00, 0x21, Port, 0x01 };
+        SendCommandVector(deviceInfoCmd);
+        std::this_thread::sleep_for(1000ms);
+
+        // 3. Полная деактивация и переактивация
+        AddLog("3. Полный сброс порта");
+        std::vector<uint8_t> deactivateCmd = { 0x05, 0x00, 0x41, Port, 0x00 };
+        SendCommandVector(deactivateCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 4. Попробуем разные методы активации энкодера
+        AddLog("4. Тестируем разные методы активации энкодера:");
+
+        // Метод 1: Стандартный LEGO
+        AddLog("   Метод 1: Стандартная активация");
+        std::vector<uint8_t> activate1 = { 0x09, 0x00, 0x41, Port, 0x00, 0x01, 0x01, 0x01, 0x00 };
+        SendCommandVector(activate1);
+        std::this_thread::sleep_for(1000ms);
+
+        TestEncoderResponse(Port, "После метода 1");
+
+        // Метод 2: Альтернативный
+        AddLog("   Метод 2: Альтернативная активация");
+        std::vector<uint8_t> activate2 = { 0x09, 0x00, 0x41, Port, 0x02, 0x01, 0x00, 0x01, 0x00 };
+        SendCommandVector(activate2);
+        std::this_thread::sleep_for(1000ms);
+
+        TestEncoderResponse(Port, "После метода 2");
+
+        // Метод 3: Расширенный
+        AddLog("   Метод 3: Расширенная активация");
+        std::vector<uint8_t> activate3 = { 0x0A, 0x00, 0x41, Port, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00 };
+        SendCommandVector(activate3);
+        std::this_thread::sleep_for(1000ms);
+
+        TestEncoderResponse(Port, "После метода 3");
+
+        AddLog("=== ДИАГНОСТИКА ЗАВЕРШЕНА ===");
+    }
+
+    void TestEncoderResponse(uint8_t Port, const char* context)
+    {
+        double before = MotorStates[Port].CurrentPosition.load();
+        AddLog("   %s: позиция до = %.3f", context, before);
+
+        // Короткое вращение
+        SetMotorSpeed(Port, 40);
+        std::this_thread::sleep_for(2000ms);
+        SetMotorSpeed(Port, 0);
+        std::this_thread::sleep_for(500ms);
+
+        double after = MotorStates[Port].CurrentPosition.load();
+        AddLog("   %s: позиция после = %.3f, изменение = %.3f", context, after, after - before);
+
+        if (std::abs(after - before) > 0.01) {
+            AddLog("   *** УСПЕХ: Энкодер работает! ***");
+        }
+        else {
+            AddLog("   *** ОШИБКА: Энкодер не обновляется ***");
+        }
+    }
+
+    void CheckDeviceType(uint8_t Port)
+    {
+        AddLog("=== ПРОВЕРКА ТИПА УСТРОЙСТВА НА ПОРТУ 0x%02X ===", Port);
+
+        // Команда запроса информации об устройстве
+        std::vector<uint8_t> infoCmd = { 0x05, 0x00, 0x21, Port, 0x01 };
+        SendCommandVector(infoCmd);
+        std::this_thread::sleep_for(1000ms);
+
+        // Дополнительная команда для запроса capabilities
+        std::vector<uint8_t> capCmd = { 0x05, 0x00, 0x21, Port, 0x02 };
+        SendCommandVector(capCmd);
+        std::this_thread::sleep_for(1000ms);
+
+        AddLog("Если в логах нет информации об устройстве - возможно неправильный порт");
+    }
+
+    void TestAllPorts()
+    {
+        AddLog("=== ТЕСТИРОВАНИЕ ВСЕХ ПОРТОВ ===");
+
+        std::vector<uint8_t> ports = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 };
+
+        for (uint8_t port : ports) {
+            AddLog("--- Тестируем порт 0x%02X ---", port);
+
+            // Проверяем тип устройства
+            CheckDeviceType(port);
+
+            // Активируем энкодер
+            ActivateEncoderForPolling(port);
+
+            // Тестируем отклик
+            TestEncoderResponse(port, "Итоговый тест");
+
+            std::this_thread::sleep_for(2000ms);
+        }
+    }
+
+    void DebugAllIncomingData()
+    {
+        AddLog("=== DEBUG ALL INCOMING DATA ===");
+
+        // Временно переустанавливаем обработчик чтобы логировать всё
+        peripheral.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
+            [this](const std::vector<uint8_t>& Data) {
+                if (!Data.empty()) {
+                    std::string hexStr = "RAW INCOMING: ";
+                    for (uint8_t b : Data) {
+                        char hex[4];
+                        snprintf(hex, sizeof(hex), "%02X", b);
+                        hexStr += hex;
+                        hexStr += " ";
+                    }
+                    AddLog("%s", hexStr.c_str());
+
+                    // Также обрабатываем данные в основном обработчике
+                    this->HandleHubNotification(Data);
+                }
+            }
+        );
+        AddLog("Debug notification handler installed");
+    }
+
+    bool ActivateEncoderLikeOldMethod(uint8_t Port)
+    {
+        AddLog("=== АКТИВАЦИЯ КАК В СТАРЫХ РАБОЧИХ МЕТОДАХ ===");
+
+        // 1. Деактивация
+        std::vector<uint8_t> deactivateCmd = { 0x05, 0x00, 0x41, Port, 0x00 };
+        SendCommandVector(deactivateCmd);
+        std::this_thread::sleep_for(200ms);
+
+        // 2. Активация КАК В СТАРОМ МЕТОДЕ
+        std::vector<uint8_t> activateCmd = {
+            0x0A,       // Длина пакета - 10 байт!
+            0x00,       // Hub ID  
+            0x41,       // Port configuration command
+            Port,       // Порт
+            0x00,       // Mode: position (0x00)
+            0x00,       // Delta interval: 0 (важно!)
+            0x01,       // Unit: градусы
+            0x00,       // Notifications enabled: 0 (важно!)
+            0x00,       // Padding
+            0x00        // Padding
+        };
+        SendCommandVector(activateCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 3. Подписка КАК В СТАРОМ МЕТОДЕ
+        std::vector<uint8_t> subscribeCmd = {
+            0x08,       // Длина пакета
+            0x00,       // Hub ID
+            0x47,       // Hub Attached IO
+            Port,       // Порт  
+            0x02,       // Subcommand: Subscribe
+            0x00,       // Mode
+            0x01,       // Subscribe flag: 1
+            0x00        // Padding
+        };
+        SendCommandVector(subscribeCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 4. Сброс позиции
+        std::vector<uint8_t> resetCmd = { 0x08, 0x00, 0x81, Port, 0x51, 0x02, 0x00, 0x00 };
+        SendCommandVector(resetCmd);
+        std::this_thread::sleep_for(500ms);
+
+        MotorStates[Port].CurrentPosition.store(0.0);
+
+        AddLog("Активация завершена по старому методу для порта 0x%02X", Port);
+        return true;
+    }
+
+    void CheckCurrentNotificationHandler()
+    {
+        AddLog("=== ПРОВЕРКА ТЕКУЩЕГО ОБРАБОТЧИКА УВЕДОМЛЕНИЙ ===");
+
+        // Временно установим простой обработчик для отладки
+        peripheral.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
+            [this](const std::vector<uint8_t>& Data) {
+                if (Data.size() >= 3) {
+                    AddLog("NOTIFICATION: Type=0x%02X, Port=0x%02X, Length=%zu",
+                        Data[2], Data.size() > 3 ? Data[3] : 0, Data.size());
+
+                    // Если это данные энкодера (0x04)
+                    if (Data[2] == 0x04 && Data.size() >= 8) {
+                        uint8_t port = Data[3];
+                        int32_t position = (Data[4] | (Data[5] << 8) | (Data[6] << 16) | (Data[7] << 24));
+                        double revolutions = static_cast<double>(position) / 360.0;
+                        AddLog("ENCODER DATA: Port=0x%02X, Raw=%d, Rev=%.3f",
+                            port, position, revolutions);
+                    }
+                }
+
+                // Также вызываем основной обработчик
+                this->HandleHubNotification(Data);
+            }
+        );
+        AddLog("Debug notification handler installed");
+    }
+
+    void ComprehensiveEncoderTest(uint8_t Port)
+    {
+        AddLog("=== ПОЛНЫЙ ТЕСТ ЭНКОДЕРА ===");
+
+        // 1. Включаем отладку входящих данных
+        DebugAllIncomingData();
+        std::this_thread::sleep_for(1000ms);
+
+        // 2. Проверяем текущий обработчик
+        CheckCurrentNotificationHandler();
+        std::this_thread::sleep_for(1000ms);
+
+        // 3. Тестируем старый рабочий метод
+
+        // 4. Тестируем активацию как в старом методе
+        AddLog("--- Тест активации по старому методу ---");
+        ActivateEncoderLikeOldMethod(Port);
+        TestEncoderResponse(Port, "После активации по старому методу");
+
+        // 5. Проверяем, приходят ли вообще уведомления
+        AddLog("--- Проверка уведомлений ---");
+        AddLog("Вращаем мотор и следим за уведомлениями...");
+
+        SetMotorSpeed(Port, 30);
+        for (int i = 0; i < 20; i++) {
+            std::this_thread::sleep_for(100ms);
+            double pos = MotorStates[Port].CurrentPosition.load();
+            if (pos != 0.0) {
+                AddLog("УСПЕХ: Позиция обновилась до %.3f на шаге %d", pos, i);
+                break;
+            }
+        }
+        SetMotorSpeed(Port, 0);
+
+        AddLog("=== ТЕСТ ЗАВЕРШЕН ===");
+    }
+
+    bool ActivateEncoderProperly(uint8_t Port)
+    {
+        AddLog("=== ПРАВИЛЬНАЯ АКТИВАЦИЯ ЭНКОДЕРА ===");
+
+        // 1. Деактивация порта
+        std::vector<uint8_t> deactivateCmd = { 0x05, 0x00, 0x41, Port, 0x00 };
+        SendCommandVector(deactivateCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 2. Активация в режиме абсолютной позиции
+        std::vector<uint8_t> activateCmd = {
+            0x09,       // Длина
+            0x00,       // Hub ID
+            0x41,       // Port Configuration
+            Port,       // Порт
+            0x00,       // Режим: абсолютная позиция
+            0x01,       // Delta interval
+            0x01,       // Unit: градусы
+            0x01,       // Уведомления ВКЛ
+            0x00        // Padding
+        };
+        SendCommandVector(activateCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 3. Подписка на уведомления
+        std::vector<uint8_t> subscribeCmd = {
+            0x08,       // Длина
+            0x00,       // Hub ID
+            0x47,       // Hub Attached IO
+            Port,       // Порт
+            0x02,       // Subcommand: Subscribe
+            0x00,       // Mode
+            0x01,       // Subscribe flag
+            0x00        // Padding
+        };
+        SendCommandVector(subscribeCmd);
+        std::this_thread::sleep_for(500ms);
+
+        // 4. СБРАСЫВАЕМ ПОЗИЦИЮ ПРАВИЛЬНО
+        ResetEncoderPosition(Port);
+
+        AddLog("Энкодер активирован для порта 0x%02X", Port);
+        return true;
+    }
+
+    void RealTimeEncoderTest(uint8_t Port)
+    {
+        AddLog("=== ТЕСТ ЭНКОДЕРА В РЕАЛЬНОМ ВРЕМЕНИ ===");
+
+        // Активируем и сбрасываем
+        ActivateEncoderProperly(Port);
+
+        // Начинаем вращение
+        AddLog("Начинаем вращение мотора...");
+        SetMotorSpeed(Port, 40);
+
+        // Мониторим позицию в реальном времени
+        auto startTime = std::chrono::steady_clock::now();
+        double lastPosition = MotorStates[Port].CurrentPosition.load();
+
+        for (int i = 0; i < 500; i++) { // 5 секунд мониторинга
+            std::this_thread::sleep_for(10ms);
+
+            double currentPosition = MotorStates[Port].CurrentPosition.load();
+            double delta = currentPosition - lastPosition;
+
+            if (std::abs(delta) > 0.001) {
+                AddLog("REALTIME: Time=%dms, Position=%.3f, Delta=%.3f",
+                    (i + 1) * 100, currentPosition, delta);
+                lastPosition = currentPosition;
+            }
+
+            // Запрашиваем обновление позиции
+            RequestEncoderPosition(Port);
+        }
+
+        SetMotorSpeed(Port, 0);
+        AddLog("Тест завершен");
+    }
+
 };
 
 // Main context and virtual table
