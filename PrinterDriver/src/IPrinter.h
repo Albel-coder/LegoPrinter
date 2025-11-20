@@ -78,7 +78,7 @@ extern "C" {
 
     typedef struct
     {
-        double Position; // Target position in revolutions
+        double Distance; // Target position in revolutions
         signed char Speed; // Speed for current position (-100 to 100)
         double Tolerance; // Tolerance for position
     } SpeedProfilePoint;
