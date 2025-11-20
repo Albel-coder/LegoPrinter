@@ -58,7 +58,46 @@ private:
         std::atomic<bool> ProfileActive{ false };
 
         std::vector<SpeedProfilePoint> ActiveProfile;
-        int ProfileTimeoutMs;
+        int ProfileTimeoutMs = 60000;
+
+        // Конструктор по умолчанию
+        MotorState() = default;
+
+        // Move конструктор
+        MotorState(MotorState&& other) noexcept
+            : CurrentPosition(other.CurrentPosition.load())
+            , RelativePosition(other.RelativePosition.load())
+            , SegmentStartPosition(other.SegmentStartPosition.load())
+            , CurrentSegmentTraveled(other.CurrentSegmentTraveled.load())
+            , SegmentStartRelative(other.SegmentStartRelative.load())
+            , CurrentSegmentIndex(other.CurrentSegmentIndex.load())
+            , ThreadRunning(other.ThreadRunning.load())
+            , ProfileActive(other.ProfileActive.load())
+            , ActiveProfile(std::move(other.ActiveProfile))
+            , ProfileTimeoutMs(other.ProfileTimeoutMs)
+        {
+        }
+
+        // Move assignment
+        MotorState& operator=(MotorState&& other) noexcept {
+            if (this != &other) {
+                CurrentPosition.store(other.CurrentPosition.load());
+                RelativePosition.store(other.RelativePosition.load());
+                SegmentStartPosition.store(other.SegmentStartPosition.load());
+                CurrentSegmentTraveled.store(other.CurrentSegmentTraveled.load());
+                SegmentStartRelative.store(other.SegmentStartRelative.load());
+                CurrentSegmentIndex.store(other.CurrentSegmentIndex.load());
+                ThreadRunning.store(other.ThreadRunning.load());
+                ProfileActive.store(other.ProfileActive.load());
+                ActiveProfile = std::move(other.ActiveProfile);
+                ProfileTimeoutMs = other.ProfileTimeoutMs;
+            }
+            return *this;
+        }
+
+        // Удаляем копирование
+        MotorState(const MotorState&) = delete;
+        MotorState& operator=(const MotorState&) = delete;
     };
 
     std::mutex SendCommandMutex;
@@ -81,7 +120,7 @@ private:
     // Logging system
     std::vector<std::string> LogEntries;
     std::mutex LogMutex;
-    const size_t MAX_LOG_ENTRIES = 1000;
+    const size_t MAX_LOG_ENTRIES = 10000;
 
     // Simple synchronization system
     std::mutex OperationMutex;
@@ -199,17 +238,21 @@ private:
     {
         try
         {
+            if (!peripheral.is_connected()) {
+                AddLog("ERROR: Peripheral not connected for encoder notifications");
+                return;
+            }
+
             peripheral.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
-                [this](const std::vector<uint8_t>& Data)
-                {
+                [this](const std::vector<uint8_t>& Data) {
                     this->HandleHubNotification(Data);
-                }
-            );
-            AddLog("Notification handler setup completed");
+                });
+
+            AddLog("Encoder notifications setup completed - SUBSCRIBED");
         }
         catch (const std::exception& ex)
         {
-            AddLog("Error setting up notification handler: %s", ex.what());
+            AddLog("Error setting up encoder notifications: %s", ex.what());
         }
     }
 
@@ -217,45 +260,91 @@ private:
     {
         if (!IsValid || Data.empty()) return;
 
-        // ДОБАВИМ логирование ВСЕХ уведомлений для отладки
+        // Логируем ВСЕ уведомления для отладки
         std::string debugStr = "RAW NOTIFICATION: ";
         for (auto byte : Data) {
-            char hex[4];
-            snprintf(hex, sizeof(hex), "%02X ", byte);
-            debugStr += hex;
+            const char* hexChars = "0123456789ABCDEF";
+            debugStr += hexChars[(byte >> 4) & 0x0F];
+            debugStr += hexChars[byte & 0x0F];
+            debugStr += " ";
         }
         AddLog("%s", debugStr.c_str());
 
-        // Обрабатываем пакеты энкодера (0x04)  
-        if (Data.size() >= 8 && Data[2] == 0x04) {
+        // Обрабатываем уведомления типа 0x45 (Port Output Command Feedback)
+        if (Data.size() >= 5 && Data[2] == 0x45) {
             uint8_t Port = Data[3];
+            InitializeMotorState(Port);
 
-            // ПРАВИЛЬНОЕ декодирование позиции как знакового 32-битного числа
+            // Данные позиции в байте 4 (8-битное значение)
+            uint8_t positionByte = Data[4];
+
+            // Преобразуем в знаковое 8-битное число
+            int8_t signedPosition = static_cast<int8_t>(positionByte);
+            double PositionRevolutions = static_cast<double>(signedPosition) / 360.0;
+
+            // ОБНОВЛЯЕМ состояние в реальном времени  
+            auto& state = MotorStates[Port];
+            double OldPosition = state.RelativePosition.load();
+            state.CurrentPosition.store(PositionRevolutions);
+            state.RelativePosition.store(PositionRevolutions);
+
+            if (std::abs(PositionRevolutions - OldPosition) > 0.0001) {
+                AddLog("ENCODER UPDATE (0x45): Port=0x%02X, Raw=0x%02X (%d), Position=%.3f, Delta=%.3f",
+                    Port, positionByte, signedPosition, PositionRevolutions, PositionRevolutions - OldPosition);
+            }
+        }
+        // Обрабатываем пакеты энкодера (тип устройства 0x04)  
+        else if (Data.size() >= 8 && Data[2] == 0x04) {
+            uint8_t Port = Data[3];
+            InitializeMotorState(Port);
+
+            // Декодируем позицию как знаковое 32-битное число  
             int32_t PositionRaw =
                 (static_cast<int32_t>(Data[4])) |
                 (static_cast<int32_t>(Data[5]) << 8) |
                 (static_cast<int32_t>(Data[6]) << 16) |
                 (static_cast<int32_t>(Data[7]) << 24);
 
-            // УПРОЩЕННОЕ преобразование в знаковое (компилятор сам сделает 2's complement)
             int32_t SignedPosition = static_cast<int32_t>(PositionRaw);
-
             double PositionRevolutions = static_cast<double>(SignedPosition) / 360.0;
 
             // ОБНОВЛЯЕМ состояние в реальном времени  
-            if (MotorStates.count(Port)) {
-                double OldPosition = MotorStates[Port].RelativePosition.load();
-                MotorStates[Port].CurrentPosition.store(PositionRevolutions);
-                MotorStates[Port].RelativePosition.store(PositionRevolutions);
+            auto& state = MotorStates[Port];
+            double OldPosition = state.RelativePosition.load();
+            state.CurrentPosition.store(PositionRevolutions);
+            state.RelativePosition.store(PositionRevolutions);
 
-                // Логируем ВСЕ изменения позиции (уменьшим порог)
-                if (std::abs(PositionRevolutions - OldPosition) > 0.0001) {
-                    AddLog("ENCODER UPDATE: Port=0x%02X, Raw=0x%08X, Signed=%d, Position=%.3f, Delta=%.3f",
-                        Port, PositionRaw, SignedPosition, PositionRevolutions, PositionRevolutions - OldPosition);
-                }
+            // Логируем ВСЕ изменения позиции
+            if (std::abs(PositionRevolutions - OldPosition) > 0.0001 || PositionRaw != 0) {
+                AddLog("ENCODER UPDATE (0x04): Port=0x%02X, Raw=0x%08X (%d), Position=%.3f, Delta=%.3f",
+                    Port, PositionRaw, SignedPosition, PositionRevolutions, PositionRevolutions - OldPosition);
             }
-            else {
-                AddLog("ENCODER UPDATE: Unknown port 0x%02X", Port);
+        }
+        // Обрабатываем уведомления типа 0x43 (Port Value)
+        else if (Data.size() >= 7 && Data[2] == 0x43) {
+            uint8_t Port = Data[3];
+            uint8_t Mode = Data[4];
+
+            if (Mode == 0x00) { // Position mode
+                InitializeMotorState(Port);
+
+                // Данные позиции в байтах 5-6 (16-битное значение)
+                int16_t PositionRaw =
+                    (static_cast<int16_t>(Data[5])) |
+                    (static_cast<int16_t>(Data[6]) << 8);
+
+                double PositionRevolutions = static_cast<double>(PositionRaw) / 360.0;
+
+                // ОБНОВЛЯЕМ состояние в реальном времени  
+                auto& state = MotorStates[Port];
+                double OldPosition = state.RelativePosition.load();
+                state.CurrentPosition.store(PositionRevolutions);
+                state.RelativePosition.store(PositionRevolutions);
+
+                if (std::abs(PositionRevolutions - OldPosition) > 0.0001) {
+                    AddLog("ENCODER UPDATE (0x43): Port=0x%02X, Raw=0x%04X (%d), Position=%.3f, Delta=%.3f",
+                        Port, PositionRaw, PositionRaw, PositionRevolutions, PositionRevolutions - OldPosition);
+                }
             }
         }
     }
@@ -285,7 +374,7 @@ private:
 
     void AddLog(const char* Format, ...)
     {
-        char Buffer[1024];
+        char Buffer[1024 * 16];
         va_list Args;
         va_start(Args, Format);
         vsnprintf(Buffer, sizeof(Buffer), Format, Args);
@@ -1209,28 +1298,44 @@ private:
 
     bool StartRelativeProfileController(uint8_t Port, const std::vector<SpeedProfilePoint>& ProfilePoints, int TimeoutMs)
     {
+        InitializeMotorState(Port);
         auto& state = MotorStates[Port];
 
-        // Останавливаем предыдущий профиль  
+        // Останавливаем предыдущий профиль
         state.ProfileActive = false;
         std::this_thread::sleep_for(100ms);
 
-        // Настраиваем новый профиль  
+        // СБРАСЫВАЕМ относительную позицию перед началом нового профиля
+        double currentAbsolutePos = state.CurrentPosition.load();
+        state.SegmentStartPosition.store(currentAbsolutePos);
+        state.SegmentStartRelative.store(0.0);
+        state.CurrentSegmentTraveled.store(0.0);
+        state.CurrentSegmentIndex.store(0);
+
+        // Настраиваем новый профиль
         state.ActiveProfile = ProfilePoints;
         state.ProfileTimeoutMs = TimeoutMs;
-        state.CurrentSegmentIndex = 0;
-        state.SegmentStartPosition = state.CurrentPosition.load();
-        state.CurrentSegmentTraveled = 0.0;
-        state.ProfileActive = true;
+        state.ProfileActive.store(true);
 
-        // Запускаем контроллер в отдельном потоке  
+        AddLog("Starting profile: InitialPosition=%.3f, Segments=%zu",
+            currentAbsolutePos, ProfilePoints.size());
+
+        // Запускаем контроллер в отдельном потоке
         std::thread controllerThread([this, Port]() {
             this->RelativeProfileController(Port);
             });
-
         controllerThread.detach();
 
         return true;
+    }
+
+    void InitializeMotorState(uint8_t Port)
+    {
+        if (!MotorStates.count(Port)) {
+            // Правильный способ инициализации
+            MotorStates[Port] = MotorState();
+            AddLog("Initialized motor state for port 0x%02X", Port);
+        }
     }
 
     void RelativeProfileController(uint8_t Port)
@@ -1238,24 +1343,26 @@ private:
         auto& state = MotorStates[Port];
         AddLog("=== STARTING PRECISE PROFILE CONTROLLER ===");
 
-        // Запускаем опрос энкодера  
-        StartEncoderPolling(Port);
-
-        // Сбрасываем позицию в памяти  
-        state.RelativePosition.store(0.0);
+        // ЗАПОМИНАЕМ начальную позицию для относительного отсчета
+        double initialPosition = state.CurrentPosition.load();
+        state.SegmentStartPosition.store(initialPosition);
         state.SegmentStartRelative.store(0.0);
         state.CurrentSegmentTraveled.store(0.0);
         state.CurrentSegmentIndex.store(0);
+        state.ProfileActive.store(true);
+
+        // Запускаем опрос энкодера
+        StartEncoderPolling(Port);
 
         auto profileStartTime = std::chrono::steady_clock::now();
         auto lastUpdateTime = profileStartTime;
         bool profileCompleted = false;
 
-        // Запускаем первый сегмент  
+        // Запускаем первый сегмент
         if (state.ActiveProfile.size() > 0) {
             SetMotorSpeed(Port, state.ActiveProfile[0].Speed);
-            AddLog("STARTING SEGMENT 0: Distance=%.3f, Speed=%d",
-                state.ActiveProfile[0].Distance, state.ActiveProfile[0].Speed);
+            AddLog("STARTING SEGMENT 0: Distance=%.3f, Speed=%d, StartPosition=%.3f",
+                state.ActiveProfile[0].Distance, state.ActiveProfile[0].Speed, initialPosition);
         }
 
         while (!profileCompleted && state.ProfileActive && IsValid && !StopRequested) {
@@ -1270,38 +1377,40 @@ private:
 
             const auto& segment = state.ActiveProfile[currentSegment];
 
-            // Используем РЕАЛЬНЫЕ данные энкодера  
-            double currentRelativePos = state.RelativePosition.load();
-            double segmentStart = state.SegmentStartRelative.load();
-            double traveled = currentRelativePos - segmentStart;
+            // ВАЖНО: используем ОТНОСИТЕЛЬНОЕ расстояние от начала сегмента
+            double currentAbsolutePos = state.CurrentPosition.load();
+            double segmentStart = state.SegmentStartPosition.load();
+            double traveled = currentAbsolutePos - segmentStart;
 
             state.CurrentSegmentTraveled.store(traveled);
 
             auto currentTime = std::chrono::steady_clock::now();
 
-            // Логируем прогресс каждую секунду  
+            // Логируем прогресс каждую секунду
             if (std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastUpdateTime).count() > 1000) {
-                AddLog("SEGMENT %d: Traveled=%.3f/%.3f, Speed=%d, AbsolutePos=%.3f",
-                    currentSegment, traveled, segment.Distance, segment.Speed, currentRelativePos);
+                AddLog("SEGMENT %d: Traveled=%.3f/%.3f, Speed=%d, AbsolutePos=%.3f, SegmentStart=%.3f",
+                    currentSegment, traveled, segment.Distance, segment.Speed,
+                    currentAbsolutePos, segmentStart);
                 lastUpdateTime = currentTime;
             }
 
-            // Проверяем завершение текущего сегмента по РЕАЛЬНОЙ позиции  
+            // Проверяем завершение текущего сегмента по ОТНОСИТЕЛЬНОМУ расстоянию
             if (traveled >= segment.Distance - segment.Tolerance) {
-                AddLog("SEGMENT %d COMPLETED: Traveled %.3f of %.3f",
+                AddLog("SEGMENT %d COMPLETED: Traveled %.3f of %.3f, Moving to next segment",
                     currentSegment, traveled, segment.Distance);
 
                 state.CurrentSegmentIndex++;
                 currentSegment = state.CurrentSegmentIndex.load();
 
                 if (currentSegment < state.ActiveProfile.size()) {
-                    state.SegmentStartRelative.store(currentRelativePos);
+                    // СБРАСЫВАЕМ начало сегмента на ТЕКУЩУЮ позицию
+                    state.SegmentStartPosition.store(currentAbsolutePos);
                     state.CurrentSegmentTraveled.store(0.0);
 
                     const auto& nextSegment = state.ActiveProfile[currentSegment];
                     SetMotorSpeed(Port, nextSegment.Speed);
-                    AddLog("STARTING SEGMENT %d: Distance=%.3f, Speed=%d",
-                        currentSegment, nextSegment.Distance, nextSegment.Speed);
+                    AddLog("STARTING SEGMENT %d: Distance=%.3f, Speed=%d, StartPosition=%.3f",
+                        currentSegment, nextSegment.Distance, nextSegment.Speed, currentAbsolutePos);
                 }
                 else {
                     SetMotorSpeed(Port, 0);
@@ -1310,11 +1419,12 @@ private:
                 }
             }
 
-            // Проверка таймаута  
+            // Проверка таймаута
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - profileStartTime);
             if (elapsed.count() > state.ProfileTimeoutMs) {
-                AddLog("PROFILE TIMEOUT: %d ms elapsed", elapsed.count());
+                AddLog("PROFILE TIMEOUT: %d ms elapsed, Segment=%d, Traveled=%.3f/%.3f",
+                    elapsed.count(), currentSegment, traveled, segment.Distance);
                 SetMotorSpeed(Port, 0);
                 state.ProfileActive = false;
                 break;
@@ -1326,7 +1436,6 @@ private:
         state.ProfileActive = false;
         state.ThreadRunning = false;
         AddLog("Precise profile controller stopped for port 0x%02X", Port);
-
     }
 
 
@@ -2427,16 +2536,16 @@ private:
     void RequestEncoderData(uint8_t Port)
     {
         if (!IsValid || !peripheral.is_connected()) {
-            // AddLog("WARNING: Cannot request encoder data - not connected");
             return;
         }
-            // Команда запроса данных энкодера - ПРАВИЛЬНЫЙ формат
-            std::vector<uint8_t> requestCmd = {
-                0x05,       // Длина  
-                0x00,       // Hub ID  
-                0x21,       // Port Information Request  
-                Port,       // Порт  
-                0x00        // Mode: position (абсолютная позиция)
+
+        // Команда запроса данных позиции
+        std::vector<uint8_t> requestCmd = {
+            0x05,       // Длина  
+            0x00,       // Hub ID  
+            0x21,       // Port Information Request  
+            Port,       // Моторный порт
+            0x00        // Mode: Position
         };
 
         try {
@@ -2447,71 +2556,96 @@ private:
         }
     }
 
+    void CheckEncoderStatus(uint8_t Port)
+    {
+        AddLog("=== ENCODER STATUS CHECK ===");
+
+        // Запрос статуса порта
+        std::vector<uint8_t> statusCmd = {
+            0x05,       // Длина
+            0x00,       // Hub ID
+            0x21,       // Port Information Request
+            Port,       // Порт
+            0x01        // Mode: configuration
+        };
+
+        SendCommandVector(statusCmd);
+        AddLog("Sent status request for port 0x%02X", Port);
+    }
+
     bool QuickEncoderTest(uint8_t Port)
     {
         AddLog("=== QUICK ENCODER TEST (REAL-TIME) ===");
 
-        // ПЕРЕД тестом убедимся в подписке на уведомления
-        SetupNotificationHandler();
-        std::this_thread::sleep_for(200ms); // Даем время на установку подписки
+        // ИНИЦИАЛИЗИРУЕМ порт если его нет
+        InitializeMotorState(Port);
+
+        // Простая активация энкодера
+        ActivateEncoderMode(Port);
+        std::this_thread::sleep_for(200ms);
 
         // Запускаем опрос энкодера  
         StartEncoderPolling(Port);
 
         // Сбрасываем позицию в памяти  
-        MotorStates[Port].RelativePosition.store(0.0);
-        double startPos = MotorStates[Port].RelativePosition.load();
+        auto& state = MotorStates[Port];
+        state.RelativePosition.store(0.0);
+        double startPos = state.RelativePosition.load();
         AddLog("Start position: %.3f", startPos);
 
         // Даем время на получение начальной позиции
-        std::this_thread::sleep_for(200ms);
-        startPos = MotorStates[Port].RelativePosition.load();
-        AddLog("Position after 200ms: %.3f", startPos);
+        std::this_thread::sleep_for(300ms);
+        startPos = state.RelativePosition.load();
+        AddLog("Position after 300ms: %.3f", startPos);
 
-        // Вращаем мотор  
-        AddLog("Rotating motor at speed 30...");
-        SetMotorSpeed(Port, 30);
+        // Вращаем мотор с умеренной скоростью
+        AddLog("Rotating motor at speed 40...");
+        SetMotorSpeed(Port, 40);
 
         // Мониторим с максимальной частотой  
         bool encoderUpdated = false;
-        for (int i = 0; i < 50; i++) { // 5 секунд  
+        for (int i = 0; i < 40; i++) { // 4 секунды  
             std::this_thread::sleep_for(100ms);
-            double currentPos = MotorStates[Port].RelativePosition.load();
+            double currentPos = state.RelativePosition.load();
 
             // Логируем каждое обновление  
             AddLog("Test loop %d: position=%.3f", i, currentPos);
 
-            if (std::abs(currentPos - startPos) > 0.01) {
-                AddLog("SUCCESS: Encoder working! Position: %.3f", currentPos);
+            // Уменьшим порог для обнаружения изменений
+            if (std::abs(currentPos - startPos) > 0.001) {
+                AddLog("SUCCESS: Encoder working! Position changed from %.3f to %.3f", startPos, currentPos);
                 encoderUpdated = true;
                 break;
             }
         }
 
         SetMotorSpeed(Port, 0);
-        MotorStates[Port].ThreadRunning = false;
+        state.ThreadRunning = false;
 
         if (!encoderUpdated) {
             AddLog("FAILED: Encoder not responding to motor movement");
-            AddLog("Debug info: StartPos=%.3f, FinalPos=%.3f",
-                startPos, MotorStates[Port].RelativePosition.load());
+            AddLog("Final position: %.3f", state.RelativePosition.load());
+
+            // Дополнительная диагностика
+            AddLog("Last received encoder data analysis:");
+            AddLog("  - Check if 0x45 notifications are being received");
+            AddLog("  - Check if position bytes are changing in 0x45 messages");
         }
 
         return encoderUpdated;
     }
 
-    // ДОБАВИМ функцию для активации энкодера на порту
     void ActivateEncoderMode(uint8_t Port)
     {
         if (!IsValid || !peripheral.is_connected()) return;
 
-        // Команда активации энкодера на порту
+        // УПРОЩЕННАЯ команда - используем только базовую настройку
         std::vector<uint8_t> setupCmd = {
             0x09,       // Длина
             0x00,       // Hub ID  
             0x41,       // Port Configuration Command
-            Port,       // Порт
-            0x02,       // Mode: Absolute Position (энкодер)
+            Port,       // Моторный порт
+            0x00,       // Mode: Position
             0x00,       // Data Format
             0x00,       // Unit
             0x00,       // Range min
@@ -2519,8 +2653,12 @@ private:
         };
 
         SendCommandVector(setupCmd);
-        AddLog("Encoder mode activated for port 0x%02X", Port);
+        AddLog("Basic encoder setup for port 0x%02X", Port);
+
+        // Даем время на обработку
+        std::this_thread::sleep_for(100ms);
     }
+
 };
 
 // Main context and virtual table
