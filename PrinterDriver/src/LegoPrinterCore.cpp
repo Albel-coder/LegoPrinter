@@ -365,45 +365,6 @@ private:
         }
     }
 
-    void TestMotorDirection(uint8_t Port)
-    {
-        AddLog("=== TESTING MOTOR DIRECTION ===");
-
-        ResetEncoderPosition(Port);
-        double startPos = GetMotorPosition(Port);
-
-        // Вращаем вперед
-        AddLog("Rotating FORWARD at speed 30...");
-        SetMotorSpeed(Port, 30);
-        std::this_thread::sleep_for(1000ms);
-        SetMotorSpeed(Port, 0);
-        std::this_thread::sleep_for(500ms);
-
-        double forwardPos = GetMotorPosition(Port);
-        double forwardChange = forwardPos - startPos;
-
-        // Вращаем назад
-        AddLog("Rotating BACKWARD at speed -30...");
-        SetMotorSpeed(Port, -30);
-        std::this_thread::sleep_for(1000ms);
-        SetMotorSpeed(Port, 0);
-        std::this_thread::sleep_for(500ms);
-
-        double backwardPos = GetMotorPosition(Port);
-        double backwardChange = backwardPos - forwardPos;
-
-        AddLog("DIRECTION TEST RESULTS:");
-        AddLog("  Forward movement: %.3f revolutions", forwardChange);
-        AddLog("  Backward movement: %.3f revolutions", backwardChange);
-
-        if (forwardChange > 0 && backwardChange < 0) {
-            AddLog("DIRECTION: Correct");
-        }
-        else {
-            AddLog("DIRECTION: Incorrect -可能需要 поменять знак в калибровке");
-        }
-    }
-
     // ВРЕМЕННОЕ РЕШЕНИЕ - на основе ваших наблюдений
     const double EMPIRICAL_CALIBRATION = 3.0 / 2.0; // 1.5
 
@@ -3119,51 +3080,6 @@ static IPrinterVirtualTable PrinterVTable = {
 };
 
 // Tested function - remove after deep testing
-bool TestConstantSpeed(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-
-    // Test 1: Forward speed
-    PrinterSetMotorSpeed(Printer, 0x00, 50);
-    std::this_thread::sleep_for(2s);
-
-    // Test 2: Reverse Speed
-    PrinterSetMotorSpeed(Printer, 0x00, -30);
-    std::this_thread::sleep_for(2s);
-
-    // Test 3: Stop
-    PrinterSetMotorSpeed(Printer, 0x00, 0);
-    std::this_thread::sleep_for(1s);
-
-    return true;
-}
-
-bool TestSpeedProfileBasic(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-
-    SpeedProfilePoint Points[] = {
-        {0.0, 30, 0.1}, // Start at 30%
-        {1.0, 60, 0.05}, // Accelerate to 60% at 1 revolution
-        {3.0, 30, 0.05}, // Slow down to 30% at 3 revolutions
-        {5.0, 0, 0.02} // Stop at 5 revolutions
-    };
-
-    SpeedProfile Profile;
-    Profile.Port = 0x00;
-    Profile.Points = Points;
-    Profile.Count = 4;
-    Profile.TimeoutMs = 30000;
-
-    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
-    return Result;
-}
 
 bool TestSpeedProfileAdvanced(IPrinter* Printer)
 {
@@ -3181,169 +3097,6 @@ bool TestSpeedProfileAdvanced(IPrinter* Printer)
 
     bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
     return Result;
-}
-
-bool TestEncoderEvents(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-
-    std::atomic<int> EventCount{ 0 };
-
-    // Create encoder event callback
-    auto EncoderCallback = [](unsigned char Port, EncoderEventType Event,
-        double Position, void* UserData)
-        {
-            std::atomic<int>* Count = static_cast<std::atomic<int>*>(UserData);
-            (*Count)++;
-        };
-
-    // Subscribe to encoder events
-    EncoderEvent events[2];
-    events[0].Port = 0x00;
-    events[0].Type = ENCODER_POSITION_REACHED;
-    events[0].TargetPosition = 1.0;
-    events[0].Tolerance = 0.05;
-    events[0].Callback = EncoderCallback;
-    events[0].UserData = &EventCount;
-
-    events[1].Port = 0x00;
-    events[1].Type = ENCODER_POSITION_REACHED;
-    events[1].TargetPosition = 2.0;
-    events[1].Tolerance = 0.05;
-    events[1].Callback = EncoderCallback;
-    events[1].UserData = &EventCount;
-
-    PrinterSubscribeToEncoderEvents(Printer, events, 2);
-
-    // Move motor through the positions
-    SpeedProfilePoint Points[] = {
-        {0.0, 40, 0.1},
-        {2.5, 0, 0.02}
-    };
-
-    SpeedProfile Profile;
-    Profile.Port = 0x00;
-    Profile.Points = Points;
-    Profile.Count = 2;
-    Profile.TimeoutMs = 600000;
-
-    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
-
-    // Wait a bit more for events
-    std::this_thread::sleep_for(1s);
-
-    // Cleanup
-    PrinterUnsubscribeFromEncoderEvents(Printer, Profile.Port);
-
-    return Result && (EventCount >= 2);
-}
-
-bool TestMultipleMotors(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-
-    auto StartTime = std::chrono::steady_clock::now();
-
-    // Create a profile that should take about 10 seconds
-    SpeedProfilePoint Points[] = {
-        {0.0, 50, 0.1},
-        {2.0, 70, 0.05},
-        {5.0, 30, 0.05},
-        {8.0, 0, 0.02},
-    };
-
-    SpeedProfile Profile;
-    Profile.Port = 0x00;
-    Profile.Points = Points;
-    Profile.Count = 4;
-    Profile.TimeoutMs = 200000;
-
-    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
-
-    auto EndTime = std::chrono::steady_clock::now();
-    auto Duration = std::chrono::duration_cast<std::chrono::microseconds>(EndTime - StartTime);
-
-    // Verify it took reasonable time (not too fast, not too slow)
-    bool TimeReasonable = (Duration.count() > 5000) && (Duration.count() < 25000);
-    return Result && TimeReasonable;
-}
-
-bool TestErrorConditions(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-
-    // Test two motors simultaneously
-    std::atomic<bool> FirstMotorDone{ false };
-    std::atomic<bool> SecondMotorDone{ false };
-
-    auto FirstMotorThread = std::thread([&]() {
-        SpeedProfilePoint Points[] = {
-            {0.0, 40, 0.1},
-            {3.0, 0, 0.02},
-        };
-
-        SpeedProfile Profile = { 0x00, Points, 2, 20000 };
-        FirstMotorDone = PrinterExecuteSpeedProfile(Printer, &Profile);
-        });
-
-    auto SecondMotorThread = std::thread([&]() {
-        SpeedProfilePoint Points[] = {
-            {0.0, 30, 0.1},
-            {2.0, 0, 0.02},
-        };
-
-        SpeedProfile Profile = { 0x01, Points, 2, 20000 };
-        SecondMotorDone = PrinterExecuteSpeedProfile(Printer, &Profile);
-        });
-
-    FirstMotorThread.join();
-    SecondMotorThread.join();
-
-    return FirstMotorDone && SecondMotorDone;;
-}
-
-bool TestMode(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-
-    MotorCommand* Command = new MotorCommand[1];
-    Command[0].Port = 0x00;
-    Command[0].Revolutions = 20;
-    Command[0].Speed = 100;
-
-    PrinterRotateMotor(Printer, Command, 1);
-
-    std::this_thread::sleep_for(2s);
-    PrinterSetMotorSpeed(Printer, Command[0].Port, 40);
-
-    std::this_thread::sleep_for(4s);
-    PrinterSetMotorSpeed(Printer, Command[0].Port, 0);
-
-    delete[] Command;
-}
-
-bool EncoderTests(IPrinter* Printer)
-{
-    if (!Printer)
-    {
-        return false;
-    }
-    else
-    {
-        return Printer_TestEncoderFunctionality(Printer);
-    }
 }
 
 // C-INTERFACE functions are exported to DLL
@@ -3542,33 +3295,9 @@ extern "C"
 
         std::string Name(TestName);
 
-        if (Name == "ConstantSpeed")
-        {
-            return TestConstantSpeed(Printer);
-        }
-        else if (Name == "SpeedProfileBasic")
-        {
-            return TestSpeedProfileBasic(Printer);
-        }
-        else if (Name == "SpeedProfileAdvanced")
+        if (Name == "SpeedProfileAdvanced")
         {
             return TestSpeedProfileAdvanced(Printer);
-        }
-        else if (Name == "EncoderEvents")
-        {
-            return TestEncoderEvents(Printer);
-        }
-        else if (Name == "MultipleMotors")
-        {
-            return TestMultipleMotors(Printer);
-        }
-        else if (Name == "Test")
-        {
-            return TestMode(Printer);
-        }
-        else if (Name == "EncoderTests")
-        {
-            return EncoderTests(Printer);
         }
         else
         {
