@@ -32,15 +32,6 @@ extern "C"
 
 	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* Printer, const SpeedProfile* Profile);
 
-	PRINTER_DRIVER_API void PrinterStartCommandStream(IPrinter* Printer, const CommandStream* Stream);
-	PRINTER_DRIVER_API void PrinterUpdateCommandStream(IPrinter* Printer, const CommandStream* Stream);
-	PRINTER_DRIVER_API void PrinterStopCommandStream(IPrinter* Printer);
-
-	PRINTER_DRIVER_API bool PrinterSubscribeToEncoderEvents(IPrinter* Printer, const EncoderEvent* Events, int Count);
-	PRINTER_DRIVER_API bool PrinterUnsubscribeFromEncoderEvents(IPrinter* Printer, unsigned char Port);
-	PRINTER_DRIVER_API bool PrinterWaitForEncoderEvent(IPrinter* Printer, unsigned char Port,
-		EncoderEventType EventType, double TargetPosition, double Tolerance, int TimeoutMs);
-
 	PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* Printer, int Count);
 	PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* Printer, unsigned char Port);
 
