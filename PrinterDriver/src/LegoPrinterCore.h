@@ -15,26 +15,26 @@ extern "C"
 {
 	// Connection controls
 	PRINTER_DRIVER_API IPrinter* CreatePrinter();
-	PRINTER_DRIVER_API void DestroyPrinter(IPrinter* Printer);
+	PRINTER_DRIVER_API void DestroyPrinter(IPrinter* printer);
 	
-	PRINTER_DRIVER_API bool PrinterConnect(IPrinter* Printer);
-	PRINTER_DRIVER_API bool PrinterDisconnect(IPrinter* Printer);
-	PRINTER_DRIVER_API bool IsConnected(IPrinter* Printer);
-	PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* Printer, MotorCommand* Commands, int Count);
-	PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* Printer, const unsigned char* Command, int Length);
-	PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* Printer, unsigned char Port, signed char Speed);
+	PRINTER_DRIVER_API bool PrinterConnect(IPrinter* printer);
+	PRINTER_DRIVER_API bool PrinterDisconnect(IPrinter* printer);
+	PRINTER_DRIVER_API bool IsConnected(IPrinter* printer);
+	PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* printer, MotorCommand* commands, int count);
+	PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* printer, const unsigned char* command, int length);
+	PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* printer, unsigned char port, signed char speed);
 
-	PRINTER_DRIVER_API int GetLogCount(IPrinter* Printer);
-	PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* Printer, int Index);
-	PRINTER_DRIVER_API void ClearLog(IPrinter* Printer);
-	PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* Printer);
-	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer);
+	PRINTER_DRIVER_API int getLogCount(IPrinter* printer);
+	PRINTER_DRIVER_API const char* getLogEntry(IPrinter* printer, int index);
+	PRINTER_DRIVER_API void clearLog(IPrinter* printer);
+	PRINTER_DRIVER_API const char* getLastErrorMessage(IPrinter* printer);
+	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer);
 
-	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* Printer, const SpeedProfile* Profile);
+	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile);
 
-	PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* Printer, int Count);
-	PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* Printer, unsigned char Port);
+	PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* printer, int count);
+	PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* printer, unsigned char port);
 
 	// Test functions
-	PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* Printer, const char* TestName);
+	PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* printer, const char* testName);
 }

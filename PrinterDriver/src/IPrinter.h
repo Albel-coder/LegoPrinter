@@ -8,62 +8,62 @@ extern "C" {
 
     typedef struct
     {
-        unsigned char Port;
-        signed char Speed;
-        double Revolutions;
+        unsigned char port;
+        signed char speed;
+        double revolutions;
     } MotorCommand;
 
     typedef struct
     {
-        double Distance; // Target position in revolutions
-        signed char Speed; // Speed for current position (-100 to 100)
-        double Tolerance; // Tolerance for position
+        double distance; // Target position in revolutions
+        signed char speed; // Speed for current position (-100 to 100)
+        double tolerance; // Tolerance for position
     } SpeedProfilePoint;
 
     typedef struct
     {
-        unsigned char Port;
-        SpeedProfilePoint* Points;
-        int Count;
-        int TimeoutMs; // Timeout for all profile
+        unsigned char port;
+        SpeedProfilePoint* points;
+        int count;
+        int timeoutMs; // Timeout for all profile
     } SpeedProfile;
 
     // Virtual table - ONLY low-level methods
     typedef struct 
     {
         // Basic Operations
-        bool (*Connect)(IPrinter* Self);
-        bool (*Disconnect)(IPrinter* Self);
-        bool (*IsConnected)(IPrinter* Self);
-        void (*Destroy)(IPrinter* Self);
+        bool (*printer_connect)(IPrinter* self);
+        bool (*disconnect)(IPrinter* self);
+        bool (*isConnected)(IPrinter* self);
+        void (*Destroy)(IPrinter* self);
 
-        void (*RotateMotor)(IPrinter* Self, const MotorCommand* Commands, int Count);
+        void (*rotateMotor)(IPrinter* self, const MotorCommand* commands, int count);
 
-        void (*SetMotorSpeed)(IPrinter* Self, unsigned char Port, signed char Speed);
+        void (*setMotorSpeed)(IPrinter* self, unsigned char port, signed char speed);
 
         // Raw command
-        void (*SendCommand)(IPrinter* Self, const unsigned char* Command, int Length);
+        void (*sendCommand)(IPrinter* self, const unsigned char* command, int length);
 
-        bool (*PrinterExecuteSpeedProfile)(IPrinter* Self, const SpeedProfile* Profile);
+        bool (*PrinterExecuteSpeedProfile)(IPrinter* self, const SpeedProfile* profile);
 
         // Monitoring
-        bool (*IsMotorMoving)(IPrinter* Self, unsigned char Port);
-        double (*GetMotorPosition)(IPrinter* Self, unsigned char Port);
+        bool (*isMotorMoving)(IPrinter* self, unsigned char port);
+        double (*getMotorPosition)(IPrinter* self, unsigned char port);
 
         // Logging
-        int (*GetLogCount)(IPrinter* Self);
-        const char* (*GetLogEntry)(IPrinter* Self, int Index);
-        void (*ClearLog)(IPrinter* Self);
-        const char* (*GetLastError)(IPrinter* Self);
-        void (*PrintConnectionInfo)(IPrinter* Self);
+        int (*getLogCount)(IPrinter* self);
+        const char* (*getLogEntry)(IPrinter* self, int index);
+        void (*clearLog)(IPrinter* self);
+        const char* (*getLastError)(IPrinter* self);
+        void (*printConnectionInfo)(IPrinter* self);
 
-        bool (*TestEncoderFunctionality)(IPrinter* Self);
+        bool (*testEncoderFunctionality)(IPrinter* self);
 
     } IPrinterVirtualTable;
 
     struct IPrinter 
     {
-        IPrinterVirtualTable* VirtualTable;
+        IPrinterVirtualTable* vtable;
     };    
 
 #ifdef __cplusplus

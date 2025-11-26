@@ -25,75 +25,73 @@ const std::string LEGO_HUB_CHARACTERISTIC_UUID = "00001624-1212-efde-1623-785fea
 // --Printer implementation class--
 // Internal driver implementation, hidden from the outside world
 // Contains all the core logic for working with Bluetooth and the LEGO HUB
-class PrinterImplementation
-{
+class PrinterImplementation {
 public:
-    IPrinter Interface;
+    IPrinter interface;
 
 private:
 
     // Printer Status
     SimpleBLE::Peripheral peripheral;
-    std::string LastError;
-    std::atomic<bool> OperationInProgress;
-    std::atomic<bool> StopRequested;
-    std::atomic<bool> IsValid;
-    std::atomic<int> Status;
-    std::atomic<bool> WasConnected {false};
+    std::string lastError;
+    std::atomic<bool> operationInProgress;
+    std::atomic<bool> stopRequested;
+    std::atomic<bool> isValid;
+    std::atomic<int> status;
+    std::atomic<bool> wasConnected {false};
 
-    struct MotorState
-    {
-        std::atomic<double> AbsolutePosition{ 0.0 };
-        std::atomic<double> SegmentAccumulator{ 0.0 };
-        std::atomic<double> RelativePosition{ 0.0 };
-        std::atomic<double> CurrentPosition{ 0.0 };
-        std::atomic<double> CurrentSpeed{ 0.0 };
-        std::atomic<bool> IsMoving{ false };
-        std::atomic<bool> ThreadRunning{ false };
+    struct MotorState {
+        std::atomic<double> absolutePosition { 0.0 };
+        std::atomic<double> segmentAccumulator { 0.0 };
+        std::atomic<double> relativePosition { 0.0 };
+        std::atomic<double> currentPosition { 0.0 };
+        std::atomic<double> currentSpeed { 0.0 };
+        std::atomic<bool> isMoving { false };
+        std::atomic<bool> threadRunning { false };
 
-        std::atomic<double> SegmentTarget{ 0.0 };
+        std::atomic<double> segmentTarget { 0.0 };
 
-        std::atomic<double> SegmentStartPosition{ 0.0 };
-        std::atomic<double> SegmentStartRelative{ 0.0 };
-        std::atomic<double> SegmentTargetDistance{ 0.0 };
-        std::atomic<double> CurrentSegmentTraveled{ 0.0 };
-        std::atomic<int> CurrentSegmentIndex{ 0 };
-        std::atomic<bool> ProfileActive{ false };
+        std::atomic<double> segmentStartPosition { 0.0 };
+        std::atomic<double> segmentStartRelative { 0.0 };
+        std::atomic<double> segmentTargetDistance { 0.0 };
+        std::atomic<double> currentSegmentTraveled { 0.0 };
+        std::atomic<int> currentSegmentIndex { 0 };
+        std::atomic<bool> profileActive { false };
 
-        std::vector<SpeedProfilePoint> ActiveProfile;
-        int ProfileTimeoutMs = 60000;
+        std::vector<SpeedProfilePoint> activeProfile;
+        int profileTimeoutMs = 60000;
 
         // Default constructor
         MotorState() = default;
 
         // Move constructor
         MotorState(MotorState&& other) noexcept
-            : CurrentPosition(other.CurrentPosition.load())
-            , RelativePosition(other.RelativePosition.load())
-            , SegmentStartPosition(other.SegmentStartPosition.load())
-            , CurrentSegmentTraveled(other.CurrentSegmentTraveled.load())
-            , SegmentStartRelative(other.SegmentStartRelative.load())
-            , CurrentSegmentIndex(other.CurrentSegmentIndex.load())
-            , ThreadRunning(other.ThreadRunning.load())
-            , ProfileActive(other.ProfileActive.load())
-            , ActiveProfile(std::move(other.ActiveProfile))
-            , ProfileTimeoutMs(other.ProfileTimeoutMs)
+            : currentPosition(other.currentPosition.load())
+            , relativePosition(other.relativePosition.load())
+            , segmentStartPosition(other.segmentStartPosition.load())
+            , currentSegmentTraveled(other.currentSegmentTraveled.load())
+            , segmentStartRelative(other.segmentStartRelative.load())
+            , currentSegmentIndex(other.currentSegmentIndex.load())
+            , threadRunning(other.threadRunning.load())
+            , profileActive(other.profileActive.load())
+            , activeProfile(std::move(other.activeProfile))
+            , profileTimeoutMs(other.profileTimeoutMs)
         {
         }
 
         // Move assignment
         MotorState& operator=(MotorState&& other) noexcept {
             if (this != &other) {
-                CurrentPosition.store(other.CurrentPosition.load());
-                RelativePosition.store(other.RelativePosition.load());
-                SegmentStartPosition.store(other.SegmentStartPosition.load());
-                CurrentSegmentTraveled.store(other.CurrentSegmentTraveled.load());
-                SegmentStartRelative.store(other.SegmentStartRelative.load());
-                CurrentSegmentIndex.store(other.CurrentSegmentIndex.load());
-                ThreadRunning.store(other.ThreadRunning.load());
-                ProfileActive.store(other.ProfileActive.load());
-                ActiveProfile = std::move(other.ActiveProfile);
-                ProfileTimeoutMs = other.ProfileTimeoutMs;
+                currentPosition.store(other.currentPosition.load());
+                relativePosition.store(other.relativePosition.load());
+                segmentStartPosition.store(other.segmentStartPosition.load());
+                currentSegmentTraveled.store(other.currentSegmentTraveled.load());
+                segmentStartRelative.store(other.segmentStartRelative.load());
+                currentSegmentIndex.store(other.currentSegmentIndex.load());
+                threadRunning.store(other.threadRunning.load());
+                profileActive.store(other.profileActive.load());
+                activeProfile = std::move(other.activeProfile);
+                profileTimeoutMs = other.profileTimeoutMs;
             }
             return *this;
         }
@@ -103,120 +101,102 @@ private:
         MotorState& operator=(const MotorState&) = delete;
     };
 
-    std::mutex SendCommandMutex;
+    std::mutex sendCommandMutex;
 
-    std::map<uint8_t, MotorState> MotorStates;
-    std::map<uint8_t, std::thread> MotorThreads;
-    std::condition_variable MotorStatesCV;
+    std::map<uint8_t, MotorState> motorStates;
+    std::map<uint8_t, std::thread> motorThreads;
+    std::condition_variable motorStatesCV;
 
     // Logging system
-    std::vector<std::string> LogEntries;
-    std::mutex LogMutex;
+    std::vector<std::string> logEntries;
+    std::mutex logMutex;
     const size_t MAX_LOG_ENTRIES = 10000;
 
     // Simple synchronization system
-    std::mutex OperationMutex;
-    std::mutex CompletionMutex;
-    std::condition_variable CompletionCV;
+    std::mutex operationMutex;
+    std::mutex completionMutex;
+    std::condition_variable completionCV;
 
-    struct CommandExecution
-    {
-        std::atomic<bool> Completed{ false };
-        std::atomic<bool> Waiting{ false };
+    struct CommandExecution {
+        std::atomic<bool> completed{ false };
+        std::atomic<bool> waiting{ false };
 
-        CommandExecution()
-        {
-            Completed = true;
-            Waiting = false;
+        CommandExecution() {
+            completed = true;
+            waiting = false;
         }
 
         CommandExecution(const CommandExecution&) = delete;
         CommandExecution& operator=(const CommandExecution&) = delete;
 
         CommandExecution(CommandExecution&& Other) noexcept
-            : Completed(Other.Completed.load()), Waiting(Other.Waiting.load())
-        {}
+            : completed(Other.completed.load()), waiting(Other.waiting.load()) {}
     };
 
-    std::map<uint8_t, CommandExecution> CommandStatus;
+    std::map<uint8_t, CommandExecution> commandStatus;
 
-    struct SpeedControlState 
-    {
-        std::atomic<bool> Active{false};
-        std::atomic<size_t> CurrentPointIndex{0};
-        std::thread ControlThread;
+    struct SpeedControlState {
+        std::atomic<bool> active {false};
+        std::atomic<size_t> currentPointIndex{0};
+        std::thread controlThread;
 
-        std::vector<SpeedProfilePoint> ProfilePoints;
-        int TimeoutMs;
+        std::vector<SpeedProfilePoint> profilePoints;
+        int timeoutMs;
     };
 
-    std::map<uint8_t, SpeedControlState> SpeedControlStates;
-    std::mutex SpeedControlMutex;
+    std::map<uint8_t, SpeedControlState> speedControlStates;
+    std::mutex speedControlMutex;
 
-    std::mutex MotorStatesMutex;
+    std::mutex motorStatesMutex;
 
 public:
 
     PrinterImplementation() :
-        OperationInProgress(false),
-        StopRequested(false),
-        IsValid(true),
-        Status(0)
-    {
+        operationInProgress(false),
+        stopRequested(false),
+        isValid(true),
+        status(0) {
 
-        AddLog("PrinterImplementation created");
+        addLog("PrinterImplementation created");
     }
 
-    ~PrinterImplementation()
-    {      
-        try
-        {
-            std::lock_guard<std::mutex> Lock(CompletionMutex);
-            CompletionCV.notify_all();
-            for (auto& [Port, State] : SpeedControlStates)
-            {
-                State.Active = false;
-                if (State.ControlThread.joinable())
-                {
-                    State.ControlThread.join();
+    ~PrinterImplementation() {      
+        try {
+            std::lock_guard<std::mutex> lock(completionMutex);
+            completionCV.notify_all();
+            for (auto& [port, state] : speedControlStates) {
+                state.active = false;
+                if (state.controlThread.joinable()) {
+                    state.controlThread.join();
                 }
             }
         }
-        catch (...)
-        {
+        catch (...) {
             // Ignore condition variable errors
         }
 
         // Automatic shutdown when variable is destroyed
-        if (WasConnected)
-        {
-            IsValid = false;
-            StopRequested = true;
+        if (wasConnected) {
+            isValid = false;
+            stopRequested = true;
             // Stop all motor threads
-            for (auto& [Port, State] : MotorStates)
-            {
-                State.ThreadRunning = false;
+            for (auto& [port, State] : motorStates) {
+                State.threadRunning = false;
             }
 
-            for (auto& [Port, Thread] : MotorThreads)
-            {
-                if (Thread.joinable())
-                {
+            for (auto& [port, Thread] : motorThreads) {
+                if (Thread.joinable()) {
                     Thread.join();
                 }
             }
 
-            if (peripheral.is_connected())
-            {
-                try
-                {
-                    if (!peripheral.address().empty() && peripheral.is_connected())
-                    {
+            if (peripheral.is_connected()) {
+                try {
+                    if (!peripheral.address().empty() && peripheral.is_connected()) {
                         peripheral.disconnect();
                     }
                 }
-                catch (const std::exception& ex)
-                {
+                catch (const std::exception& ex) {
                     // Ignore all errors
                 }
             }
@@ -226,62 +206,51 @@ public:
 private:
 
     // Set notification handler
-    void SetupNotificationHandler()
-    {
-        try
-        {
-            if (!peripheral.is_connected()) 
-            {
-                AddLog("ERROR: Peripheral not connected for encoder notifications");
+    void setupNotificationHandler() {
+        try {
+            if (!peripheral.is_connected()) {
+                addLog("ERROR: Peripheral not connected for encoder notifications");
                 return;
             }
 
             peripheral.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
-                [this](const std::vector<uint8_t>& Data) 
-                {
-                    this->HandleHubNotification(Data);
+                [this](const std::vector<uint8_t>& Data) {
+                    this->handleHubNotification(Data);
                 });
 
-            AddLog("Encoder notifications setup completed - SUBSCRIBED");
+            addLog("Encoder notifications setup completed - SUBSCRIBED");
         }
-        catch (const std::exception& ex)
-        {
-            AddLog("Error setting up encoder notifications: %s", ex.what());
+        catch (const std::exception& ex) {
+            addLog("Error setting up encoder notifications: %s", ex.what());
         }
     }
 
-    void HandleHubNotification(const std::vector<uint8_t>& Data)
-    {
-        if (!IsValid || Data.empty()) return;
+    void handleHubNotification(const std::vector<uint8_t>& Data) {
+        if (!isValid || Data.empty()) return;
 
         const double ENCODER_TICKS_PER_REVOLUTION = 360.0;
         const double INCREMENTAL_FACTOR = 1.0 / 360.0;
 
         // For encoder type 0x45 (incremental)
-        if (Data.size() >= 5 && Data[2] == 0x45) 
-        {
-            uint8_t Port = Data[3];
-            InitializeMotorState(Port);
+        if (Data.size() >= 5 && Data[2] == 0x45) {
+            uint8_t port = Data[3];
+            initializeMotorState(port);
 
             uint8_t positionByte = Data[4];
             int8_t signedPosition = static_cast<int8_t>(positionByte);
-
-            // Conversion for incremental encoder
             double positionDelta = static_cast<double>(signedPosition) * INCREMENTAL_FACTOR;
 
-            UpdateMotorPosition(Port, positionDelta);
+            updateMotorPosition(port, positionDelta);
 
-            if (std::abs(positionDelta) > 0.001) 
-            {
-                AddLog("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
-                    Port, signedPosition, positionDelta);
+            if (std::abs(positionDelta) > 0.001) {
+                addLog("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
+                    port, signedPosition, positionDelta);
             }
         }
         // For encoder type 0x04 (absolute)
-        else if (Data.size() >= 8 && Data[2] == 0x04) 
-        {
-            uint8_t Port = Data[3];
-            InitializeMotorState(Port);
+        else if (Data.size() >= 8 && Data[2] == 0x04) {
+            uint8_t port = Data[3];
+            initializeMotorState(port);
 
             int32_t PositionRaw = (static_cast<int32_t>(Data[4])) |
                 (static_cast<int32_t>(Data[5]) << 8) |
@@ -297,21 +266,19 @@ private:
             static std::map<uint8_t, double> lastAbsolutePositions;
             double positionDelta = 0.0;
 
-            if (lastAbsolutePositions.count(Port)) 
-            {
-                positionDelta = absolutePosition - lastAbsolutePositions[Port];
+            if (lastAbsolutePositions.count(port)) {
+                positionDelta = absolutePosition - lastAbsolutePositions[port];
                 // Adjustment for overflow
                 if (positionDelta > 180.0) positionDelta -= 360.0;
                 else if (positionDelta < -180.0) positionDelta += 360.0;
             }
-            lastAbsolutePositions[Port] = absolutePosition;
+            lastAbsolutePositions[port] = absolutePosition;
 
-            UpdateMotorPosition(Port, positionDelta);
+            updateMotorPosition(port, positionDelta);
 
-            if (std::abs(positionDelta) > 0.001) 
-            {
-                AddLog("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
-                    Port, SignedPosition, absolutePosition, positionDelta);
+            if (std::abs(positionDelta) > 0.001) {
+                addLog("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
+                    port, SignedPosition, absolutePosition, positionDelta);
             }
         }
     }
@@ -319,65 +286,58 @@ private:
     const double EMPIRICAL_CALIBRATION = 3.0 / 2.0;
 
     // In the UpdateMotorPosition function:
-    void UpdateMotorPosition(uint8_t Port, double positionDelta)
-    {
-        auto& state = MotorStates[Port];
+    void updateMotorPosition(uint8_t port, double positionDelta) {
+        auto& state = motorStates[port];
 
         // We apply empirical calibration
         double calibratedDelta = positionDelta * EMPIRICAL_CALIBRATION;
 
-        double currentAbs = state.AbsolutePosition.load(std::memory_order_relaxed);
+        double currentAbs = state.absolutePosition.load(std::memory_order_relaxed);
         double newAbs = currentAbs + calibratedDelta;
-        state.AbsolutePosition.store(newAbs, std::memory_order_relaxed);
+        state.absolutePosition.store(newAbs, std::memory_order_relaxed);
 
-        double currentSeg = state.SegmentAccumulator.load(std::memory_order_relaxed);
+        double currentSeg = state.segmentAccumulator.load(std::memory_order_relaxed);
         double newSeg = currentSeg + calibratedDelta;
-        state.SegmentAccumulator.store(newSeg, std::memory_order_relaxed);
+        state.segmentAccumulator.store(newSeg, std::memory_order_relaxed);
 
-        if (std::abs(calibratedDelta) > 0.001) 
-        {
-            AddLog("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalibratedDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
-                Port, positionDelta, calibratedDelta, newAbs, newSeg);
+        if (std::abs(calibratedDelta) > 0.001) {
+            addLog("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalibratedDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
+                port, positionDelta, calibratedDelta, newAbs, newSeg);
         }
     }
 
-    void ProcessEncoderUpdate(uint8_t Port, int32_t rawValue, int bytes)
-    {
-        auto& state = MotorStates[Port];
+    void processEncoderUpdate(uint8_t port, int32_t rawValue, int bytes) {
+        auto& state = motorStates[port];
 
         // Convert to revolutions depending on the data size
         double positionDelta = 0.0;
-        if (bytes == 1) 
-        {
+        if (bytes == 1) {
             int8_t signedPosition = static_cast<int8_t>(rawValue & 0xFF);
             positionDelta = static_cast<double>(signedPosition) / 360.0;
         }
-        else if (bytes == 4) 
-        {
+        else if (bytes == 4) {
             positionDelta = static_cast<double>(rawValue) / 360.0;
         }
 
         // Updating the segment drive
-        double currentAccumulator = state.SegmentAccumulator.load();
+        double currentAccumulator = state.segmentAccumulator.load();
         double newAccumulator = currentAccumulator + positionDelta;
-        state.SegmentAccumulator.store(newAccumulator);
+        state.segmentAccumulator.store(newAccumulator);
 
         // Updating the absolute position
-        double oldAbsolute = state.AbsolutePosition.load();
-        state.AbsolutePosition.store(oldAbsolute + positionDelta);
+        double oldAbsolute = state.absolutePosition.load();
+        state.absolutePosition.store(oldAbsolute + positionDelta);
 
         // We log only significant changes
-        if (std::abs(positionDelta) > 0.001) 
-        {
-            AddLog("ENCODER: Port=0x%02X, Delta=%.3f, Accumulator=%.3f, Absolute=%.3f",
-                Port, positionDelta, newAccumulator, oldAbsolute + positionDelta);
+        if (std::abs(positionDelta) > 0.001) {
+            addLog("ENCODER: Port=0x%02X, Delta=%.3f, Accumulator=%.3f, Absolute=%.3f",
+                port, positionDelta, newAccumulator, oldAbsolute + positionDelta);
         }
     }
 
     // Internal helper methods
-    void AddLog(const std::string& Message)
-    {
-        std::lock_guard<std::mutex> lock(LogMutex);
+    void addLog(const std::string& Message) {
+        std::lock_guard<std::mutex> lock(logMutex);
 
         // Get current time
         auto Now = std::chrono::system_clock::now();
@@ -389,151 +349,129 @@ private:
         String << "." << std::setfill('0') << std::setw(3) << Milliseconds.count() << "] " << Message;
 
         // Adding message to log
-        LogEntries.push_back(String.str());
+        logEntries.push_back(String.str());
 
-        if (LogEntries.size() > MAX_LOG_ENTRIES)
-        {
-            LogEntries.erase(LogEntries.begin());
+        if (logEntries.size() > MAX_LOG_ENTRIES) {
+            logEntries.erase(logEntries.begin());
         }
     }
 
-    void AddLog(const char* Format, ...)
-    {
-        char Buffer[1024 * 16];
-        va_list Args;
-        va_start(Args, Format);
-        vsnprintf(Buffer, sizeof(Buffer), Format, Args);
-        va_end(Args);
+    void addLog(const char* Format, ...) {
+        char buffer[1024 * 16];
+        va_list args;
+        va_start(args, Format);
+        vsnprintf(buffer, sizeof(buffer), Format, args);
+        va_end(args);
 
-        AddLog(std::string(Buffer));
+        addLog(std::string(buffer));
     }
 
-    void SendCommandVector(std::vector<uint8_t> Command)
-    {
-        std::lock_guard<std::mutex> Lock(SendCommandMutex);
+    void sendCommandVector(std::vector<uint8_t> command) {
+        std::lock_guard<std::mutex> Lock(sendCommandMutex);
 
-        if (!IsValid)
-        {
-            AddLog("SendCommandVector: Printer implementation is not valid");
+        if (!isValid) {
+            addLog("SendCommandVector: Printer implementation is not valid");
             return;
         }
-        if (!peripheral.is_connected())
-        {
-            AddLog("SendCommandVector: Printer is not connect");
+        if (!peripheral.is_connected()) {
+            addLog("SendCommandVector: Printer is not connect");
             return;
         }
 
-        try
-        {
-
+        try {
             // Check connection
-            if (!peripheral.is_connected())
-            {
-                AddLog("SendCommandVector: Peripheral not connected");
+            if (!peripheral.is_connected()) {
+                addLog("SendCommandVector: Peripheral not connected");
                 return;
             }
 
             // Logging sending command
-            std::string HexCommand = "Command bytes: ";
-            for (auto b : Command)
-            {
-                char Hex[4];
-                snprintf(Hex, sizeof(Hex), "%02X", b);
-                HexCommand += Hex;
+            std::string hexCommand = "Command bytes: ";
+            for (auto byte : command) {
+                char hex[4];
+                snprintf(hex, sizeof(hex), "%02X", byte);
+                hexCommand += hex;
             }
-            //AddLog("%s", HexCommand.c_str());
+            //addLog("%s", hexCommand.c_str());
 
             // Sending a command via Bluetooth LE
-            peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, Command);
-            //AddLog("Command sent successfully!");
+            peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, command);
+            //addLog("Command sent successfully!");
         }
-        catch (const std::exception& e)
-        {
-            AddLog("Error sending command: %s", e.what());
-            LastError = e.what();
+        catch (const std::exception& e) {
+            addLog("Error sending command: %s", e.what());
+            lastError = e.what();
         }
     }
 
 public:
 
     // Access to log from C-interface
-    int GetLogCount()
-    {
-        std::lock_guard<std::mutex> lock(LogMutex);
-        return static_cast<int>(LogEntries.size());
+    int getLogCount() {
+        std::lock_guard<std::mutex> lock(logMutex);
+        return static_cast<int>(logEntries.size());
     }
 
-    const char* GetLogEntry(int Index)
-    {
-        std::lock_guard<std::mutex> lock(LogMutex);
-        if (Index < 0 || Index >= static_cast<int>(LogEntries.size()))
-        {
+    const char* getLogEntry(int index) {
+        std::lock_guard<std::mutex> lock(logMutex);
+        if (index < 0 || index >= static_cast<int>(logEntries.size())) {
             return "";
         }
 
-        return LogEntries[Index].c_str();
+        return logEntries[index].c_str();
     }
 
-    void ClearLog()
-    {
-        std::lock_guard<std::mutex> lock(LogMutex);
-        LogEntries.clear();
-        AddLog("Log cleared");
+    void clearLog() {
+        std::lock_guard<std::mutex> lock(logMutex);
+        logEntries.clear();
+        addLog("Log cleared");
     }
 
-    const char* GetLastErrorMessage()
-    {
-        return LastError.empty() ? "" : LastError.c_str();
+    const char* getLastErrorMessage() {
+        return lastError.empty() ? "" : lastError.c_str();
     }
 
     // Basic methods
-    bool Connect()
-    {
-        if (!IsValid)
-        {
-            return false;
-        }
+    bool connect() {
+        if (!isValid) return false;
 
-        std::lock_guard<std::mutex> lock(OperationMutex);
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-        try
-        {
+        try {
             // Checking Bluetooth Status
-            AddLog("Checking Bluetooth status:");
+            addLog("Checking Bluetooth status:");
 
-            bool ble_enabled = SimpleBLE::Adapter::bluetooth_enabled();
-            AddLog("  - SimpleBLE::Adapter::bluetooth_enabled(): %s" + ble_enabled ? "true" : "false");
+            bool bleEnabled = SimpleBLE::Adapter::bluetooth_enabled();
+            addLog("  - SimpleBLE::Adapter::bluetooth_enabled(): %s" + bleEnabled ? "true" : "false");
 
             // Getting a list of adapters
             auto adapters = SimpleBLE::Adapter::get_adapters();
-            AddLog("  - Adapters found: %zu" + adapters.size());
+            addLog("  - Adapters found: %zu" + adapters.size());
 
-            if (adapters.empty())
-            {
-                AddLog("Bluetooth adapters not found! Possible reasons:");
-                AddLog("1. The Bluetooth adapter is disabled or not working");
-                AddLog("2. Drivers not installed");
-                AddLog("3. Hardware problem");
+            if (adapters.empty()) {
+                addLog("Bluetooth adapters not found! Possible reasons:");
+                addLog("1. The Bluetooth adapter is disabled or not working");
+                addLog("2. Drivers not installed");
+                addLog("3. Hardware problem");
                 return false;
             }
 
             // We use the first adapter
             SimpleBLE::Adapter& adapter = adapters[0];
-            AddLog("Adapter used: %s [%s]",
+            addLog("Adapter used: %s [%s]",
                 adapter.identifier().c_str(),
                 adapter.address().c_str());
 
             // Setting up callbacks
             adapter.set_callback_on_scan_start([]() { });
 
-            AddLog("Scanning started...");
+            addLog("Scanning started...");
 
             adapter.set_callback_on_scan_stop([]() { });
 
-            AddLog("Scanning stopped");
+            addLog("Scanning stopped");
 
-            adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral peripheral)
-                {
+            adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral peripheral) {
                     std::string name = peripheral.identifier();
                     std::string address = peripheral.address();
                     int rssi = peripheral.rssi();
@@ -548,74 +486,63 @@ public:
 
                     // Check with manufacturer data (LEGO Company ID: 0x0397)
                     auto manufacturer_data = peripheral.manufacturer_data();
-                    for (const auto& data : manufacturer_data)
-                    {
+                    for (const auto& data : manufacturer_data) {
                         // LEGO Company ID: 0x0397 (little-endian: 97 03)
-                        if (data.first == 0x0397)
-                        {
+                        if (data.first == 0x0397) {
                             isLego = true;
-                            AddLog("[LEGO Manufacturer Data Found]");
+                            addLog("[LEGO Manufacturer Data Found]");
                         }
                     }
 
-                    if (isLego)
-                    {
-                        AddLog("LEGO HUB DISCOVERED!");
+                    if (isLego) {
+                        addLog("LEGO HUB DISCOVERED!");
                     }
                 });
 
             // Start scanning
             adapter.scan_start();
-            AddLog("Starting Bluetooth scan for 10 seconds...");
+            addLog("Starting Bluetooth scan for 10 seconds...");
             std::this_thread::sleep_for(10s);
             adapter.scan_stop();
 
             // We get a list of found devices
             auto peripherals = adapter.scan_get_results();
-            AddLog("Scan completed. Found %d devices", peripherals.size());
+            addLog("Scan completed. Found %d devices", peripherals.size());
             std::cout << "\n\nDevices found: " << peripherals.size() << "\n";
 
             // Search LEGO Hub
-            for (auto& ScannedPeripheral : peripherals)
-            {
-                std::string name = ScannedPeripheral.identifier();
+            for (auto& scannedPeripheral : peripherals) {
+                std::string name = scannedPeripheral.identifier();
                 std::transform(name.begin(), name.end(), name.begin(), ::toupper);
 
                 if (name.find("LEGO") != std::string::npos ||
                     name.find("HUB") != std::string::npos ||
-                    name.find("CONTROL") != std::string::npos)
-                {
+                    name.find("CONTROL") != std::string::npos) {
 
-                    AddLog("Attempting to connect to LEGO Hub: %s", name.c_str());
+                    addLog("Attempting to connect to LEGO Hub: %s", name.c_str());
 
                     // Connection attempt
-                    try 
-                    {
-                        ScannedPeripheral.connect();
+                    try {
+                        scannedPeripheral.connect();
 
                         // In the main function, after connection:               
-                        if (ScannedPeripheral.is_connected()) 
-                        {
-                            AddLog("Successfully connected to LEGO Hub");
+                        if (scannedPeripheral.is_connected()) {
+                            addLog("Successfully connected to LEGO Hub");
 
-                            peripheral = std::move(ScannedPeripheral);
+                            peripheral = std::move(scannedPeripheral);
 
-                            SetupNotificationHandler();
+                            setupNotificationHandler();
 
                             // Looking for LEGO Hub service and features
-                            SimpleBLE::Service lego_service;
-                            SimpleBLE::Characteristic lego_char;
+                            SimpleBLE::Service legoService;
+                            SimpleBLE::Characteristic legoChar;
 
-                            for (auto& service : ScannedPeripheral.services()) 
-                            {
-                                if (service.uuid() == LEGO_HUB_SERVICE_UUID) 
-                                {
-                                    lego_service = service;
-                                    for (auto& characteristic : service.characteristics()) 
-                                    {
-                                        if (characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) 
-                                        {
-                                            lego_char = characteristic;
+                            for (auto& service : scannedPeripheral.services()) {
+                                if (service.uuid() == LEGO_HUB_SERVICE_UUID) {
+                                    legoService = service;
+                                    for (auto& characteristic : service.characteristics()) {
+                                        if (characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
+                                            legoChar = characteristic;
                                             break;
                                         }
                                     }
@@ -623,52 +550,40 @@ public:
                                 }
                             }
 
-                            if (lego_char.uuid().empty()) 
-                            {
-                                std::cout << "LEGO Hub has not found!" << std::endl;
-                                return false;
-                            }
+                            if (legoChar.uuid().empty()) return false;
 
-                            WasConnected = true;
+                            wasConnected = true;
                             return true;
                         }
                     }
-                    catch (const std::exception& e) 
-                    {
-                        AddLog("Connection error: %s", e.what());
-                        LastError = e.what();
+                    catch (const std::exception& e) {
+                        addLog("Connection error: %s", e.what());
+                        lastError = e.what();
                     }
                 }
             }
 
-            AddLog("No LEGO Hub found or connection failed");
+            addLog("No LEGO Hub found or connection failed");
             return false;
         }
-        catch (const std::exception& e) 
-        {
-            AddLog("Exception in Connect: %s", e.what());
-            LastError = e.what();
+        catch (const std::exception& e) {
+            addLog("Exception in Connect: %s", e.what());
+            lastError = e.what();
             return false;
         }
     }
 
-    bool Disconnect()
-    {
-        std::lock_guard<std::mutex> contextLock(OperationMutex);
+    bool disconnect() {
+        std::lock_guard<std::mutex> contextLock(operationMutex);
 
-        if (!IsValid || !peripheral.initialized() || peripheral.address().empty())
-        {
-            return true; // Disconnect already completed
-        }
+        // Disconnect already completed
+        if (!isValid || !peripheral.initialized() || peripheral.address().empty()) return false;
 
-        if (peripheral.is_connected())
-        {
-            try
-            {
+        if (peripheral.is_connected()) {
+            try {
                 peripheral.disconnect();
             }
-            catch (...)
-            {
+            catch (...) {
                 // Ignoring disconnection errors
                 return false;
             }
@@ -676,126 +591,105 @@ public:
         return true;
     }
 
-    bool IsConnected()
-    {
+    bool isConnected() {
         return peripheral.is_connected();
     }
 
-    void PrintConnectionInfo()
-    {
-        std::lock_guard<std::mutex> lock(OperationMutex);
+    void printConnectionInfo() {
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-        AddLog("=== CONNECTION INFORMATION ===");
+        addLog("=== CONNECTION INFORMATION ===");
 
-        if (!peripheral.is_connected())
-        {
-            AddLog("NOT CONNECTED to any device");
+        if (!peripheral.is_connected()) {
+            addLog("NOT CONNECTED to any device");
             return;
         }
 
-        AddLog("Device: %s", peripheral.identifier().c_str());
-        AddLog("Address: %s", peripheral.address().c_str());
-        AddLog("RSSI: %d", peripheral.rssi());
-        AddLog("Connected: %s", peripheral.is_connected() ? "true" : "false");
+        addLog("Device: %s", peripheral.identifier().c_str());
+        addLog("Address: %s", peripheral.address().c_str());
+        addLog("RSSI: %d", peripheral.rssi());
+        addLog("Connected: %s", peripheral.is_connected() ? "true" : "false");
 
         auto Services = peripheral.services();
-        AddLog("Services count: %zu", Services.size());
+        addLog("Services count: %zu", Services.size());
 
-        for (auto Service : Services)
-        {
-            AddLog("Service UUID: %s", Service.uuid().c_str());
+        for (auto Service : Services) {
+            addLog("Service UUID: %s", Service.uuid().c_str());
             
-            if (Service.uuid() == LEGO_HUB_SERVICE_UUID)
-            {
-                AddLog(" >>> LEGO SERVICE FOUND!");
-                for (auto Characteristic : Service.characteristics())
-                {
-                    AddLog("    Characteristic: %s", Characteristic.uuid().c_str());
-                    if (Characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID)
-                    {
-                        AddLog("    >>> LEGO CHARACTERISTIC FOUND!");
+            if (Service.uuid() == LEGO_HUB_SERVICE_UUID) {
+                addLog(" >>> LEGO SERVICE FOUND!");
+                for (auto Characteristic : Service.characteristics()) {
+                    addLog("    Characteristic: %s", Characteristic.uuid().c_str());
+                    if (Characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
+                        addLog("    >>> LEGO CHARACTERISTIC FOUND!");
                     }
                 }
             }
         }
 
-        AddLog("========================================");
+        addLog("========================================");
     }
 
-    void RotateMotor(const MotorCommand* Commands, int Count)
-    {      
+    void rotateMotor(const MotorCommand* commands, int count) {      
         // Check parameters
-        if (!IsValid || Count <= 0 || !Commands)
-        {
-            AddLog("RotateMotor: Invalid parameters");
+        if (!isValid || count <= 0 || !commands) {
+            addLog("RotateMotor: Invalid parameters");
             return;
         }
 
-        AddLog("RotateMotor called with %d commands", Count);
+        addLog("RotateMotor called with %d commands", count);
 
         // Check connection
-        if (!peripheral.is_connected())
-        {
-            AddLog("Printer is not connected!");
+        if (!peripheral.is_connected()) {
+            addLog("Printer is not connected!");
             return;
         }
 
-        std::lock_guard<std::mutex> OperationLock(OperationMutex);        
+        std::lock_guard<std::mutex> operationLock(operationMutex);        
 
         // Prepare command tracking
-        for (int i = 0; i < Count; i++)
-        {
-            CommandStatus[Commands[i].Port].Completed = false;
-            CommandStatus[Commands[i].Port].Waiting = true;
+        for (int i = 0; i < count; i++) {
+            commandStatus[commands[i].port].completed = false;
+            commandStatus[commands[i].port].waiting = true;
         }
 
         // Send all commands
-        for (int i = 0; i < Count; i++)
-        {
-            SendSingleMotorCommand(Commands[i]);
+        for (int i = 0; i < count; i++) {
+            sendSingleMotorCommand(commands[i]);
         }
 
-        WaitForCommandsCompletion(Commands, Count);
-        AddLog("RotateMotor completed");
+        waitForCommandsCompletion(commands, count);
+        addLog("RotateMotor completed");
     }
 
     // Monitoring
-    bool IsMotorMoving(unsigned char Port)
-    {
-        if (MotorStates.count(Port))
-        {
-            return MotorStates[Port].IsMoving;
+    bool isMotorMoving(unsigned char port) {
+        if (motorStates.count(port)) {
+            return motorStates[port].isMoving;
         }
-
         return false;
     }
 
-    double GetMotorPosition(uint8_t Port)
-    {
-        if (MotorStates.count(Port)) 
-        {
+    double getMotorPosition(uint8_t port) {
+        if (motorStates.count(port)) {
             // We return AbsolutePosition since it is relevant
-            return MotorStates[Port].AbsolutePosition.load();
+            return motorStates[port].absolutePosition.load();
         }
         return 0.0;
     }
 
-    void SetMotorSpeed(uint8_t Port, int8_t Speed)
+    void setMotorSpeed(uint8_t port, int8_t speed)
     {
-        if (!IsValid || !peripheral.is_connected())
-        {
-            return;
-        }
+        if (!isValid || !peripheral.is_connected()) return;
 
-        AddLog("Setting motor speed: Port=0x%02X, Speed=%d", Port, Speed);
+        addLog("Setting motor speed: Port=0x%02X, Speed=%d", port, speed);
 
         // First command: Activate mode
-        std::vector<uint8_t> SetupCommand = 
-        {
+        std::vector<uint8_t> setupCommand = {
             0x09,       // Package length
             0x00,       // Hub ID
             0x41,       // Port configuration command
-            Port,       // Motor port
+            port,       // Motor port
             0x01,       // Mode: Power (1)
             0x00,       // Data Format
             0x00,       // Unit
@@ -803,132 +697,112 @@ public:
             0x00        // Range max
         };
 
-        SendCommandVector(SetupCommand);
+        sendCommandVector(setupCommand);
 
         // Second Team: motor control
-        std::vector<uint8_t> MotorCommand = 
-        {
+        std::vector<uint8_t> motorCommand = {
             0x08,       // Package length
             0x00,       // Hub ID
             0x81,       // Output control command
-            Port,       // Motor port
+            port,       // Motor port
             0x02,       // Subcommand: WriteDirectModeData
             0x01,       // Mode: Power (1)
-            static_cast<uint8_t>(Speed) // Speed
+            static_cast<uint8_t>(speed) // Speed
         };
 
-        SendCommandVector(MotorCommand);
+        sendCommandVector(motorCommand);
     }
 
 private:
 
-    void SendSingleMotorCommand(const MotorCommand& Command)
-    {
-        AddLog("Motor command - Port: 0x%02X, Speed: %d, Revolutions: %.2f",
-            Command.Port, Command.Speed, Command.Revolutions);
+    void sendSingleMotorCommand(const MotorCommand& command) {
+        addLog("Motor command - Port: 0x%02X, Speed: %d, Revolutions: %.2f",
+            command.port, command.speed, command.revolutions);
 
         // Convert revolutions to absolute degrees (1 revolution = 360 degrees)
-        int32_t Degrees = static_cast<int32_t>(std::round(Command.Revolutions * 360.0));
-        AddLog("Calculated degrees: %d", Degrees);
+        int32_t degrees = static_cast<int32_t>(std::round(command.revolutions * 360.0));
+        addLog("Calculated degrees: %d", degrees);
 
-        std::vector<uint8_t> Payload = 
-        {
-        0x0F,       // Message length (15 bytes)
-        0x00,       // Message counter
-        0x81,       // Output control command
-        Command.Port, // Port or combo port
-        0x11,
-        0x0B,       // Sub-team
-        // Rotation angle (4 bytes little-endian)
-        static_cast<uint8_t>(Degrees & 0xFF),
-        static_cast<uint8_t>((Degrees >> 8) & 0xFF),
-        static_cast<uint8_t>((Degrees >> 16) & 0xFF),
-        static_cast<uint8_t>((Degrees >> 24) & 0xFF),
-        // Speed (1 byte)
-        static_cast<uint8_t>(Command.Speed),
-        // Maximum power (usually 100%)
-        100,
-        // Final state (0 = float/coast, 1 = brake/hold)
-        0x01,       // Hold the position after completion
-        // Use profile (0 = use acceleration profile)
-        0x00
+        std::vector<uint8_t> payload = {
+            0x0F,       // Message length (15 bytes)
+            0x00,       // Message counter
+            0x81,       // Output control command
+            command.port, // Port or combo port
+            0x11,
+            0x0B,       // Sub-team
+            // Rotation angle (4 bytes little-endian)
+            static_cast<uint8_t>(degrees & 0xFF),
+            static_cast<uint8_t>((degrees >> 8) & 0xFF),
+            static_cast<uint8_t>((degrees >> 16) & 0xFF),
+            static_cast<uint8_t>((degrees >> 24) & 0xFF),
+            // Speed (1 byte)
+            static_cast<uint8_t>(command.speed),
+            // Maximum power (usually 100%)
+            100,
+            // Final state (0 = float/coast, 1 = brake/hold)
+            0x01,       // Hold the position after completion
+            // Use profile (0 = use acceleration profile)
+            0x00
         };
 
-        AddLog("Sending motor command to port 0x%02X", Command.Port);
-        SendCommandVector(Payload);
+        addLog("Sending motor command to port 0x%02X", command.port);
+        sendCommandVector(payload);
     }
 
-    void WaitForCommandsCompletion(const MotorCommand* Commands, int Count)
-    {
-        std::unique_lock<std::mutex> lock(CompletionMutex);
+    void waitForCommandsCompletion(const MotorCommand* Commands, int count) {
+        std::unique_lock<std::mutex> lock(completionMutex);
 
         // Wait while condition variable gets notification about completing all commands
-        bool AllCompleted = CompletionCV.wait_for(lock, std::chrono::seconds(30),
-            [this, Commands, Count]()
-            {
-                for (int i = 0; i < Count; i++)
-                {
-                    if (!CommandStatus[Commands[i].Port].Completed)
-                    {
-                        return false;
-                    }
+        bool allCompleted = completionCV.wait_for(lock, std::chrono::seconds(30),
+            [this, Commands, count]() {
+                for (int i = 0; i < count; i++) {
+                    if (!commandStatus[Commands[i].port].completed) return false;
                 }
             });
 
-        if (!AllCompleted)
-        {
+        if (!allCompleted) {
             // For timeout - end all
-            for (int i = 0; i < Count; i++)
-            {
-                CommandStatus[Commands[i].Port].Waiting = false;
+            for (int i = 0; i < count; i++) {
+                commandStatus[Commands[i].port].waiting = false;
             }
         }
 
         // Delete waiting status
-        for (int i = 0; i < Count; i++)
-        {
-            CommandStatus[Commands[i].Port].Waiting = false;
+        for (int i = 0; i < count; i++) {
+            commandStatus[Commands[i].port].waiting = false;
         }
     }
 
-    bool WaitForCommandCompletion(uint8_t Port, int TimeoutMs = 15000)
-    {
-        std::unique_lock<std::mutex> lock(CompletionMutex);
+    bool waitForCommandCompletion(uint8_t port, int timeoutMs = 15000) {
+        std::unique_lock<std::mutex> lock(completionMutex);
 
         // Make sure the element exists in the map
-        if (CommandStatus.find(Port) == CommandStatus.end())
-        {
-            return false;
-        }
+        if (commandStatus.find(port) == commandStatus.end()) return false;
 
         // Setting the wait state
-        CommandStatus[Port].Completed = false;
-        CommandStatus[Port].Waiting = true;
+        commandStatus[port].completed = false;
+        commandStatus[port].waiting = true;
 
         // We are waiting for notification of completion
-        bool success = CompletionCV.wait_for(lock, std::chrono::milliseconds(TimeoutMs),
-            [this, Port]() {
-                auto it = CommandStatus.find(Port);
-                if (it != CommandStatus.end())
-                {
-                    return it->second.Completed.load();
+        bool success = completionCV.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+            [this, port]() {
+                auto it = commandStatus.find(port);
+                if (it != commandStatus.end()) {
+                    return it->second.completed.load();
                 }
 
                 return true; // If there is no port, we consider it complete.
             });
 
-        if (CommandStatus.find(Port) != CommandStatus.end())
-        {
-            CommandStatus[Port].Waiting = false;
+        if (commandStatus.find(port) != commandStatus.end()) {
+            commandStatus[port].waiting = false;
         }
 
-        if (!success)
-        {
-            AddLog("WaitForCommandCompletion timeout for port 0x%02X", Port);
+        if (!success) {
+            addLog("WaitForCommandCompletion timeout for port 0x%02X", port);
         }
-        else
-        {
-            AddLog("WaitForCommandCompletion success for port 0x%02X", Port);
+        else {
+            addLog("WaitForCommandCompletion success for port 0x%02X", port);
         }
 
         return success;
@@ -936,60 +810,49 @@ private:
 
 public:
 
-    void SendCommand(const unsigned char* Command, int Length)
-    {
-        if (!IsValid)
-        {
-            return;
-        }
+    void sendCommand(const unsigned char* command, int length) {
+        if (!isValid || length < 1) return;
 
-        std::lock_guard<std::mutex> lock(OperationMutex);
+        std::lock_guard<std::mutex> lock(operationMutex);
 
-        try
-        {
-            std::vector<uint8_t> command(Command, Command + Length);
+        try {
+            std::vector<uint8_t> command(command, command + length);
 
             // Check connection
-            if (!peripheral.is_connected())
-            {
-                AddLog("Peripheral is not connected");
+            if (!peripheral.is_connected()) {
+                addLog("Peripheral is not connected");
                 return;
             }
 
             // Logging sending command
-            std::string HexCommand = "Command bytes: ";
-            for (auto b : command)
-            {
-                char Hex[4];
-                snprintf(Hex, sizeof(Hex), "%02X", b);
-                HexCommand += Hex;
+            std::string hexCommand = "Command bytes: ";
+            for (auto byte : command) {
+                char hex[4];
+                snprintf(hex, sizeof(hex), "%02X", byte);
+                hexCommand += hex;
             }
-            AddLog(HexCommand.c_str());
+            addLog(hexCommand.c_str());
 
             // Sending a command via Bluetooth LE
             peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, command);
-            AddLog("Command sent successfully!");
+            addLog("Command sent successfully!");
         }
-        catch (const std::exception& e)
-        {
-            AddLog("Error sending command: %s", e.what());
-            LastError = e.what();
+        catch (const std::exception& e) {
+            addLog("Error sending command: %s", e.what());
+            lastError = e.what();
         }
     }
 
-    void SafeShutdown()
-    {
-        IsValid = false;
-        StopRequested = true;
+    void safeShutdown() {
+        isValid = false;
+        stopRequested = true;
 
         // Safe breaking all operations
-        try
-        {
-            std::lock_guard<std::mutex> Lock(CompletionMutex);
-            CompletionCV.notify_all();
+        try {
+            std::lock_guard<std::mutex> Lock(completionMutex);
+            completionCV.notify_all();
         }
-        catch (...)
-        {
+        catch (...) {
             // Ignoring all errors
         }
     }
@@ -998,117 +861,108 @@ public:
 
 public:
 
-    bool ExecuteSpeedProfile(const SpeedProfile* Profile)
+    bool executeSpeedProfile(const SpeedProfile* profile)
     {
-        if (!IsValid || !Profile || Profile->Count < 1) {
-            AddLog("Error: Invalid profile parameters");
+        if (!isValid || !profile || profile->count < 1) {
+            addLog("Error: Invalid profile parameters");
             return false;
         }
 
-        AddLog("=== EXECUTE SPEED PROFILE ===");
-        AddLog("Port: 0x%02X, Segments: %d, Timeout: %d ms",
-            Profile->Port, Profile->Count, Profile->TimeoutMs);
+        addLog("=== EXECUTE SPEED PROFILE ===");
+        addLog("Port: 0x%02X, Segments: %d, Timeout: %d ms",
+            profile->port, profile->count, profile->timeoutMs);
 
-        uint8_t Port = Profile->Port;
+        uint8_t port = profile->port;
 
         // Activate the encoder
-        ActivateEncoderMode(Port);
+        ActivateEncoderMode(port);
         std::this_thread::sleep_for(200ms);
 
         // Setting up notifications
-        SetupNotificationHandler();
+        setupNotificationHandler();
         std::this_thread::sleep_for(200ms);
 
         // Logging your profile
-        for (int i = 0; i < Profile->Count; i++) 
-        {
-            AddLog("Segment %d: Distance=%.3f rev, Speed=%d, Tolerance=%.3f",
-                i, Profile->Points[i].Distance, Profile->Points[i].Speed,
-                Profile->Points[i].Tolerance);
+        for (int i = 0; i < profile->count; i++) {
+            addLog("Segment %d: Distance=%.3f rev, Speed=%d, Tolerance=%.3f",
+                i, profile->points[i].distance, profile->points[i].speed,
+                profile->points[i].tolerance);
         }
 
         // Preparing profile points
         std::vector<SpeedProfilePoint> profilePoints;
-        for (int i = 0; i < Profile->Count; i++) 
-        {
-            profilePoints.push_back(Profile->Points[i]);
+        for (int i = 0; i < profile->count; i++) {
+            profilePoints.push_back(profile->points[i]);
         }
 
-        return StartRelativeProfileController(Port, profilePoints, Profile->TimeoutMs);
+        return startRelativeProfileController(port, profilePoints, profile->timeoutMs);
     }
 
 private:
 
-    bool StartRelativeProfileController(uint8_t Port, const std::vector<SpeedProfilePoint>& ProfilePoints, int TimeoutMs)
-    {
-        InitializeMotorState(Port);
-        auto& state = MotorStates[Port];
+    bool startRelativeProfileController(uint8_t port, const std::vector<SpeedProfilePoint>& profilePoints, int timeoutMs) {
+        initializeMotorState(port);
+        auto& state = motorStates[port];
 
         // Stop the previous profile
-        state.ProfileActive = false;
+        state.profileActive = false;
         std::this_thread::sleep_for(100ms);
 
         // We reset the drive and set up a new profile
-        state.SegmentAccumulator.store(0.0);
-        state.ActiveProfile = ProfilePoints;
-        state.ProfileTimeoutMs = TimeoutMs;
-        state.CurrentSegmentIndex.store(0);
+        state.segmentAccumulator.store(0.0);
+        state.activeProfile = profilePoints;
+        state.profileTimeoutMs = timeoutMs;
+        state.currentSegmentIndex.store(0);
 
-        if (!ProfilePoints.empty()) 
-        {
-            state.SegmentTarget.store(ProfilePoints[0].Distance);
+        if (!profilePoints.empty()) {
+            state.segmentTarget.store(profilePoints[0].distance);
         }
 
-        state.ProfileActive.store(true);
+        state.profileActive.store(true);
 
-        AddLog("Starting relative profile: Segments=%zu, Timeout=%dms",
-            ProfilePoints.size(), TimeoutMs);
+        addLog("Starting relative profile: Segments=%zu, Timeout=%dms",
+            profilePoints.size(), timeoutMs);
 
         // We launch the controller in a separate thread
-        std::thread controllerThread([this, Port]() 
-            {
-            this->RelativeProfileController(Port);
+        std::thread controllerThread([this, port]() {
+            this->relativeProfileController(port);
             });
         controllerThread.detach();
 
         return true;
     }
 
-    void InitializeMotorState(uint8_t Port)
-    {
-        if (!MotorStates.count(Port)) 
-        {
+    void initializeMotorState(uint8_t port) {
+        if (!motorStates.count(port)) {
             // The correct way to initialize
-            MotorStates[Port] = MotorState();
-            AddLog("Initialized motor state for port 0x%02X", Port);
+            motorStates[port] = MotorState();
+            addLog("Initialized motor state for port 0x%02X", port);
         }
     }
 
-    void RelativeProfileController(uint8_t Port)
+    void relativeProfileController(uint8_t port)
     {
-        auto& state = MotorStates[Port];
-        AddLog("=== STARTING PRECISE PROFILE CONTROLLER ===");
+        auto& state = motorStates[port];
+        addLog("=== STARTING PRECISE PROFILE CONTROLLER ===");
 
         // Full state reset
-        state.AbsolutePosition.store(0.0);
-        state.CurrentSegmentIndex.store(0);
-        state.ProfileActive.store(true);
+        state.absolutePosition.store(0.0);
+        state.currentSegmentIndex.store(0);
+        state.profileActive.store(true);
 
         // We start polling the encoder
-        StartContinuousEncoderPolling(Port);
+        startContinuousEncoderPolling(port);
 
         auto profileStartTime = std::chrono::steady_clock::now();
         auto lastControlTime = profileStartTime;
         bool profileCompleted = false;
 
         // Launching the first segment
-        if (!state.ActiveProfile.empty()) 
-        {
-            StartSegment(Port, 0);
+        if (!state.activeProfile.empty()) {
+            startSegment(port, 0);
         }
 
-        while (!profileCompleted && state.ProfileActive && IsValid) 
-        {
+        while (!profileCompleted && state.profileActive && isValid) {
             auto currentTime = std::chrono::steady_clock::now();
             auto timeSinceLastControl = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastControlTime);
@@ -1116,52 +970,47 @@ private:
             // Precise control with a fixed interval
             lastControlTime = currentTime;
 
-            int currentSegment = state.CurrentSegmentIndex.load();
+            int currentSegment = state.currentSegmentIndex.load();
 
             // We check the completion of all segments
-            if (currentSegment >= state.ActiveProfile.size()) 
-            {
-                SetMotorSpeed(Port, 0);
-                AddLog("PROFILE COMPLETED: All segments finished");
+            if (currentSegment >= state.activeProfile.size()) {
+                setMotorSpeed(port, 0);
+                addLog("PROFILE COMPLETED: All segments finished");
                 profileCompleted = true;
                 break;
             }
 
-            const auto& segment = state.ActiveProfile[currentSegment];
-            double traveled = state.SegmentAccumulator.load(std::memory_order_relaxed); // Use absolute position
+            const auto& segment = state.activeProfile[currentSegment];
+            double traveled = state.segmentAccumulator.load(std::memory_order_relaxed); // Use absolute position
 
-            // Логируем прогресс каждые 500ms
+            // We log progress every 500ms
             static auto lastLogTime = profileStartTime;
             auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastLogTime);
-            if (timeSinceLastLog.count() > 500) 
-            {
-                AddLog("SEGMENT %d: Traveled=%.3f/%.3f rev (%.1f%%), Speed=%d",
-                    currentSegment, traveled, segment.Distance, (traveled / segment.Distance) * 100, segment.Speed);
+            if (timeSinceLastLog.count() > 500) {
+                addLog("SEGMENT %d: Traveled=%.3f/%.3f rev (%.1f%%), Speed=%d",
+                    currentSegment, traveled, segment.distance, (traveled / segment.distance) * 100, segment.speed);
                 lastLogTime = currentTime;
             }
 
             // Checking the completion of the current segment
-            if (traveled >= segment.Distance - segment.Tolerance) 
-            {
-                AddLog("=== SEGMENT %d COMPLETED ===", currentSegment);
-                AddLog("Traveled %.3f of %.3f revolutions", traveled, segment.Distance);
+            if (traveled >= segment.distance - segment.tolerance) {
+                addLog("=== SEGMENT %d COMPLETED ===", currentSegment);
+                addLog("Traveled %.3f of %.3f revolutions", traveled, segment.distance);
 
                 // Let's move on to the next segment
                 int nextSegment = currentSegment + 1;
-                state.CurrentSegmentIndex.store(nextSegment);
+                state.currentSegmentIndex.store(nextSegment);
 
-                if (nextSegment < state.ActiveProfile.size()) 
-                {
+                if (nextSegment < state.activeProfile.size()) {
                     // RESET position for a new segment
-                    state.SegmentAccumulator.store(0.0, std::memory_order_relaxed);
-                    StartSegment(Port, nextSegment);
+                    state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+                    startSegment(port, nextSegment);
                 }
-                else 
-                {
+                else {
                     // All segments are complete
-                    SetMotorSpeed(Port, 0);
-                    AddLog("=== PROFILE COMPLETED ===");
+                    setMotorSpeed(port, 0);
+                    addLog("=== PROFILE COMPLETED ===");
                     profileCompleted = true;
                 }
             }
@@ -1169,106 +1018,98 @@ private:
             // Timeout check
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - profileStartTime);
-            if (elapsed.count() > state.ProfileTimeoutMs) 
-            {
-                AddLog("PROFILE TIMEOUT: %d ms elapsed", elapsed.count());
+            if (elapsed.count() > state.profileTimeoutMs) {
+                addLog("PROFILE TIMEOUT: %d ms elapsed", elapsed.count());
 
-                AddLog("Current segment: %d, Traveled: %.3f/%.3f",
-                    currentSegment, traveled, segment.Distance);
-                SetMotorSpeed(Port, 0);
-                state.ProfileActive = false;
+                addLog("Current segment: %d, Traveled: %.3f/%.3f",
+                    currentSegment, traveled, segment.distance);
+                setMotorSpeed(port, 0);
+                state.profileActive = false;
                 break;
             }
         }
 
         // Shutdown
-        state.ProfileActive = false;
-        StopEncoderPolling(Port);
+        state.profileActive = false;
+        stopEncoderPolling(port);
 
-        if (MotorThreads.count(Port) && MotorThreads[Port].joinable())
-        {
-            MotorThreads[Port].join();
-            MotorThreads.erase(Port);
+        if (motorThreads.count(port) && motorThreads[port].joinable()) {
+            motorThreads[port].join();
+            motorThreads.erase(port);
         }
 
-        AddLog("Profile controller stopped for port 0x%02X", Port);
+        addLog("Profile controller stopped for port 0x%02X", port);
     }
 
-    void StartSegment(uint8_t Port, int segmentIndex)
-    {
-        auto& state = MotorStates[Port];
-        const auto& segment = state.ActiveProfile[segmentIndex];
+    void startSegment(uint8_t port, int segmentIndex) {
+        auto& state = motorStates[port];
+        const auto& segment = state.activeProfile[segmentIndex];
 
         // Reset ONLY the segment drive
-        state.SegmentAccumulator.store(0.0, std::memory_order_relaxed);
+        state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
 
         // Logging initial values ​​for debugging
-        double initialAbs = state.AbsolutePosition.load(std::memory_order_relaxed);
-        double initialSeg = state.SegmentAccumulator.load(std::memory_order_relaxed);
+        double initialAbs = state.absolutePosition.load(std::memory_order_relaxed);
+        double initialSeg = state.segmentAccumulator.load(std::memory_order_relaxed);
 
         // Setting the motor speed
-        SetMotorSpeed(Port, segment.Speed);
+        setMotorSpeed(port, segment.speed);
 
-        AddLog(">>> STARTING SEGMENT %d: Target=%.3f rev, Speed=%d",
-            segmentIndex, segment.Distance, segment.Speed);
-        AddLog(">>> INITIAL VALUES: AbsPos=%.3f, SegAcc=%.3f", initialAbs, initialSeg);
+        addLog(">>> STARTING SEGMENT %d: Target=%.3f rev, Speed=%d",
+            segmentIndex, segment.distance, segment.speed);
+        addLog(">>> INITIAL VALUES: AbsPos=%.3f, SegAcc=%.3f", initialAbs, initialSeg);
     }
 
-    void StartContinuousEncoderPolling(uint8_t Port)
+    void startContinuousEncoderPolling(uint8_t port)
     {
-        StopEncoderPolling(Port);
+        stopEncoderPolling(port);
 
-        AddLog("Starting optimized encoder polling for port 0x%02X", Port);
+        addLog("Starting optimized encoder polling for port 0x%02X", port);
 
-        MotorThreads[Port] = std::thread([this, Port]() 
-            {
-            auto& state = MotorStates[Port];
+        motorThreads[port] = std::thread([this, port]() {
+            auto& state = motorStates[port];
             auto lastRequestTime = std::chrono::steady_clock::now();
             const std::chrono::milliseconds requestInterval(5);
 
-            while (IsValid && state.ProfileActive.load(std::memory_order_relaxed)) 
-            {
+            while (isValid && state.profileActive.load(std::memory_order_relaxed)) {
                 auto currentTime = std::chrono::steady_clock::now();
                 auto elapsed = currentTime - lastRequestTime;
 
-                if (elapsed >= requestInterval) 
-                {
-                    PollEncoderPosition(Port);
+                if (elapsed >= requestInterval) {
+                    pollEncoderPosition(port);
                     lastRequestTime = currentTime;
                 }
             }
-            AddLog("Encoder polling thread finished for port 0x%02X", Port);
+            addLog("Encoder polling thread finished for port 0x%02X", port);
             });
     }
 
-    void ResetEncoderPosition(uint8_t Port)
-    {
-        AddLog("=== MANUAL POSITION RESET ===");
+    void resetEncoderPosition(uint8_t port) {
+        addLog("=== MANUAL POSITION RESET ===");
 
-        auto& state = MotorStates[Port];
-        double currentAbsolute = state.AbsolutePosition.load();
+        auto& state = motorStates[port];
+        double currentAbsolute = state.absolutePosition.load();
 
         // We reset ALL positions
-        state.AbsolutePosition.store(0.0);
-        state.SegmentAccumulator.store(0.0);
-        state.RelativePosition.store(0.0); // if this variable is still in use
+        state.absolutePosition.store(0.0);
+        state.segmentAccumulator.store(0.0);
+        state.relativePosition.store(0.0); // if this variable is still in use
 
-        AddLog("Reset: Port=0x%02X, Was=%.3f, Now=0.000", Port, currentAbsolute);
+        addLog("Reset: Port=0x%02X, Was=%.3f, Now=0.000", port, currentAbsolute);
     }
 
-    void PollEncoderPosition(uint8_t Port)
-    {
+    void pollEncoderPosition(uint8_t port) {
         // Encoder position query command
         std::vector<uint8_t> requestCmd = 
         {
             0x05,       // Length
             0x00,       // Hub ID
             0x21,       // Port Information Request
-            Port,       // Port
+            port,       // Port
             0x00        // Mode: position
         };
 
-        SendCommandVector(requestCmd);
+        sendCommandVector(requestCmd);
     }
 
     // New try
@@ -1276,61 +1117,55 @@ private:
 public:
 
     // Updated method for testing
-    bool TestEncoderFunctionality(IPrinter* Printer)
-    {
-        if (!Printer)
-        {
-            return false;
-        }
+    bool testEncoderFunctionality(IPrinter* printer) {
+        if (!printer) return false;
 
-        AddLog("FUNCTION do not do everything");
+        addLog("FUNCTION do not do everything");
     }
 
 private:          
 
-    void StartEncoderPolling(uint8_t Port)
+    void startEncoderPolling(uint8_t port)
     {
         // We stop the previous survey if there was one
-        StopEncoderPolling(Port);
+        stopEncoderPolling(port);
 
-        AddLog("Encoder polling started for port 0x%02X", Port);
+        addLog("Encoder polling started for port 0x%02X", port);
 
-        // Запускаем новый поток опроса
-        MotorThreads[Port] = std::thread([this, Port]() 
-            {
-            while (IsValid && !StopRequested) // Limit the number of requests
-            { 
-                PollEncoderPosition(Port);
+        // Launching a new survey stream
+        motorThreads[port] = std::thread([this, port]() {
+            while (isValid && !stopRequested) { // Limit the number of requests
+                pollEncoderPosition(port);
                 std::this_thread::sleep_for(50ms); // Request every 50ms
             }
-            AddLog("Encoder polling stopped for port 0x%02X after %d requests", Port);
+            addLog("Encoder polling stopped for port 0x%02X after %d requests", port);
             });
     }    
 
-    bool QuickEncoderTest(uint8_t Port)
+    bool quickEncoderTest(uint8_t port)
     {
-        AddLog("=== QUICK ENCODER TEST (REAL-TIME) ===");
+        addLog("=== QUICK ENCODER TEST (REAL-TIME) ===");
 
         // Resetting the position
-        ResetEncoderPosition(Port);
+        resetEncoderPosition(port);
 
         // We get the initial position
-        double startPos = GetMotorPosition(Port);
-        AddLog("Start position: %.3f", startPos);
+        double startPos = getMotorPosition(port);
+        addLog("Start position: %.3f", startPos);
 
         // We start polling the encoder to activate updates
-        StartEncoderPolling(Port);
+        startEncoderPolling(port);
 
         // We'll wait a bit to get some initial data.
         std::this_thread::sleep_for(100ms);
 
         // We receive a position after activating the survey
-        startPos = GetMotorPosition(Port);
-        AddLog("Position after polling start: %.3f", startPos);
+        startPos = getMotorPosition(port);
+        addLog("Position after polling start: %.3f", startPos);
 
         // We start the engine for a short time
-        SetMotorSpeed(Port, 40);
-        AddLog("Rotating motor at speed 40...");
+        setMotorSpeed(port, 40);
+        addLog("Rotating motor at speed 40...");
 
         // We wait and measure the change in position
         auto startTime = std::chrono::steady_clock::now();
@@ -1338,19 +1173,16 @@ private:
         int measurements = 0;
 
         while (std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - startTime).count() < 300) 
-        {
+            std::chrono::steady_clock::now() - startTime).count() < 300) {
 
-            double currentPos = GetMotorPosition(Port);
-            if (currentPos > maxPosition) 
-            {
+            double currentPos = getMotorPosition(port);
+            if (currentPos > maxPosition) {
                 maxPosition = currentPos;
             }
 
             // Logging progress
-            if (measurements % 5 == 0) // Every 5 measurements
-            { 
-                AddLog("Test loop %d: position=%.3f", measurements, currentPos);
+            if (measurements % 5 == 0) { // Every 5 measurements
+                addLog("Test loop %d: position=%.3f", measurements, currentPos);
             }
 
             measurements++;
@@ -1358,88 +1190,76 @@ private:
         }
 
         // We stop the engine
-        SetMotorSpeed(Port, 0);
-        AddLog("Setting motor speed: Port=0x%02X, Speed=0", Port);
+        setMotorSpeed(port, 0);
+        addLog("Setting motor speed: Port=0x%02X, Speed=0", port);
 
         // Let the engine stop
         std::this_thread::sleep_for(100ms);
 
         // Final Dimension
-        double finalPos = GetMotorPosition(Port);
+        double finalPos = getMotorPosition(port);
         double positionChange = finalPos - startPos;
 
-        AddLog("Position after 300ms: %.3f (change: %.3f), measurements: %d",
+        addLog("Position after 300ms: %.3f (change: %.3f), measurements: %d",
             finalPos, positionChange, measurements);
 
         bool success = (positionChange > 0.05); // Minimum expected change
-        AddLog(success ? "SUCCESS: Encoder working! Position changed from %.3f to %.3f" :
+        addLog(success ? "SUCCESS: Encoder working! Position changed from %.3f to %.3f" :
             "FAILED: Encoder not responding to motor movement",
             startPos, finalPos);
 
         // Stopping the survey
-        StopEncoderPolling(Port);
+        stopEncoderPolling(port);
 
-        if (!success) 
-        {
-            AddLog("Final position: %.3f", finalPos);
-            AddLog("Last received encoder data analysis:");
-            AddLog("  - Check if 0x45 notifications are being received");
-            AddLog("  - Check if position bytes are changing in 0x45 messages");
+        if (!success) {
+            addLog("Final position: %.3f", finalPos);
+            addLog("Last received encoder data analysis:");
+            addLog("  - Check if 0x45 notifications are being received");
+            addLog("  - Check if position bytes are changing in 0x45 messages");
         }
 
         return success;
     }
 
-    void StopEncoderPolling(uint8_t Port)
-    {
-        if (MotorThreads.count(Port)) 
-        {
+    void stopEncoderPolling(uint8_t port) {
+        if (motorThreads.count(port)) {
             // Setting stop flags
-            if (MotorStates.count(Port)) 
-            {
-                MotorStates[Port].ProfileActive.store(false, std::memory_order_relaxed);
+            if (motorStates.count(port)) {
+                motorStates[port].profileActive.store(false, std::memory_order_relaxed);
             }
 
             // Wait for the thread to complete with a timeout
-            if (MotorThreads[Port].joinable()) 
-            {
-                auto& thread = MotorThreads[Port];
-                if (thread.get_id() != std::this_thread::get_id()) 
-                {
+            if (motorThreads[port].joinable()) {
+                auto& thread = motorThreads[port];
+                if (thread.get_id() != std::this_thread::get_id()) {
                     // We give the thread 500ms to complete
-                    for (int i = 0; i < 50 && thread.joinable(); i++) 
-                    {
+                    for (int i = 0; i < 50 && thread.joinable(); i++) {
                         std::this_thread::sleep_for(10ms);
                     }
-                    if (thread.joinable()) 
-                    {
+                    if (thread.joinable()) {
                         thread.detach(); // Forced detachment as a last resort
-                        AddLog("WARNING: Encoder polling thread for port 0x%02X had to be detached", Port);
+                        addLog("WARNING: Encoder polling thread for port 0x%02X had to be detached", port);
                     }
                 }
             }
 
-            MotorThreads.erase(Port);
-            AddLog("Encoder polling stopped for port 0x%02X", Port);
+            motorThreads.erase(port);
+            addLog("Encoder polling stopped for port 0x%02X", port);
         }
     }
 
-    void ActivateEncoderMode(uint8_t Port)
+    void ActivateEncoderMode(uint8_t port)
     {
-        if (!IsValid || !peripheral.is_connected())
-        {
-            return;
-        }
+        if (!isValid || !peripheral.is_connected()) return;
 
-        AddLog("Activating encoder mode for port 0x%02X", Port);
+        addLog("Activating encoder mode for port 0x%02X", port);
 
         // Basic encoder activation command
-        std::vector<uint8_t> setupCmd = 
-        {
+        std::vector<uint8_t> setupCommand = {
             0x09,       // Length
             0x00,       // Hub ID  
             0x41,       // Port Configuration Command
-            Port,       // Motor port
+            port,       // Motor port
             0x00,       // Mode: Position (absolute position)
             0x00,       // Data Format
             0x01,       // Unit: degrees
@@ -1447,25 +1267,24 @@ private:
             0x00        // Range max
         };
 
-        SendCommandVector(setupCmd);
+        sendCommandVector(setupCommand);
 
         // Command to enable notifications
-        std::vector<uint8_t> subscribeCmd = 
-        {
+        std::vector<uint8_t> subscribeCommand = {
             0x08,       // Length
             0x00,       // Hub ID
             0x47,       // Hub Attached IO
-            Port,       // Port  
+            port,       // Port  
             0x02,       // Subcommand: Subscribe
             0x00,       // Mode
             0x01,       // Subscribe flag
             0x00        // Padding
         };
 
-        SendCommandVector(subscribeCmd);
+        sendCommandVector(subscribeCommand);
 
         std::this_thread::sleep_for(200ms);
-        AddLog("Encoder mode activated for port 0x%02X", Port);
+        addLog("Encoder mode activated for port 0x%02X", port);
     }
 
 };
@@ -1473,433 +1292,296 @@ private:
 // Main context and virtual table
 namespace
 {
-    std::mutex ContextsMutex;
-    std::map<PrinterImplementation*, std::unique_ptr<PrinterImplementation>> Contexts;
+    std::mutex contextsMutex;
+    std::map<PrinterImplementation*, std::unique_ptr<PrinterImplementation>> contexts;
 
     // Virtual table functions - a bridge between C++ and C-INTERFACE
-
-    bool Printer_Connect(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return false;
-        }
+    bool printer_connect(IPrinter* self) {
+        if (!self || !self->vtable) return false;
         
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->Connect();
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->connect();
     }
 
-    bool Printer_Disconnect(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return false;
-        }
+    bool printer_disconnect(IPrinter* self) {
+        if (!self || !self->vtable) return false;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->Disconnect();
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->disconnect();
     }
 
-    bool Printer_IsConnected(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return false;
-        }
+    bool printer_is_connected(IPrinter* self) {
+        if (!self || !self->vtable) return false;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->IsConnected();
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->isConnected();
     }
 
-    void Printer_Destroy(IPrinter* Self)
-    {
-        if (!Self)
-        {
-            return;
-        }
+    void printer_destroy(IPrinter* self) {
+        if (!self) return;
 
-        try
-        {
-            PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
+        try {
+            PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
             
-            Implementation->SafeShutdown();
+            Implementation->safeShutdown();
             
-            std::lock_guard<std::mutex> Lock(ContextsMutex);
+            std::lock_guard<std::mutex> Lock(contextsMutex);
             
-            if (Contexts.find(Implementation) != Contexts.end())
-            {
-                Contexts.erase(Implementation);
+            if (contexts.find(Implementation) != contexts.end()) {
+                contexts.erase(Implementation);
             }
         }
-        catch (...)
-        {
+        catch (...) {
             // Ignore all errors
         }
     }
 
-    void Printer_SetMotorSpeed(IPrinter* Self, unsigned char Port, signed char Speed)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return;
-        }
+    void printer_set_motor_speed(IPrinter* self, unsigned char port, signed char speed) {
+        if (!self || !self->vtable) return;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->SetMotorSpeed(Port, Speed);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        Implementation->setMotorSpeed(port, speed);
     }
 
-    void Printer_RotateMotor(IPrinter* Self, const MotorCommand* Commands, int Count)
-    {
-        if (!Self || !Self->VirtualTable || !Commands || Count <= 0)
-        {
-            return;
-        }
+    void printer_rotate_motor(IPrinter* self, const MotorCommand* commands, int count) {
+        if (!self || !self->vtable || !commands || count < -1) return;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->RotateMotor(Commands, Count);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        Implementation->rotateMotor(commands, count);
     }
 
-    bool Printer_PrinterExecuteSpeedProfile(IPrinter* Self, const SpeedProfile* Profile)
-    {
-        if (!Self || !Self->VirtualTable || !Profile)
-        {
-            return false;
-        }
+    bool printer_printer_execute_speed_profile(IPrinter* self, const SpeedProfile* profile) {
+        if (!self || !self->vtable || !profile) return false;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->ExecuteSpeedProfile(Profile);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->executeSpeedProfile(profile);
     }
 
-    void Printer_SendCommand(IPrinter* Self, const unsigned char* Command, int Length)
-    {
-        if (!Self || !Self->VirtualTable || !Command || Length <= 0)
-        {
-            return;
-        }
+    void printer_send_command(IPrinter* self, const unsigned char* command, int length) {
+        if (!self || !self->vtable || !command || length < -1) return;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        Implementation->SendCommand(Command, Length);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        Implementation->sendCommand(command, length);
     }
 
-    bool Printer_IsMotorMoving(IPrinter* Self, unsigned char Port)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return false;
-        }
+    bool printer_is_motor_moving(IPrinter* self, unsigned char port) {
+        if (!self || !self->vtable) return false;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->IsMotorMoving(Port);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->isMotorMoving(port);
     }
 
-    double Printer_GetMotorPosition(IPrinter* Self, unsigned char Port)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return 0.0;
-        }
+    double printer_get_motor_position(IPrinter* self, unsigned char port) {
+        if (!self || !self->vtable) return 0.0;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->GetMotorPosition(Port);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->getMotorPosition(port);
     }
     
-    int Printer_GetLogCount(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return 0;
-        }
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->GetLogCount();
+    int printer_get_log_count(IPrinter* self) {
+        if (!self || !self->vtable) return 0;
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->getLogCount();
     }
 
-    const char* Printer_GetLogEntry(IPrinter* Self, int Index)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return nullptr;
-        }
+    const char* printer_get_log_entry(IPrinter* self, int index) {
+        if (!self || !self->vtable) return nullptr;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->GetLogEntry(Index);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->getLogEntry(index);
     }
 
-    void Printer_PrinterConnectionInfo(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return;
-        }
+    void printer_printer_connection_info(IPrinter* self) {
+        if (!self || !self->vtable) return;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->PrintConnectionInfo();
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->printConnectionInfo();
     }
 
-    void Printer_ClearLog(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return;
-        }
+    void printer_clear_log(IPrinter* self) {
+        if (!self || !self->vtable) return;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->ClearLog();
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->clearLog();
     }
 
-    const char* Printer_GetLastError(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return "";
-        }
+    const char* printer_get_last_error(IPrinter* self) {
+        if (!self || !self->vtable) return nullptr;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->GetLastErrorMessage();
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->getLastErrorMessage();
     }
 
-    bool Printer_TestEncoderFunctionality(IPrinter* Self)
-    {
-        if (!Self || !Self->VirtualTable)
-        {
-            return false;
-        }
+    bool printer_test_encoder_functionality(IPrinter* self) {
+        if (!self || !self->vtable) return false;
 
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(Self);
-        return Implementation->TestEncoderFunctionality(Self);
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->testEncoderFunctionality(self);
     }
 }
 
 // Virtual Method Table - C-INTERFACE
 static IPrinterVirtualTable PrinterVTable = {
-    Printer_Connect,
-    Printer_Disconnect,
-    Printer_IsConnected,
-    Printer_Destroy,
-    Printer_RotateMotor,
-    Printer_SetMotorSpeed,
-    Printer_SendCommand,
-    Printer_PrinterExecuteSpeedProfile,
-    Printer_IsMotorMoving,
-    Printer_GetMotorPosition,
-    Printer_GetLogCount,
-    Printer_GetLogEntry,
-    Printer_ClearLog,
-    Printer_GetLastError,
-    Printer_PrinterConnectionInfo,
-    Printer_TestEncoderFunctionality
+    printer_connect,
+    printer_disconnect,
+    printer_is_connected,
+    printer_destroy,
+    printer_rotate_motor,
+    printer_set_motor_speed,
+    printer_send_command,
+    printer_printer_execute_speed_profile,
+    printer_is_motor_moving,
+    printer_get_motor_position,
+    printer_get_log_count,
+    printer_get_log_entry,
+    printer_clear_log,
+    printer_get_last_error,
+    printer_printer_connection_info,
+    printer_test_encoder_functionality
 };
 
 // Tested function - remove after deep testing
 
-bool TestSpeedProfileAdvanced(IPrinter* Printer)
-{
-    SpeedProfilePoint Points[] = {
+bool testSpeedProfileAdvanced(IPrinter* Printer) {
+    SpeedProfilePoint points[] = {
         {3.0, 20, 0.0005},
         {3.0, 30, 0.0005},
         {0.0, 0, 1.0}
     };
 
-    SpeedProfile Profile;
-    Profile.Port = 0x00;
-    Profile.Points = Points;
-    Profile.Count = 3;
-    Profile.TimeoutMs = 30000;
+    SpeedProfile profile;
+    profile.port = 0x00;
+    profile.points = points;
+    profile.count = 3;
+    profile.timeoutMs = 30000;
 
-    bool Result = PrinterExecuteSpeedProfile(Printer, &Profile);
-    return Result;
+    bool result = PrinterExecuteSpeedProfile(Printer, &profile);
+    return result;
 }
 
 // C-INTERFACE functions are exported to DLL
 extern "C"
 {
 
-    PRINTER_DRIVER_API IPrinter* CreatePrinter()
-    {
-        auto Printer = std::make_unique<PrinterImplementation>();
-        Printer->Interface.VirtualTable = &PrinterVTable;
+    PRINTER_DRIVER_API IPrinter* CreatePrinter() {
+        auto printer = std::make_unique<PrinterImplementation>();
+        printer->interface.vtable = &PrinterVTable;
 
-        PrinterImplementation* PrinterHandle = Printer.get();
-        std::lock_guard<std::mutex> Lock(ContextsMutex);
+        PrinterImplementation* printerHandle = printer.get();
+        std::lock_guard<std::mutex> Lock(contextsMutex);
 
-        Contexts[PrinterHandle] = std::move(Printer);
-        return &PrinterHandle->Interface;
+        contexts[printerHandle] = std::move(printer);
+        return &printerHandle->interface;
     }
 
-    PRINTER_DRIVER_API void DestroyPrinter(IPrinter* Printer)
+    PRINTER_DRIVER_API void DestroyPrinter(IPrinter* printer)
     {
-        if (!Printer)
-        {
-            return;
-        }
+        if (!printer) return;
 
-        try
-        {
-            if (Printer->VirtualTable && Printer->VirtualTable->Destroy)
-            {
-                Printer->VirtualTable->Destroy(Printer);
+        try {
+            if (printer->vtable && printer->vtable->Destroy) {
+                printer->vtable->Destroy(printer);
             }
         }
-        catch (...)
-        {
+        catch (...) {
             // Ignore all errors
         }
     }
 
-    PRINTER_DRIVER_API bool PrinterConnect(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->Connect)
-        {
-            return false;
-        }
+    PRINTER_DRIVER_API bool PrinterConnect(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->printer_connect) return false;
 
-        return Printer->VirtualTable->Connect(Printer);
+        return printer->vtable->printer_connect(printer);
     }
 
-    PRINTER_DRIVER_API bool PrinterDisconnect(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->Disconnect)
-        {
-            return false;
-        }
+    PRINTER_DRIVER_API bool PrinterDisconnect(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->disconnect) return false;
 
-        return Printer->VirtualTable->Disconnect(Printer);
+        return printer->vtable->disconnect(printer);
     }
 
-    PRINTER_DRIVER_API bool IsConnected(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->IsConnected)
-        {
-            return false;
-        }
+    PRINTER_DRIVER_API bool IsConnected(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->isConnected) return false;
 
-        return Printer->VirtualTable->IsConnected(Printer);
+        return printer->vtable->isConnected(printer);
     }
 
-    PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* Printer, MotorCommand* Commands, int Count)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->RotateMotor)
-        {
-            return;
-        }
+    PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* printer, MotorCommand* commands, int count) {
+        if (!printer || !printer->vtable || !printer->vtable->rotateMotor) return;
 
-        return Printer->VirtualTable->RotateMotor(Printer, Commands, Count);
+        return printer->vtable->rotateMotor(printer, commands, count);
     }
 
-    PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* Printer, const unsigned char* Command, int Length)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->SendCommand)
-        {
-            return;
-        }
+    PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* printer, const unsigned char* command, int length) {
+        if (!printer || !printer->vtable || !printer->vtable->sendCommand) return;
 
-        return Printer->VirtualTable->SendCommand(Printer, Command, Length);
+        return printer->vtable->sendCommand(printer, command, length);
     }
 
-    PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* Printer, unsigned char Port, signed char Speed)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->SetMotorSpeed)
-        {
-            return;
-        }
+    PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* printer, unsigned char port, signed char speed) {
+        if (!printer || !printer->vtable || !printer->vtable->setMotorSpeed) return;
 
-        return Printer->VirtualTable->SetMotorSpeed(Printer, Port, Speed);
+        return printer->vtable->setMotorSpeed(printer, port, speed);
     }
 
-    PRINTER_DRIVER_API int GetLogCount(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->GetLogCount)
-        {
-            return 0;
-        }
+    PRINTER_DRIVER_API int getLogCount(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->getLogCount) return 0;
 
-        return Printer->VirtualTable->GetLogCount(Printer);
+        return printer->vtable->getLogCount(printer);
     }
 
-    PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* Printer, int Index)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->GetLogEntry)
-        {
-            return "";
-        }
+    PRINTER_DRIVER_API const char* getLogEntry(IPrinter* printer, int index) {
+        if (!printer || !printer->vtable || !printer->vtable->getLogEntry) return nullptr;
 
-        return Printer->VirtualTable->GetLogEntry(Printer, Index);
+        return printer->vtable->getLogEntry(printer, index);
     }
 
-    PRINTER_DRIVER_API void ClearLog(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->ClearLog)
-        {
-            return;
-        }
+    PRINTER_DRIVER_API void clearLog(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->clearLog) return;
 
-        return Printer->VirtualTable->ClearLog(Printer);
+        return printer->vtable->clearLog(printer);
     }
 
-    PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* Printer)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->GetLastError)
-        {
-            return "";
-        }
+    PRINTER_DRIVER_API const char* getLastErrorMessage(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->getLastError) return nullptr;
 
-        return Printer->VirtualTable->GetLastError(Printer);
+        return printer->vtable->getLastError(printer);
     }
 
-    PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* Printer, int Count)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->IsMotorMoving)
-        {
-            return false;
-        }
+    PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* printer, int count) {
+        if (!printer || !printer->vtable || !printer->vtable->isMotorMoving) return false;
 
-        return Printer->VirtualTable->IsMotorMoving(Printer, Count);
+        return printer->vtable->isMotorMoving(printer, count);
     }
 
-    PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* Printer, unsigned char Port)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->GetMotorPosition)
-        {
-            return 0.0;
-        }
+    PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* printer, unsigned char port) {
+        if (!printer || !printer->vtable || !printer->vtable->getMotorPosition) return 0.0;
 
-        return Printer->VirtualTable->GetMotorPosition(Printer, Port);
+        return printer->vtable->getMotorPosition(printer, port);
     }
 
     // Test function
-    PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* Printer, const char* TestName)
-    {
-        if (!Printer || !TestName)
-        {
-            return false;
-        }
+    PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* printer, const char* testName) {
+        if (!printer || !testName) return false;
 
-        std::string Name(TestName);
+        std::string name(testName);
 
-        if (Name == "SpeedProfileAdvanced")
-        {
-            return TestSpeedProfileAdvanced(Printer);
+        if (name == "SpeedProfileAdvanced") {
+            return testSpeedProfileAdvanced(printer);
         }
-        else
-        {
+        else {
             return false;
         }
     }
 
-    PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* Printer)
-    {
-        if (Printer)
-        {
-            Printer->VirtualTable->PrintConnectionInfo(Printer);
-        }
+    PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer) {
+        if (printer) printer->vtable->printConnectionInfo(printer);
     }
 
-    PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* Printer, const SpeedProfile* Profile)
-    {
-        if (!Printer || !Printer->VirtualTable || !Printer->VirtualTable->PrinterExecuteSpeedProfile)
-        {
-            return false;
-        }
+    PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile) {
+        if (!printer || !printer->vtable || !printer->vtable->PrinterExecuteSpeedProfile) return false;
 
-        return Printer->VirtualTable->PrinterExecuteSpeedProfile(Printer, Profile);
+        return printer->vtable->PrinterExecuteSpeedProfile(printer, profile);
     }    
 }
