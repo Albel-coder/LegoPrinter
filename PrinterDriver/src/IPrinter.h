@@ -33,31 +33,31 @@ extern "C" {
     {
         // Basic Operations
         bool (*printer_connect)(IPrinter* self);
-        bool (*disconnect)(IPrinter* self);
-        bool (*isConnected)(IPrinter* self);
-        void (*Destroy)(IPrinter* self);
+        bool (*printer_disconnect)(IPrinter* self);
+        bool (*printer_is_connected)(IPrinter* self);
+        void (*printer_destroy)(IPrinter* self);
 
-        void (*rotateMotor)(IPrinter* self, const MotorCommand* commands, int count);
+        void (*printer_rotate_motor)(IPrinter* self, const MotorCommand* commands, int count);
 
-        void (*setMotorSpeed)(IPrinter* self, unsigned char port, signed char speed);
+        void (*printer_set_motor_speed)(IPrinter* self, unsigned char port, signed char speed);
 
         // Raw command
-        void (*sendCommand)(IPrinter* self, const unsigned char* command, int length);
+        void (*printer_send_command)(IPrinter* self, const unsigned char* command, int length);
 
-        bool (*PrinterExecuteSpeedProfile)(IPrinter* self, const SpeedProfile* profile);
+        bool (*printer_printer_execute_speed_profile)(IPrinter* self, const SpeedProfile* profile);
 
         // Monitoring
-        bool (*isMotorMoving)(IPrinter* self, unsigned char port);
-        double (*getMotorPosition)(IPrinter* self, unsigned char port);
+        bool (*printer_is_motor_moving)(IPrinter* self, unsigned char port);
+        double (*printer_get_motor_position)(IPrinter* self, unsigned char port);
 
         // Logging
-        int (*getLogCount)(IPrinter* self);
-        const char* (*getLogEntry)(IPrinter* self, int index);
-        void (*clearLog)(IPrinter* self);
-        const char* (*getLastError)(IPrinter* self);
-        void (*printConnectionInfo)(IPrinter* self);
+        int (*printer_get_log_count)(IPrinter* self);
+        const char* (*printer_get_log_entry)(IPrinter* self, int index);
+        void (*printer_clear_log)(IPrinter* self);
+        const char* (*printer_get_last_error)(IPrinter* self);
+        void (*printer_printer_connection_info)(IPrinter* self);
 
-        bool (*testEncoderFunctionality)(IPrinter* self);
+        bool (*printer_test_encoder_functionality)(IPrinter* self);
 
     } IPrinterVirtualTable;
 

@@ -1480,8 +1480,8 @@ extern "C"
         if (!printer) return;
 
         try {
-            if (printer->vtable && printer->vtable->Destroy) {
-                printer->vtable->Destroy(printer);
+            if (printer->vtable && printer->vtable->printer_destroy) {
+                printer->vtable->printer_destroy(printer);
             }
         }
         catch (...) {
@@ -1496,69 +1496,69 @@ extern "C"
     }
 
     PRINTER_DRIVER_API bool PrinterDisconnect(IPrinter* printer) {
-        if (!printer || !printer->vtable || !printer->vtable->disconnect) return false;
+        if (!printer || !printer->vtable || !printer->vtable->printer_disconnect) return false;
 
-        return printer->vtable->disconnect(printer);
+        return printer->vtable->printer_disconnect(printer);
     }
 
     PRINTER_DRIVER_API bool IsConnected(IPrinter* printer) {
-        if (!printer || !printer->vtable || !printer->vtable->isConnected) return false;
+        if (!printer || !printer->vtable || !printer->vtable->printer_is_connected) return false;
 
-        return printer->vtable->isConnected(printer);
+        return printer->vtable->printer_is_connected(printer);
     }
 
     PRINTER_DRIVER_API void PrinterRotateMotor(IPrinter* printer, MotorCommand* commands, int count) {
-        if (!printer || !printer->vtable || !printer->vtable->rotateMotor) return;
+        if (!printer || !printer->vtable || !printer->vtable->printer_rotate_motor) return;
 
-        return printer->vtable->rotateMotor(printer, commands, count);
+        return printer->vtable->printer_rotate_motor(printer, commands, count);
     }
 
     PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* printer, const unsigned char* command, int length) {
-        if (!printer || !printer->vtable || !printer->vtable->sendCommand) return;
+        if (!printer || !printer->vtable || !printer->vtable->printer_send_command) return;
 
-        return printer->vtable->sendCommand(printer, command, length);
+        return printer->vtable->printer_send_command(printer, command, length);
     }
 
     PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* printer, unsigned char port, signed char speed) {
-        if (!printer || !printer->vtable || !printer->vtable->setMotorSpeed) return;
+        if (!printer || !printer->vtable || !printer->vtable->printer_set_motor_speed) return;
 
-        return printer->vtable->setMotorSpeed(printer, port, speed);
+        return printer->vtable->printer_set_motor_speed(printer, port, speed);
     }
 
     PRINTER_DRIVER_API int getLogCount(IPrinter* printer) {
-        if (!printer || !printer->vtable || !printer->vtable->getLogCount) return 0;
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_log_count) return 0;
 
-        return printer->vtable->getLogCount(printer);
+        return printer->vtable->printer_get_log_count(printer);
     }
 
     PRINTER_DRIVER_API const char* getLogEntry(IPrinter* printer, int index) {
-        if (!printer || !printer->vtable || !printer->vtable->getLogEntry) return nullptr;
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_log_entry) return nullptr;
 
-        return printer->vtable->getLogEntry(printer, index);
+        return printer->vtable->printer_get_log_entry(printer, index);
     }
 
     PRINTER_DRIVER_API void clearLog(IPrinter* printer) {
-        if (!printer || !printer->vtable || !printer->vtable->clearLog) return;
+        if (!printer || !printer->vtable || !printer->vtable->printer_clear_log) return;
 
-        return printer->vtable->clearLog(printer);
+        return printer->vtable->printer_clear_log(printer);
     }
 
     PRINTER_DRIVER_API const char* getLastErrorMessage(IPrinter* printer) {
-        if (!printer || !printer->vtable || !printer->vtable->getLastError) return nullptr;
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_last_error) return nullptr;
 
-        return printer->vtable->getLastError(printer);
+        return printer->vtable->printer_get_last_error(printer);
     }
 
     PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* printer, int count) {
-        if (!printer || !printer->vtable || !printer->vtable->isMotorMoving) return false;
+        if (!printer || !printer->vtable || !printer->vtable->printer_is_motor_moving) return false;
 
-        return printer->vtable->isMotorMoving(printer, count);
+        return printer->vtable->printer_is_motor_moving(printer, count);
     }
 
     PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* printer, unsigned char port) {
-        if (!printer || !printer->vtable || !printer->vtable->getMotorPosition) return 0.0;
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_motor_position) return 0.0;
 
-        return printer->vtable->getMotorPosition(printer, port);
+        return printer->vtable->printer_get_motor_position(printer, port);
     }
 
     // Test function
@@ -1576,12 +1576,12 @@ extern "C"
     }
 
     PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer) {
-        if (printer) printer->vtable->printConnectionInfo(printer);
+        if (printer) printer->vtable->printer_printer_connection_info(printer);
     }
 
     PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile) {
-        if (!printer || !printer->vtable || !printer->vtable->PrinterExecuteSpeedProfile) return false;
+        if (!printer || !printer->vtable || !printer->vtable->printer_printer_execute_speed_profile) return false;
 
-        return printer->vtable->PrinterExecuteSpeedProfile(printer, profile);
+        return printer->vtable->printer_printer_execute_speed_profile(printer, profile);
     }    
 }
