@@ -33,6 +33,8 @@
             this.MainTabControl = new System.Windows.Forms.TabControl();
             this.Generate = new System.Windows.Forms.TabPage();
             this.Device = new System.Windows.Forms.TabPage();
+            this.InterpreterTexBox = new System.Windows.Forms.TextBox();
+            this.StatusLabel = new System.Windows.Forms.Label();
             this.ExecuteGcodeButton = new System.Windows.Forms.Button();
             this.LogTextBox = new System.Windows.Forms.TextBox();
             this.ReadConfigButton = new System.Windows.Forms.Button();
@@ -45,8 +47,7 @@
             this.HomeButton = new System.Windows.Forms.Button();
             this.MainImageList = new System.Windows.Forms.ImageList(this.components);
             this.LogTimer = new System.Windows.Forms.Timer(this.components);
-            this.StatusLabel = new System.Windows.Forms.Label();
-            this.InterpreterTexBox = new System.Windows.Forms.TextBox();
+            this.Test = new System.Windows.Forms.Button();
             this.MainTabControl.SuspendLayout();
             this.Device.SuspendLayout();
             this.SuspendLayout();
@@ -76,6 +77,7 @@
             // Device
             // 
             this.Device.AutoScroll = true;
+            this.Device.Controls.Add(this.Test);
             this.Device.Controls.Add(this.InterpreterTexBox);
             this.Device.Controls.Add(this.StatusLabel);
             this.Device.Controls.Add(this.ExecuteGcodeButton);
@@ -95,6 +97,25 @@
             this.Device.TabIndex = 1;
             this.Device.Text = "Device";
             this.Device.UseVisualStyleBackColor = true;
+            // 
+            // InterpreterTexBox
+            // 
+            this.InterpreterTexBox.Location = new System.Drawing.Point(298, 6);
+            this.InterpreterTexBox.Multiline = true;
+            this.InterpreterTexBox.Name = "InterpreterTexBox";
+            this.InterpreterTexBox.ReadOnly = true;
+            this.InterpreterTexBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.InterpreterTexBox.Size = new System.Drawing.Size(256, 497);
+            this.InterpreterTexBox.TabIndex = 11;
+            // 
+            // StatusLabel
+            // 
+            this.StatusLabel.AutoSize = true;
+            this.StatusLabel.Location = new System.Drawing.Point(177, 487);
+            this.StatusLabel.Name = "StatusLabel";
+            this.StatusLabel.Size = new System.Drawing.Size(44, 16);
+            this.StatusLabel.TabIndex = 10;
+            this.StatusLabel.Text = "label1";
             // 
             // ExecuteGcodeButton
             // 
@@ -197,24 +218,15 @@
             this.MainImageList.TransparentColor = System.Drawing.Color.Transparent;
             this.MainImageList.Images.SetKeyName(0, "Logo.jpg");
             // 
-            // StatusLabel
+            // Test
             // 
-            this.StatusLabel.AutoSize = true;
-            this.StatusLabel.Location = new System.Drawing.Point(199, 477);
-            this.StatusLabel.Name = "StatusLabel";
-            this.StatusLabel.Size = new System.Drawing.Size(44, 16);
-            this.StatusLabel.TabIndex = 10;
-            this.StatusLabel.Text = "label1";
-            // 
-            // InterpreterTexBox
-            // 
-            this.InterpreterTexBox.Location = new System.Drawing.Point(298, 6);
-            this.InterpreterTexBox.Multiline = true;
-            this.InterpreterTexBox.Name = "InterpreterTexBox";
-            this.InterpreterTexBox.ReadOnly = true;
-            this.InterpreterTexBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.InterpreterTexBox.Size = new System.Drawing.Size(256, 497);
-            this.InterpreterTexBox.TabIndex = 11;
+            this.Test.Location = new System.Drawing.Point(9, 377);
+            this.Test.Name = "Test";
+            this.Test.Size = new System.Drawing.Size(161, 47);
+            this.Test.TabIndex = 12;
+            this.Test.Text = "Test";
+            this.Test.UseVisualStyleBackColor = true;
+            this.Test.Click += new System.EventHandler(this.Test_Click);
             // 
             // MainForm
             // 
@@ -251,6 +263,7 @@
         private System.Windows.Forms.Timer LogTimer;
         private System.Windows.Forms.Label StatusLabel;
         private System.Windows.Forms.TextBox InterpreterTexBox;
+        private System.Windows.Forms.Button Test;
     }
 }
 

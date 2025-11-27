@@ -24,10 +24,10 @@ extern "C"
 	PRINTER_DRIVER_API void PrinterSendCommand(IPrinter* printer, const unsigned char* command, int length);
 	PRINTER_DRIVER_API void PrinterSetMotorSpeed(IPrinter* printer, unsigned char port, signed char speed);
 
-	PRINTER_DRIVER_API int getLogCount(IPrinter* printer);
-	PRINTER_DRIVER_API const char* getLogEntry(IPrinter* printer, int index);
-	PRINTER_DRIVER_API void clearLog(IPrinter* printer);
-	PRINTER_DRIVER_API const char* getLastErrorMessage(IPrinter* printer);
+	PRINTER_DRIVER_API int GetLogCount(IPrinter* printer);
+	PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* printer, int index);
+	PRINTER_DRIVER_API void ClearLog(IPrinter* printer);
+	PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* printer);
 	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer);
 
 	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile);

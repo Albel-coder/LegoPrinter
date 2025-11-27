@@ -407,12 +407,12 @@ private:
 public:
 
     // Access to log from C-interface
-    int getLogCount() {
+    int GetLogCount() {
         std::lock_guard<std::mutex> lock(logMutex);
         return static_cast<int>(logEntries.size());
     }
 
-    const char* getLogEntry(int index) {
+    const char* GetLogEntry(int index) {
         std::lock_guard<std::mutex> lock(logMutex);
         if (index < 0 || index >= static_cast<int>(logEntries.size())) {
             return "";
@@ -421,13 +421,13 @@ public:
         return logEntries[index].c_str();
     }
 
-    void clearLog() {
+    void ClearLog() {
         std::lock_guard<std::mutex> lock(logMutex);
         logEntries.clear();
         addLog("Log cleared");
     }
 
-    const char* getLastErrorMessage() {
+    const char* GetLastErrorMessage() {
         return lastError.empty() ? "" : lastError.c_str();
     }
 
@@ -1382,14 +1382,14 @@ namespace
         if (!self || !self->vtable) return 0;
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->getLogCount();
+        return Implementation->GetLogCount();
     }
 
     const char* printer_get_log_entry(IPrinter* self, int index) {
         if (!self || !self->vtable) return nullptr;
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->getLogEntry(index);
+        return Implementation->GetLogEntry(index);
     }
 
     void printer_printer_connection_info(IPrinter* self) {
@@ -1403,14 +1403,14 @@ namespace
         if (!self || !self->vtable) return;
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->clearLog();
+        return Implementation->ClearLog();
     }
 
     const char* printer_get_last_error(IPrinter* self) {
         if (!self || !self->vtable) return nullptr;
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->getLastErrorMessage();
+        return Implementation->GetLastErrorMessage();
     }
 
     bool printer_test_encoder_functionality(IPrinter* self) {
@@ -1525,25 +1525,25 @@ extern "C"
         return printer->vtable->printer_set_motor_speed(printer, port, speed);
     }
 
-    PRINTER_DRIVER_API int getLogCount(IPrinter* printer) {
+    PRINTER_DRIVER_API int GetLogCount(IPrinter* printer) {
         if (!printer || !printer->vtable || !printer->vtable->printer_get_log_count) return 0;
 
         return printer->vtable->printer_get_log_count(printer);
     }
 
-    PRINTER_DRIVER_API const char* getLogEntry(IPrinter* printer, int index) {
+    PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* printer, int index) {
         if (!printer || !printer->vtable || !printer->vtable->printer_get_log_entry) return nullptr;
 
         return printer->vtable->printer_get_log_entry(printer, index);
     }
 
-    PRINTER_DRIVER_API void clearLog(IPrinter* printer) {
+    PRINTER_DRIVER_API void ClearLog(IPrinter* printer) {
         if (!printer || !printer->vtable || !printer->vtable->printer_clear_log) return;
 
         return printer->vtable->printer_clear_log(printer);
     }
 
-    PRINTER_DRIVER_API const char* getLastErrorMessage(IPrinter* printer) {
+    PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* printer) {
         if (!printer || !printer->vtable || !printer->vtable->printer_get_last_error) return nullptr;
 
         return printer->vtable->printer_get_last_error(printer);

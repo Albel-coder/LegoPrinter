@@ -83,8 +83,6 @@ enum class Section // Configuration sections
 
 class Interpreter
 {
-public:	
-
 private:
 	IPrinter* CurrentPrinter;
 
@@ -124,24 +122,6 @@ private:
 	StepperConfig StepperZ;
 
 	double ZDistanceToPrint = 0.0;
-
-	// Helper class for RAII-style lock management
-	class ScopedLogLock
-	{
-	private:
-		std::unique_lock<std::mutex> Lock;
-		bool OwnsLock;
-
-	public:
-		ScopedLogLock(std::mutex& Mutex) : Lock(Mutex, std::try_to_lock), OwnsLock(Lock.owns_lock())
-		{
-		}
-
-		bool OwnsLock() const
-		{
-			return OwnsLock;
-		}
-	};
 
 	void AddLogEntry(const std::string& Entry)
 	{
