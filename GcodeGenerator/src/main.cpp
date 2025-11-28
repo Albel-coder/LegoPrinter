@@ -144,6 +144,100 @@ void createTestShapes(const std::string& outputPath)
     std::cout << "Test shapes image created: " << outputPath << "\n";
 }
 
+// Функция для получения скелета бинарного изображения
+cv::Mat skeletonize(const cv::Mat& binary) {
+    cv::Mat skel(binary.size(), CV_8UC1, cv::Scalar(0));
+    cv::Mat temp, eroded;
+    cv::Mat element = cv::getStructuringElement(cv::MORPH_CROSS, cv::Size(3, 3));
+
+    bool done;
+    do {
+        cv::morphologyEx(binary, temp, cv::MORPH_OPEN, element);
+        cv::bitwise_not(temp, temp);
+        cv::bitwise_and(binary, temp, temp);
+        cv::bitwise_or(skel, temp, skel);
+        cv::erode(binary, binary, element);
+
+        double max;
+        cv::minMaxLoc(binary, 0, &max);
+        done = (max == 0);
+    } while (!done);
+
+    return skel;
+}
+
+// Функция для получения тонких контуров символов
+std::vector<std::vector<cv::Point>> getThinContours(const cv::Mat& image, int penWidth) {
+    // 1. Бинаризация изображения
+    cv::Mat gray, binary;
+    if (image.channels() == 3) {
+        cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+    }
+    else {
+        gray = image.clone();
+    }
+    cv::threshold(gray, binary, 127, 255, cv::THRESH_BINARY_INV);
+
+    // 2. Морфологическое закрытие для соединения близких контуров
+    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE,
+        cv::Size(penWidth / 2, penWidth / 2));
+    cv::morphologyEx(binary, binary, cv::MORPH_CLOSE, kernel);
+
+    // 3. Получение скелета
+    cv::Mat skeleton = skeletonize(binary);
+
+    // 4. Поиск контуров скелета
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(skeleton, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
+
+    return contours;
+}
+
+// Альтернативный подход: гомотетия (масштабирование контуров)
+std::vector<std::vector<cv::Point>> getScaledContours(const cv::Mat& image, int penWidth) {
+    // 1. Бинаризация
+    cv::Mat gray, binary;
+    if (image.channels() == 3) {
+        cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+    }
+    else {
+        gray = image.clone();
+    }
+    cv::threshold(gray, binary, 127, 255, cv::THRESH_BINARY_INV);
+
+    // 2. Поиск внешних контуров
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+    // 3. Масштабирование контуров внутрь
+    std::vector<std::vector<cv::Point>> scaledContours;
+    cv::Point2f center;
+    float radius;
+
+    for (auto& contour : contours) {
+        // Находим минимальный ограничивающий круг
+        cv::minEnclosingCircle(contour, center, radius);
+
+        // Вычисляем коэффициент масштабирования
+        double scale = 1.0 - (static_cast<double>(penWidth) / (radius * 2));
+        scale = std::max(scale, 0.1); // Ограничиваем минимальный масштаб
+
+        // Масштабируем контур
+        std::vector<cv::Point> scaledContour;
+        for (auto& point : contour) {
+            cv::Point2f relative(point.x - center.x, point.y - center.y);
+            relative *= scale;
+            scaledContour.push_back(cv::Point(
+                static_cast<int>(relative.x + center.x),
+                static_cast<int>(relative.y + center.y)
+            ));
+        }
+        scaledContours.push_back(scaledContour);
+    }
+
+    return scaledContours;
+}
+
 void SaveContoursToFiles(const std::vector<ContourInfo>& contours, const std::string& baseName)
 {
     std::string simpleFileName = "simple_contours_" + baseName + ".txt";
