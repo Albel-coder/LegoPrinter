@@ -3,15 +3,15 @@ project(GcodeGenerator LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Сначала соберите OpenCV отдельно
+# First, compile OpenCV separately
 if(NOT TARGET opencv_world)
     message(STATUS "Building OpenCV first...")
     
-    # Создаем отдельную сборку OpenCV
+    # Create a separate OpenCV build
     set(OPENCV_BUILD_DIR "${CMAKE_BINARY_DIR}/opencv_build")
     set(OPENCV_INSTALL_DIR "${CMAKE_BINARY_DIR}/opencv_install")
     
-    # Настройки для OpenCV
+    # OpenCV settings
     set(OPENCV_OPTIONS
         -DBUILD_opencv_world=ON
         -DBUILD_EXAMPLES=OFF
@@ -23,7 +23,7 @@ if(NOT TARGET opencv_world)
         -DCMAKE_BUILD_TYPE=Release  # Добавьте это
     )
     
-    # Запускаем конфигурацию OpenCV
+    # Run the OpenCV configuration
     execute_process(
         COMMAND ${CMAKE_COMMAND} -S "${CMAKE_SOURCE_DIR}/external/opencv" -B "${OPENCV_BUILD_DIR}" ${OPENCV_OPTIONS}
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -31,7 +31,7 @@ if(NOT TARGET opencv_world)
     )
     
     if(OPENCV_CONFIG_RESULT EQUAL 0)
-        # Собираем и устанавливаем OpenCV
+        # Compiling and installing OpenCV
         execute_process(
             COMMAND ${CMAKE_COMMAND} --build "${OPENCV_BUILD_DIR}" --config Release --target install
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -41,14 +41,14 @@ if(NOT TARGET opencv_world)
         if(OPENCV_BUILD_RESULT EQUAL 0)
             message(STATUS "OpenCV built successfully")
             
-            # Правильный путь к конфигурационным файлам OpenCV
+            # Correct path to OpenCV configuration files
             set(OpenCV_DIR "${OPENCV_INSTALL_DIR}/x64/vc17/lib")
             
-            # Добавляем путь к поиску CMake
+            # Adding a CMake search path
             list(APPEND CMAKE_PREFIX_PATH "${OpenCV_DIR}")
             list(APPEND CMAKE_PREFIX_PATH "${OPENCV_INSTALL_DIR}")
             
-            # Ищем OpenCV
+            # Looking for OpenCV
             find_package(OpenCV REQUIRED PATHS "${OpenCV_DIR}" NO_DEFAULT_PATH)
             
             if(OpenCV_FOUND)

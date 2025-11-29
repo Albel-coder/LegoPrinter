@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
 project(LegoPrinter VERSION 1.0.0 DESCRIPTION "Lego Printer Native Library" LANGUAGES CXX)
 
-# Стандарт C++
+# C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -12,45 +12,44 @@ if(MSVC)
     add_compile_options(/Zc:__cplusplus)
 endif()
 
-# Настройки для Windows DLL
+# Windows DLL Settings
 if(WIN32)
     add_definitions(-DUNICODE -D_UNICODE)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# Добавляем SimpleBLE как подпроект
+# Adding SimpleBLE as a subproject
 add_subdirectory(external/simpleble/simpleble)
 
-# Создаем DLL библиотеку
+# Creating a DLL library
 add_library(LegoPrinterCore SHARED
     src/LegoPrinterCore.cpp
     src/LegoPrinterCore.h
-    # Добавьте здесь другие исходные файлы, если они есть
 )
 
-# Указываем заголовочные файлы
+# Specify header files
 target_include_directories(LegoPrinterCore
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/src  # Для включения заголовков в папке src
-		${CMAKE_CURRENT_SOURCE_DIR}/../Common/include # путь к общим файлам
+        ${CMAKE_CURRENT_SOURCE_DIR}/src  # To include headers in the src folder
+		${CMAKE_CURRENT_SOURCE_DIR}/../Common/include # path to shared files
 )
 
-# Линкуем зависимости
+# Linking dependencies
 target_link_libraries(LegoPrinterCore
     PUBLIC
-        simpleble::simpleble  # Предполагаемое имя target из SimpleBLE
+        simpleble::simpleble  # Suggested target name from SimpleBLE
 )
 
-# Настраиваем выходные директории
+# Setting up output directories
 set_target_properties(LegoPrinterCore PROPERTIES
     OUTPUT_NAME "LegoPrinterCore"
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin  # Для DLL на Windows
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin  # For DLLs on Windows
 )
 
-# Настройка экспорта символов для Windows
+# Setting up symbol export for Windows
 if(WIN32)
     target_compile_definitions(LegoPrinterCore 
         PRIVATE 
