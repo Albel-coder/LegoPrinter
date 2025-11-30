@@ -225,60 +225,96 @@ private:
         }
     }
 
-    void handleHubNotification(const std::vector<uint8_t>& Data) {
-        if (!isValid || Data.empty()) return;
+    void handleHubNotification(const std::vector<uint8_t>& data) {
+        if (!isValid || data.empty()) return;
 
-        const double ENCODER_TICKS_PER_REVOLUTION = 360.0;
-        const double INCREMENTAL_FACTOR = 1.0 / 360.0;
+        const uint8_t messageType = data[2];
+        const uint8_t port = data[3];
 
-        // For encoder type 0x45 (incremental)
-        if (Data.size() >= 5 && Data[2] == 0x45) {
-            uint8_t port = Data[3];
-            initializeMotorState(port);
+        switch (messageType) {
+        case 0x45: // Incremental encoder is the most common
+            handleIncrementalEncoder(port, data);
+            break;
 
-            uint8_t positionByte = Data[4];
-            int8_t signedPosition = static_cast<int8_t>(positionByte);
-            double positionDelta = static_cast<double>(signedPosition) * INCREMENTAL_FACTOR;
+        case 0x04: // Absolute encoder
+            handleAbsoluteEncoder(port, data);
+            break;
 
-            updateMotorPosition(port, positionDelta);
+        case 0x82: // Operation completion command
+            handleCommandCompletion(port, data);
+            break;
 
-            if (std::abs(positionDelta) > 0.001) {
-                addLog("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
-                    port, signedPosition, positionDelta);
-            }
+        default:
+            break;
         }
-        // For encoder type 0x04 (absolute)
-        else if (Data.size() >= 8 && Data[2] == 0x04) {
-            uint8_t port = Data[3];
-            initializeMotorState(port);
+    }
 
-            int32_t PositionRaw = (static_cast<int32_t>(Data[4])) |
-                (static_cast<int32_t>(Data[5]) << 8) |
-                (static_cast<int32_t>(Data[6]) << 16) |
-                (static_cast<int32_t>(Data[7]) << 24);
+    void handleIncrementalEncoder(uint8_t port, const std::vector<uint8_t> data) {
+        if (data.size() < 5) return;
 
-            int32_t SignedPosition = static_cast<int32_t>(PositionRaw);
+        initializeMotorState(port);
 
-            // Conversion for absolute encoder
-            double absolutePosition = static_cast<double>(SignedPosition) / ENCODER_TICKS_PER_REVOLUTION;
+        uint8_t positionByte = data[4];
+        int8_t signedPosition = static_cast<int8_t>(positionByte);
+        double positionDelta = static_cast<double>(signedPosition) * (1.0 / 360.0);
 
-            // For an absolute encoder, you need to calculate the delta from the previous value
-            static std::map<uint8_t, double> lastAbsolutePositions;
-            double positionDelta = 0.0;
+        updateMotorPosition(port, positionDelta);
 
-            if (lastAbsolutePositions.count(port)) {
-                positionDelta = absolutePosition - lastAbsolutePositions[port];
-                // Adjustment for overflow
-                if (positionDelta > 180.0) positionDelta -= 360.0;
-                else if (positionDelta < -180.0) positionDelta += 360.0;
-            }
-            lastAbsolutePositions[port] = absolutePosition;
+        if (std::abs(positionDelta) > 0.001) {
+            addLog("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
+                port, signedPosition, positionDelta);
+        }
+    }
 
-            updateMotorPosition(port, positionDelta);
+    void handleAbsoluteEncoder(uint8_t port, const std::vector<uint8_t> data) {
+        if (data.size() < 8) return;
 
-            if (std::abs(positionDelta) > 0.001) {
-                addLog("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
-                    port, SignedPosition, absolutePosition, positionDelta);
+        initializeMotorState(port);
+
+        int32_t PositionRaw = (static_cast<int32_t>(data[4])) |
+            (static_cast<int32_t>(data[5]) << 8) |
+            (static_cast<int32_t>(data[6]) << 16) |
+            (static_cast<int32_t>(data[7]) << 24);
+
+        int32_t SignedPosition = static_cast<int32_t>(PositionRaw);
+
+        // Conversion for absolute encoder
+        double absolutePosition = static_cast<double>(SignedPosition) / 360.0;
+
+        // For an absolute encoder, you need to calculate the delta from the previous value
+        static std::map<uint8_t, double> lastAbsolutePositions;
+        double positionDelta = 0.0;
+
+        if (lastAbsolutePositions.count(port)) {
+            positionDelta = absolutePosition - lastAbsolutePositions[port];
+            // Adjustment for overflow
+            if (positionDelta > 180.0) positionDelta -= 360.0;
+            else if (positionDelta < -180.0) positionDelta += 360.0;
+        }
+        lastAbsolutePositions[port] = absolutePosition;
+
+        updateMotorPosition(port, positionDelta);
+
+        if (std::abs(positionDelta) > 0.001) {
+            addLog("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
+                port, SignedPosition, absolutePosition, positionDelta);
+        }
+    }
+
+    void handleCommandCompletion(uint8_t port, const std::vector<uint8_t> data) {
+        if (data.size() < 5) return;
+
+        uint8_t feedback = data[4];
+
+        // Command ends
+        if (feedback == 0x0A)
+        {
+            std::lock_guard<std::mutex> lock(completionMutex);
+
+            if (commandStatus[port].waiting && !commandStatus[port].completed)
+            {
+                commandStatus[port].completed = true;
+                completionCV.notify_all();
             }
         }
     }
