@@ -13,23 +13,23 @@ typedef void* InterpreterHandle;
 extern "C"
 {
 	GCODE_API InterpreterHandle CreateInterpreter();
-	GCODE_API void DestroyInterpreter(InterpreterHandle Handle);
+	GCODE_API void DestroyInterpreter(InterpreterHandle handle);
 
-	GCODE_API bool TestCode(InterpreterHandle Handle, IPrinter* Printer);
-	GCODE_API bool ExecuteGcode(InterpreterHandle Handle, const char* Filename, IPrinter* Printer);
-	GCODE_API bool ExecuteLine(InterpreterHandle Handle, const char* Line, IPrinter* Printer);
+	GCODE_API bool TestCode(InterpreterHandle handle, IPrinter* printer);
+	GCODE_API bool ExecuteGcode(InterpreterHandle handle, const char* filename, IPrinter* printer);
+	GCODE_API bool ExecuteLine(InterpreterHandle handle, const char* line, IPrinter* printer);
 
-	GCODE_API void PauseExecution(InterpreterHandle Handle);
-	GCODE_API void ResumeExecution(InterpreterHandle Handle);
+	GCODE_API void PauseExecution(InterpreterHandle handle);
+	GCODE_API void ResumeExecution(InterpreterHandle handle);
 
-	GCODE_API int GetStatus(InterpreterHandle Handle);
-	GCODE_API double GetProgress(InterpreterHandle Handle);
-	GCODE_API const char* GetLastInterpreterError(InterpreterHandle Handle);
-	GCODE_API int GetErrorCount(InterpreterHandle Handle);
-	GCODE_API const char* GetError(InterpreterHandle Handle, int Index);
-	GCODE_API int GetLogCount(InterpreterHandle Handle);
-	GCODE_API const char* GetLogEntry(InterpreterHandle Handle, int Index);
-	GCODE_API void ClearErrors(InterpreterHandle Handle);
-	GCODE_API void ClearLog(InterpreterHandle Handle);
-	GCODE_API bool ReadConfig(InterpreterHandle Handle, const char* Filename);
+	GCODE_API int GetStatus(InterpreterHandle handle);
+	GCODE_API double GetProgress(InterpreterHandle handle);
+	GCODE_API const char* GetLastInterpreterError(InterpreterHandle handle);
+	GCODE_API int GetErrorCount(InterpreterHandle handle);
+	GCODE_API const char* GetError(InterpreterHandle handle, int index);
+	GCODE_API int GetLogCount(InterpreterHandle handle);
+	GCODE_API const char* GetLogEntry(InterpreterHandle handle, int index);
+	GCODE_API void ClearErrors(InterpreterHandle handle);
+	GCODE_API void ClearLog(InterpreterHandle handle);
+	GCODE_API bool ReadConfig(InterpreterHandle handle, const char* filename);
 }

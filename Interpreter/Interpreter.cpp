@@ -519,9 +519,9 @@ private:
 		for (uint8_t Port : Config.Ports)
 		{
 			MotorCommand Command;
-			Command.Port = Port;
-			Command.Speed = static_cast<signed char>(SynchronizedSpeed);
-			Command.Revolutions = Revolutions;
+			Command.port = Port;
+			Command.speed = static_cast<signed char>(SynchronizedSpeed);
+			Command.revolutions = Revolutions;
 			Commands.push_back(Command);
 		}
 
@@ -583,7 +583,7 @@ public:
 		std::lock_guard<std::mutex> Lock(Mutex);
 		AddLogEntry("=== ExecuteFile called ===");
 		AddLogEntry("Current status: " + std::to_string(static_cast<int>(status)));
-		AddLogEntry("Printer valid: " + std::string(Printer && Printer->VirtualTable ? "YES" : "NO"));
+		AddLogEntry("Printer valid: " + std::string(Printer && Printer->vtable ? "YES" : "NO"));
 
 		if (!Filename)
 		{
@@ -618,7 +618,7 @@ public:
 			return false;
 		}
 
-		if (!Printer || !Printer->VirtualTable)
+		if (!Printer || !Printer->vtable)
 		{
 			AddGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
 			return false;
@@ -790,7 +790,7 @@ public:
 		CurrentPrinter = Printer;
 		AddLogEntry("Test function started");
 
-		if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+		if (!CurrentPrinter || !CurrentPrinter->vtable)
 		{
 			AddGCodeErrorInfo("Printer is not available for test", PRINTER_ERROR);
 			return false;
@@ -802,14 +802,14 @@ public:
 		};
 
 		AddLogEntry("Sending test commands to printer");
-		CurrentPrinter->VirtualTable->RotateMotor(Printer, Commands.data(), Commands.size());
+		CurrentPrinter->vtable->printer_rotate_motor(Printer, Commands.data(), Commands.size());
 
 		// Reverse direction
 		for (auto& Command : Commands)
 		{
-			Command.Speed = -50;
+			Command.speed = -50;
 		}
-		CurrentPrinter->VirtualTable->RotateMotor(Printer, Commands.data(), Commands.size());
+		CurrentPrinter->vtable->printer_rotate_motor(Printer, Commands.data(), Commands.size());
 
 		AddLogEntry("Test function completed successfully");
 		return true;
@@ -956,7 +956,7 @@ public:
 			return false;
 		}
 
-		if (!Printer || !Printer->VirtualTable)
+		if (!Printer || !Printer->vtable)
 		{
 			AddGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
 			return false;
@@ -964,7 +964,7 @@ public:
 		
 		CurrentPrinter = Printer;
 
-		if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+		if (!CurrentPrinter || !CurrentPrinter->vtable)
 		{
 			AddGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
 			status = ERROR;
@@ -1108,7 +1108,7 @@ private:
 	{
 		AddLogEntry("Runfile started: " + Filename);
 
-		if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+		if (!CurrentPrinter || !CurrentPrinter->vtable)
 		{
 			AddGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
 			status = ERROR;
@@ -1387,7 +1387,7 @@ private:
 
 		if (IsTryingInterpret)
 		{
-			if (!CurrentPrinter || !CurrentPrinter->VirtualTable)
+			if (!CurrentPrinter || !CurrentPrinter->vtable)
 			{
 				AddGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
 				return;
@@ -1568,7 +1568,7 @@ private:
 					for (uint8_t Port : StepperX.Ports)
 					{
 						MotorCommand Command;
-						Command.Port = Port;
+						Command.port = Port;
 
 						double CalculatedSpeed = SynchronizedSpeedX;
 						if (XMovement < 0)
@@ -1592,8 +1592,8 @@ private:
 							CalculatedSpeed = std::min(CalculatedSpeed, -StepperX.MinimumFeedrate);
 						}
 
-						Command.Speed = static_cast<signed char>(CalculatedSpeed);
-						Command.Revolutions = RevolutionsX;
+						Command.speed = static_cast<signed char>(CalculatedSpeed);
+						Command.revolutions = RevolutionsX;
 
 						XYCommands.push_back(Command);
 
@@ -1614,7 +1614,7 @@ private:
 					for (uint8_t Port : StepperY.Ports)
 					{
 						MotorCommand Command;
-						Command.Port = Port;
+						Command.port = Port;
 
 						double CalculatedSpeed = SynchronizedSpeedY;
 						if (YMovement < 0)
@@ -1638,8 +1638,8 @@ private:
 							CalculatedSpeed = std::min(CalculatedSpeed, -StepperY.MinimumFeedrate);
 						}
 
-						Command.Speed = static_cast<signed char>(CalculatedSpeed);
-						Command.Revolutions = RevolutionsY;
+						Command.speed = static_cast<signed char>(CalculatedSpeed);
+						Command.revolutions = RevolutionsY;
 
 						XYCommands.push_back(Command);
 
@@ -1654,7 +1654,7 @@ private:
 				{
 					MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
 					std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
-					CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, XYCommands.size());
+					CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, XYCommands.size());
 					delete[] FinalCommands;
 
 					AddLogEntry("XY movement synchronized. Max time: " + std::to_string(MaxTime));
@@ -1669,7 +1669,7 @@ private:
 				for (uint8_t Port : StepperZ.Ports)
 				{
 					MotorCommand Command;
-					Command.Port = Port;
+					Command.port = Port;
 
 					double CalculatedSpeed = Speed;
 					if (ZMovement < 0)
@@ -1692,15 +1692,15 @@ private:
 						CalculatedSpeed = std::min(CalculatedSpeed, -StepperZ.MinimumFeedrate);
 					}
 
-					Command.Speed = static_cast<signed char>(CalculatedSpeed);
-					Command.Revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
+					Command.speed = static_cast<signed char>(CalculatedSpeed);
+					Command.revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
 
 					ZCommands.push_back(Command);
 				}
 
 				MotorCommand* FinalCommands = new MotorCommand[ZCommands.size()];
 				std::copy(ZCommands.begin(), ZCommands.end(), FinalCommands);
-				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, ZCommands.size());
+				CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, ZCommands.size());
 				delete[] FinalCommands;
 			}
 
@@ -1816,7 +1816,7 @@ private:
 				for (uint8_t Port : StepperX.Ports)
 				{
 					MotorCommand Command;
-					Command.Port = Port;
+					Command.port = Port;
 
 					double CalculatedSpeed = SynchronizedSpeedX;
 					if (XMovement < 0)
@@ -1840,8 +1840,8 @@ private:
 						CalculatedSpeed = std::min(CalculatedSpeed, -StepperX.MinimumFeedrate);
 					}
 
-					Command.Speed = static_cast<signed char>(CalculatedSpeed);
-					Command.Revolutions = RevolutionsX;
+					Command.speed = static_cast<signed char>(CalculatedSpeed);
+					Command.revolutions = RevolutionsX;
 
 					XYCommands.push_back(Command);
 
@@ -1862,7 +1862,7 @@ private:
 				for (uint8_t Port : StepperY.Ports)
 				{
 					MotorCommand Command;
-					Command.Port = Port;
+					Command.port = Port;
 
 					double CalculatedSpeed = SynchronizedSpeedY;
 					if (YMovement < 0)
@@ -1886,8 +1886,8 @@ private:
 						CalculatedSpeed = std::min(CalculatedSpeed, -StepperY.MinimumFeedrate);
 					}
 
-					Command.Speed = static_cast<signed char>(CalculatedSpeed);
-					Command.Revolutions = RevolutionsY;
+					Command.speed = static_cast<signed char>(CalculatedSpeed);
+					Command.revolutions = RevolutionsY;
 
 					XYCommands.push_back(Command);
 
@@ -1902,7 +1902,7 @@ private:
 			{
 				MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
 				std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
-				CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, XYCommands.size());
+				CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, XYCommands.size());
 				delete[] FinalCommands;
 
 				AddLogEntry("XY movement synchronized. Max time: " + std::to_string(MaxTime));
@@ -1917,7 +1917,7 @@ private:
 			for (uint8_t Port : StepperZ.Ports)
 			{
 				MotorCommand Command;
-				Command.Port = Port;
+				Command.port = Port;
 
 				double CalculatedSpeed = Speed;
 				if (ZMovement < 0)
@@ -1940,15 +1940,15 @@ private:
 					CalculatedSpeed = std::min(CalculatedSpeed, -StepperZ.MinimumFeedrate);
 				}
 
-				Command.Speed = static_cast<signed char>(CalculatedSpeed);
-				Command.Revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
+				Command.speed = static_cast<signed char>(CalculatedSpeed);
+				Command.revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
 
 				ZCommands.push_back(Command);
 			}
 
 			MotorCommand* FinalCommands = new MotorCommand[ZCommands.size()];
 			std::copy(ZCommands.begin(), ZCommands.end(), FinalCommands);
-			CurrentPrinter->VirtualTable->RotateMotor(CurrentPrinter, FinalCommands, ZCommands.size());
+			CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, ZCommands.size());
 			delete[] FinalCommands;
 		}
 
@@ -1994,7 +1994,7 @@ extern "C"
 		printf("C++: Printer: %p\n", Printer);
 		if (Printer) 
 		{
-			printf("C++: Printer->VirtualTable: %p\n", Printer->VirtualTable);
+			printf("C++: Printer->VirtualTable: %p\n", Printer->vtable);
 		}
 		printf("C++: Filename: %s\n", Filename ? Filename : "NULL");
 
@@ -2022,7 +2022,7 @@ extern "C"
 	{
 		if (Printer)
 		{
-			printf("C++: Printer->VirtualTable: %p\n", Printer->VirtualTable);
+			printf("C++: Printer->VirtualTable: %p\n", Printer->vtable);
 		}
 
 		if (!Handle || !Printer)
