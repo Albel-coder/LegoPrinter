@@ -15,30 +15,30 @@
 #include <future>
 
 // Global mutex for thread-safe string access
-std::mutex StringCacheMutex;
-std::map<int, std::string> StringCache;
-int NextStringId = 0;
-std::mutex GInterpreterMutex;
-std::atomic<int> GActiveInterpreters(0);
+std::mutex stringCacheMutex;
+std::map<int, std::string> stringCache;
+int nextStringId = 0;
+std::mutex gInterpreterMutex;
+std::atomic<int> gActiveInterpreters(0);
 
 // Functions for caching strings
-const char* CacheString(const std::string& String)
+const char* cacheString(const std::string& string)
 {
-	std::lock_guard<std::mutex> Lock(StringCacheMutex);
-	int Id = NextStringId;
-	StringCache[Id] = String;
-	return StringCache[Id].c_str();
+	std::lock_guard<std::mutex> lock(stringCacheMutex);
+	int id = nextStringId;
+	stringCache[id] = string;
+	return stringCache[id].c_str();
 }
 
 // Function for clearing cache (optional)
-void ClearStringCache()
+void clearStringCache()
 {
-	std::lock_guard<std::mutex> Lock(StringCacheMutex);
-	StringCache.clear();
-	NextStringId = 0;
+	std::lock_guard<std::mutex> lock(stringCacheMutex);
+	stringCache.clear();
+	nextStringId = 0;
 }
 
-enum GnodeError // Interpreter error enumeration
+enum GcodeError // Interpreter error enumeration
 {
 	IDENTIFIER_NOT_DEFINED = 0,
 	VALUE_NOT_DEFINED = 1,
@@ -84,157 +84,157 @@ enum class Section // Configuration sections
 class Interpreter
 {
 private:
-	IPrinter* CurrentPrinter;
+	IPrinter* currentPrinter;
 
 	std::atomic<Status> status;
-	std::atomic<GnodeError> CurrentError;
-	std::atomic<bool> StopRequested;
-	std::atomic<bool> PauseRequested;
-	std::atomic<double> Progress;
-	std::string LastError;
-	std::vector<std::string> GcodeErrors;
-	std::vector<std::string> ExecutionLog;
-	std::atomic<bool> ThreadRunning;
+	std::atomic<GcodeError> currentError;
+	std::atomic<bool> stopRequested;
+	std::atomic<bool> pauseRequested;
+	std::atomic<double> progress;
+	std::string lastError;
+	std::vector<std::string> gCodeErrors;
+	std::vector<std::string> executionLog;
+	std::atomic<bool> threadRunning;
 
 	// Current coordinates
-	double CurrentX;
-	double CurrentY;
-	double CurrentZ;
-	bool AbsolutePositioning;
-	double Speed;
+	double currentX;
+	double currentY;
+	double currentZ;
+	bool absolutePositioning;
+	double speed;
 
-	std::unique_ptr<std::thread> ExecutionThread;
-	std::mutex Mutex;
-	std::mutex LogMutex;
+	std::unique_ptr<std::thread> executionThread;
+	std::mutex mutex;
+	std::mutex logMutex;
 
 	struct StepperConfig // Stepper motor configuration
 	{
-		double RotationDistance = 0.0;
-		double GearRatio;
-		bool Direction;
-		std::vector<uint8_t> Ports;
-		double MinimumFeedrate = 0.0;
-		double MaximumFeedrate = 0.0;
+		double rotationDistance = 0.0;
+		double gearRatio;
+		bool direction;
+		std::vector<uint8_t> ports;
+		double minimumFeedrate = 0.0;
+		double maximumFeedrate = 0.0;
 	};
 
-	StepperConfig StepperX;
-	StepperConfig StepperY;
-	StepperConfig StepperZ;
+	StepperConfig stepperX;
+	StepperConfig stepperY;
+	StepperConfig stepperZ;
 
-	double ZDistanceToPrint = 0.0;
+	double zDistanceToPrint = 0.0;
 
-	void AddLogEntry(const std::string& Entry)
+	void addLogEntry(const std::string& entry)
 	{
-		std::unique_lock<std::mutex> Lock(LogMutex, std::try_to_lock);
-		if (Lock.owns_lock())
+		std::unique_lock<std::mutex> lock(logMutex, std::try_to_lock);
+		if (lock.owns_lock())
 		{
 			// Size limit without recursion
-			if (ExecutionLog.size() >= 1000)
+			if (executionLog.size() >= 1000)
 			{
-				ExecutionLog.erase(ExecutionLog.begin(), ExecutionLog.begin() + 100);
+				executionLog.erase(executionLog.begin(), executionLog.begin() + 100);
 
-				static bool CleanupMessageAdded = false;
-				if (!CleanupMessageAdded)
+				static bool cleanupMessageAdded = false;
+				if (!cleanupMessageAdded)
 				{
-					ExecutionLog.push_back("Log buffer limit reached - old entries are being removed");
-					CleanupMessageAdded = true;
+					executionLog.push_back("Log buffer limit reached - old entries are being removed");
+					cleanupMessageAdded = true;
 				}	
 			}
 
-			ExecutionLog.push_back(Entry);
+			executionLog.push_back(entry);
 		}
 	}
 
 	// Add G-code error information
-	void AddGCodeErrorInfo(const std::string& Code, GnodeError ErrorType = VALUE_NOT_DEFINED)
+	void addGCodeErrorInfo(const std::string& code, GcodeError errorType = VALUE_NOT_DEFINED)
 	{
-		std::unique_lock<std::mutex> Lock(LogMutex, std::try_to_lock);
+		std::unique_lock<std::mutex> lock(logMutex, std::try_to_lock);
 
-		if (GcodeErrors.size() > 999)
+		if (gCodeErrors.size() > 999)
 		{
-			GcodeErrors.erase(GcodeErrors.begin());
+			gCodeErrors.erase(gCodeErrors.begin());
 		}
 
 		std::string ErrorInfo;
-		CurrentError = ErrorType;
+		currentError = errorType;
 
-		switch (ErrorType)
+		switch (errorType)
 		{
 		case IDENTIFIER_NOT_DEFINED:
-			ErrorInfo = "Identifier '" + Code + "' is not defined";
+			ErrorInfo = "Identifier '" + code + "' is not defined";
 			break;
 		case VALUE_NOT_DEFINED:
-			ErrorInfo = "Value '" + Code + "' is not defined or invalid";
+			ErrorInfo = "Value '" + code + "' is not defined or invalid";
 			break;
 		case OUT_OF_RANGE:
-			ErrorInfo = "Value '" + Code + "' is out of range";
+			ErrorInfo = "Value '" + code + "' is out of range";
 			break;
 		case FILE_ERROR:
-			ErrorInfo = "File error: " + Code;
+			ErrorInfo = "File error: " + code;
 			break;
 		case CONFIG_ERROR:
-			ErrorInfo = "Configuration error: " + Code;
+			ErrorInfo = "Configuration error: " + code;
 			break;
 		case PRINTER_ERROR:
-			ErrorInfo = "Printer error: " + Code;
+			ErrorInfo = "Printer error: " + code;
 			break;
 		case SYNTAX_ERROR:
-			ErrorInfo = "Syntax error: " + Code;
+			ErrorInfo = "Syntax error: " + code;
 			break;
 		case MOVEMENT_ERROR:
-			ErrorInfo = "Movement error: " + Code;
+			ErrorInfo = "Movement error: " + code;
 			break;
 		case NO_ERROR:
 			break;
 		default:
-			ErrorInfo = "Unknown error: " + Code;
+			ErrorInfo = "Unknown error: " + code;
 			break;
 		}
 
-		GcodeErrors.push_back(ErrorInfo);
-		AddLogEntry("[ERROR] " + ErrorInfo);
-		LastError = ErrorInfo;
+		gCodeErrors.push_back(ErrorInfo);
+		addLogEntry("[ERROR] " + ErrorInfo);
+		lastError = ErrorInfo;
 		status = ERROR;
 
 		// Add to the main log without recursion
-		if (Lock.owns_lock())
+		if (lock.owns_lock())
 		{
-			if (ExecutionLog.size() > 999)
+			if (executionLog.size() > 999)
 			{
-				ExecutionLog.erase(ExecutionLog.begin());
+				executionLog.erase(executionLog.begin());
 			}
-			ExecutionLog.push_back("[ERROR] " + ErrorInfo);
+			executionLog.push_back("[ERROR] " + ErrorInfo);
 		}
 	}
 
-	void SetError(GnodeError Error, const std::string& Message)
+	void setError(GcodeError error, const std::string& message)
 	{
-		AddGCodeErrorInfo(Message, Error);
+		addGCodeErrorInfo(message, error);
 	}
 
-	Section StringToSection(const std::string& Section)
+	Section stringToSection(const std::string& section)
 	{
-		if (Section == "stepper_x")
+		if (section == "stepper_x")
 		{
 			return Section::STEPPER_X;
 		}
-		if (Section == "stepper_y")
+		if (section == "stepper_y")
 		{
 			return Section::STEPPER_Y;
 		}
-		if (Section == "stepper_z")
+		if (section == "stepper_z")
 		{
 			return Section::STEPPER_Z;
 		}
 
-		AddLogEntry("Unknown section in configuration: " + Section);
+		addLogEntry("Unknown section in configuration: " + section);
 		return Section::UNKNOWN;
 	}
 
 	// Convert std::string to configuration key
-	ConfigKey StringToKey(const std::string& Key)
+	ConfigKey stringToKey(const std::string& key)
 	{
-		static const std::unordered_map<std::string, ConfigKey> KeyMap =
+		static const std::unordered_map<std::string, ConfigKey> keyMap =
 		{
 			{ "rotation_distance", ConfigKey::ROTATE_DISTANCE },
 			{ "distance_to_print_position", ConfigKey::DISTANCE_TO_PRINT_POSITION },
@@ -245,65 +245,65 @@ private:
 			{ "maximum_feedrate", ConfigKey::MAXIMUM_FEEDRATE }
 		};
 
-		auto it = KeyMap.find(Key);
-		if (it != KeyMap.end())
+		auto it = keyMap.find(key);
+		if (it != keyMap.end())
 		{
 			return it->second;
 		}
 
-		AddLogEntry("Unknown configuration key: " + Key);
+		addLogEntry("Unknown configuration key: " + key);
 		return ConfigKey::UNKNOWN;
 	}
 
-	double EvaluateExpression(const std::string& Expression)
+	double evaluateExpression(const std::string& expression)
 	{
-		std::string Processed = Expression;
+		std::string Processed = expression;
 	}
 
-	std::string ParseValue(const std::string& Value)
+	std::string parseValue(const std::string& value)
 	{
-		if (Value.find('{') == std::string::npos || Value.find('}') == std::string::npos)
+		if (value.find('{') == std::string::npos || value.find('}') == std::string::npos)
 		{
-			return Value;
+			return value;
 		}
 
 		// TODO: Implement expression parsing if needed
 
-		return Value;
+		return value;
 	}
 
-	void SetConfigValue(Section section, ConfigKey Key, const std::string& Value)
+	void setConfigValue(Section section, ConfigKey key, const std::string& value)
 	{
-		StepperConfig* Config = nullptr;
+		StepperConfig* config = nullptr;
 
 		switch (section)
 		{
 		case Section::STEPPER_X:
-			Config = &StepperX;
+			config = &stepperX;
 			break;
 		case Section::STEPPER_Y:
-			Config = &StepperY;
+			config = &stepperY;
 			break;
 		case Section::STEPPER_Z:
-			Config = &StepperZ;
+			config = &stepperZ;
 			break;
 		default:
-			AddGCodeErrorInfo("Unknown section in configuration", CONFIG_ERROR);
+			addGCodeErrorInfo("Unknown section in configuration", CONFIG_ERROR);
 			return;
 		}
 
-		switch (Key)
+		switch (key)
 		{
 		case ConfigKey::ROTATE_DISTANCE:
 			try
 			{
-				Config->RotationDistance = std::stod(ParseValue(Value));
-				AddLogEntry("Set rotation_distance: " + std::to_string(Config->RotationDistance));
+				config->rotationDistance = std::stod(parseValue(value));
+				addLogEntry("Set rotation_distance: " + std::to_string(config->rotationDistance));
 			}
 			catch (const std::exception& ex)
 			{				
-				AddGCodeErrorInfo("Invalid rotation distance value: " + std::to_string(Config->RotationDistance), CONFIG_ERROR);
-				LastError = ex.what();
+				addGCodeErrorInfo("Invalid rotation distance value: " + std::to_string(config->rotationDistance), CONFIG_ERROR);
+				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
@@ -311,13 +311,13 @@ private:
 		case ConfigKey::GEAR_RATIO:
 			try
 			{
-				Config->GearRatio = std::stod(ParseValue(Value));
-				AddLogEntry("Set gear_ratio: " + std::to_string(Config->GearRatio));
+				config->gearRatio = std::stod(parseValue(value));
+				addLogEntry("Set gear_ratio: " + std::to_string(config->gearRatio));
 			}
 			catch (const std::exception& ex)
 			{
-				AddGCodeErrorInfo("Invalid gear ratio value: " + Value, CONFIG_ERROR);
-				LastError = ex.what();
+				addGCodeErrorInfo("Invalid gear ratio value: " + value, CONFIG_ERROR);
+				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
@@ -325,30 +325,30 @@ private:
 		case ConfigKey::DIRECTION:
 			try
 			{
-				std::string DirectionString = ParseValue(Value);
-				std::transform(DirectionString.begin(), DirectionString.end(), DirectionString.begin(), ::tolower);
+				std::string directionString = parseValue(value);
+				std::transform(directionString.begin(), directionString.end(), directionString.begin(), ::tolower);
 
-				if (DirectionString == "clockwise" || DirectionString == "cw")
+				if (directionString == "clockwise" || directionString == "cw")
 				{
-					Config->Direction = true;
-					AddLogEntry("Set direction: clockwise (true)");
+					config->direction = true;
+					addLogEntry("Set direction: clockwise (true)");
 				}
-				else if (DirectionString == "counterclockwise" || DirectionString == "ccw")
+				else if (directionString == "counterclockwise" || directionString == "ccw")
 				{
-					Config->Direction = false;
-					AddLogEntry("Set direction: counterclockwise (false)");
+					config->direction = false;
+					addLogEntry("Set direction: counterclockwise (false)");
 				}
 				else
 				{
 					// Try to convert as number for backward compatibility
-					Config->Direction = std::stoi(DirectionString) != 0;
-					AddLogEntry("Set direction: " + std::to_string(Config->Direction));
+					config->direction = std::stoi(directionString) != 0;
+					addLogEntry("Set direction: " + std::to_string(config->direction));
 				}
 			}
 			catch (const std::exception& ex)
 			{
-				AddGCodeErrorInfo("Invalid direction value: " + Value, CONFIG_ERROR);
-				LastError = ex.what();
+				addGCodeErrorInfo("Invalid direction value: " + value, CONFIG_ERROR);
+				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
@@ -356,83 +356,83 @@ private:
 		case ConfigKey::PORTS:
 			try
 			{
-				std::vector<uint8_t> Ports;
-				AddLogEntry("Processing ports configuration: " + Value);
+				std::vector<uint8_t> ports;
+				addLogEntry("Processing ports configuration: " + value);
 
-				std::string ProcessedValue = Value;
-				ProcessedValue.erase(std::remove(ProcessedValue.begin(), ProcessedValue.end(), ' '), ProcessedValue.end());
-				ProcessedValue.erase(std::remove(ProcessedValue.begin(), ProcessedValue.end(), ','), ProcessedValue.end());
-				ProcessedValue.erase(std::remove(ProcessedValue.begin(), ProcessedValue.end(), ';'), ProcessedValue.end());
+				std::string processedValue = value;
+				processedValue.erase(std::remove(processedValue.begin(), processedValue.end(), ' '), processedValue.end());
+				processedValue.erase(std::remove(processedValue.begin(), processedValue.end(), ','), processedValue.end());
+				processedValue.erase(std::remove(processedValue.begin(), processedValue.end(), ';'), processedValue.end());
 
-				for (char Character : ProcessedValue)
+				for (char character : processedValue)
 				{
-					uint8_t PortValue = 0xFF;
-					switch(Character)
+					uint8_t portValue = 0xFF;
+					switch(character)
 					{
 					case 'A':
 					case 'a':
-						PortValue = 0x00;
+						portValue = 0x00;
 						break;
 					case 'B':
 					case 'b':
-						PortValue = 0x01;
+						portValue = 0x01;
 						break;
 					case 'C':
 					case 'c':
-						PortValue = 0x02;
+						portValue = 0x02;
 						break;
 					case 'D':
 					case 'd':
-						PortValue = 0x03;
+						portValue = 0x03;
 						break;
 					default:
-						AddLogEntry("Warning: unknown port character '" + std::string(1, Character) + "'");
+						addLogEntry("Warning: unknown port character '" + std::string(1, character) + "'");
 						break;
 					}
 
-					bool IsDuplicate = false;
-					for (auto ExistingPort : Ports)
+					bool isDuplicate = false;
+					for (auto existingPort : ports)
 					{
-						if (ExistingPort == PortValue)
+						if (existingPort == portValue)
 						{
-							IsDuplicate = true;
+							isDuplicate = true;
 							break;
 						}
 					}
 
-					if (!IsDuplicate)
+					if (!isDuplicate)
 					{
-						Ports.push_back(PortValue);
-						AddLogEntry("Added port " + std::string(1, Character));
+						ports.push_back(portValue);
+						addLogEntry("Added port " + std::string(1, character));
 					}
 					else
 					{
-						AddLogEntry("Duplicate port detected: " + std::string(1, Character));
+						addLogEntry("Duplicate port detected: " + std::string(1, character));
 					}
 				}				
 
-				Config->Ports = Ports;
-				AddLogEntry("Ports configuration completed. Total ports: " + std::to_string(Config->Ports.size()));
+				config->ports = ports;
+				addLogEntry("Ports configuration completed. Total ports: " + std::to_string(config->ports.size()));
 
-				if (Config->Ports.empty())
+				if (config->ports.empty())
 				{
-					AddLogEntry("WARNING: No valid ports configured!");
+					addLogEntry("WARNING: No valid ports configured!");
 				}
 				else
 				{
-					std::string PortsList = "Configured ports: ";
-					for (auto Port : Config->Ports)
+					std::string portsList = "Configured ports: ";
+					for (auto port : config->ports)
 					{
-						PortsList += std::to_string(Port) + " ";
+						portsList += std::to_string(port) + " ";
 					}
 
-					AddLogEntry(PortsList);
+					addLogEntry(portsList);
 				}
 			}
 			catch (const std::exception& ex)
 			{
-				AddGCodeErrorInfo("Invalid ports configuration: " + Value, CONFIG_ERROR);
-				LastError = ex.what();
+				addGCodeErrorInfo("Invalid ports configuration: " + value, CONFIG_ERROR);
+				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
@@ -440,13 +440,13 @@ private:
 		case ConfigKey::MINIMUM_FEEDRATE:
 			try
 			{
-				Config->MinimumFeedrate = std::stod(ParseValue(Value));
-				AddLogEntry("Set miminum_feedrate: " + Value);
+				config->minimumFeedrate = std::stod(parseValue(value));
+				addLogEntry("Set miminum_feedrate: " + value);
 			}
 			catch (const std::exception& ex)
 			{
-				AddGCodeErrorInfo("Invalid minimum feedrate value: " + Value, CONFIG_ERROR);
-				LastError = ex.what();
+				addGCodeErrorInfo("Invalid minimum feedrate value: " + value, CONFIG_ERROR);
+				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
@@ -454,19 +454,19 @@ private:
 		case ConfigKey::MAXIMUM_FEEDRATE:
 			try
 			{
-				Config->MaximumFeedrate = std::stod(ParseValue(Value));
-				AddLogEntry("Set maximum_feedrate: " + Value);
+				config->maximumFeedrate = std::stod(parseValue(value));
+				addLogEntry("Set maximum_feedrate: " + value);
 			}
 			catch (const std::exception& ex)
 			{
-				AddGCodeErrorInfo("Invalid maximum feedrate value: " + Value, CONFIG_ERROR);
-				LastError = ex.what();
+				addGCodeErrorInfo("Invalid maximum feedrate value: " + value, CONFIG_ERROR);
+				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
 
 		case ConfigKey::UNKNOWN:
-			AddGCodeErrorInfo("Unknown configuration key", CONFIG_ERROR);
+			addGCodeErrorInfo("Unknown configuration key", CONFIG_ERROR);
 			break;
 		}
 	}
@@ -474,465 +474,465 @@ private:
 	// Movement calculation helper
 	struct MovementCalculation
 	{
-		double Revolutions;
-		double BaseSpeed;
-		double Time;
+		double revolutions;
+		double baseSpeed;
+		double time;
 	};
 
-	MovementCalculation CalculateAxisMovement(const StepperConfig& Config, double Movement, double DefaultSpeed)
+	MovementCalculation calculateAxisMovement(const StepperConfig& config, double movement, double defaultSpeed)
 	{
-		MovementCalculation Result;
-		Result.Revolutions = (std::abs(Movement) * Config.GearRatio) / Config.RotationDistance;
+		MovementCalculation result;
+		result.revolutions = (std::abs(movement) * config.gearRatio) / config.rotationDistance;
 
-		Result.BaseSpeed = DefaultSpeed;
-		if (Movement < 0)
+		result.baseSpeed = defaultSpeed;
+		if (movement < 0)
 		{
-			Result.BaseSpeed = -Result.BaseSpeed;
+			result.baseSpeed = -result.baseSpeed;
 		}
-		if (!Config.Direction)
+		if (!config.direction)
 		{
-			Result.BaseSpeed = -Result.BaseSpeed;
+			result.baseSpeed = -result.baseSpeed;
 		}
 
 		// Apply speed limits
-		if (Result.BaseSpeed > 0)
+		if (result.baseSpeed > 0)
 		{
-			Result.BaseSpeed = std::min(Result.BaseSpeed, Config.MaximumFeedrate);
-			Result.BaseSpeed = std::max(Result.BaseSpeed, Config.MinimumFeedrate);
+			result.baseSpeed = std::min(result.baseSpeed, config.maximumFeedrate);
+			result.baseSpeed = std::max(result.baseSpeed, config.minimumFeedrate);
 		}
 		else
 		{
-			Result.BaseSpeed = std::max(Result.BaseSpeed, -Config.MaximumFeedrate);
-			Result.BaseSpeed = std::min(Result.BaseSpeed, -Config.MinimumFeedrate);
+			result.baseSpeed = std::max(result.baseSpeed, -config.maximumFeedrate);
+			result.baseSpeed = std::min(result.baseSpeed, -config.minimumFeedrate);
 		}
 
-		Result.Time = (Result.Revolutions > 0 && std::abs(Result.BaseSpeed) > 0)
-			? Result.Revolutions / std::abs(Result.BaseSpeed)
+		result.time = (result.revolutions > 0 && std::abs(result.baseSpeed) > 0)
+			? result.revolutions / std::abs(result.baseSpeed)
 			: 0.0;
 
-		return Result;
+		return result;
 	}
 
-	std::vector<MotorCommand> GenerateMotorCommands(const StepperConfig& Config, double SynchronizedSpeed, double Revolutions)
+	std::vector<MotorCommand> generateMotorCommands(const StepperConfig& config, double synchronizedSpeed, double revolutions)
 	{
-		std::vector<MotorCommand> Commands;
-		for (uint8_t Port : Config.Ports)
+		std::vector<MotorCommand> commands;
+		for (uint8_t port : config.ports)
 		{
-			MotorCommand Command;
-			Command.port = Port;
-			Command.speed = static_cast<signed char>(SynchronizedSpeed);
-			Command.revolutions = Revolutions;
-			Commands.push_back(Command);
+			MotorCommand command;
+			command.port = port;
+			command.speed = static_cast<signed char>(synchronizedSpeed);
+			command.revolutions = revolutions;
+			commands.push_back(command);
 		}
 
-		return Commands;
+		return commands;
 	}
 
 public:	
 	Interpreter() // Constructor
 	{
-		std::lock_guard<std::mutex> Lock(GInterpreterMutex);
-		GActiveInterpreters++;
-		ThreadRunning = false;
+		std::lock_guard<std::mutex> lock(gInterpreterMutex);
+		gActiveInterpreters++;
+		threadRunning = false;
 		status = IDLE;
-		CurrentError = NO_ERROR;
-		StopRequested = false;
-		Progress = 0.0;
-		CurrentX = 0.0;
-		CurrentY = 0.0;
-		CurrentZ = 0.0;
-		AbsolutePositioning = true;
-		Speed = 0.0;
-		CurrentPrinter = nullptr;
-		ExecutionThread = nullptr;
-		AddLogEntry("Interpreter initialized successfully");
+		currentError = NO_ERROR;
+		stopRequested = false;
+		progress = 0.0;
+		currentX = 0.0;
+		currentY = 0.0;
+		currentZ = 0.0;
+		absolutePositioning = true;
+		speed = 0.0;
+		currentPrinter = nullptr;
+		executionThread = nullptr;
+		addLogEntry("Interpreter initialized successfully");
 	}
 
 	~Interpreter() // Destructor
 	{
-		std::lock_guard<std::mutex> Lock(GInterpreterMutex);
-		StopRequested = true; // Set stop flag
-		ThreadRunning = false;
+		std::lock_guard<std::mutex> lock(gInterpreterMutex);
+		stopRequested = true; // Set stop flag
+		threadRunning = false;
 
-		if (ExecutionThread && ExecutionThread->joinable())
+		if (executionThread && executionThread->joinable())
 		{
 			// Wait for thread to finish with timeout
 			for (int i = 0; i < 50; i++) // Increased timeout to 5 seconds
 			{
-				if (!ThreadRunning)
+				if (!threadRunning)
 				{
 					break;
 				}
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
 
-			if (ExecutionThread->joinable())
+			if (executionThread->joinable())
 			{
 				// Use detach instead of join to avoid blocking
-				ExecutionThread->detach();
+				executionThread->detach();
 			}
 		}
 
-		AddLogEntry("Interpreter destroyed");
-		GActiveInterpreters--;
+		addLogEntry("Interpreter destroyed");
+		gActiveInterpreters--;
 	}
 
 	// Execute G-code from file
-	bool ExecuteFile(const char* Filename, IPrinter* Printer)
+	bool executeFile(const char* filename, IPrinter* printer)
 	{
-		std::lock_guard<std::mutex> Lock(Mutex);
-		AddLogEntry("=== ExecuteFile called ===");
-		AddLogEntry("Current status: " + std::to_string(static_cast<int>(status)));
-		AddLogEntry("Printer valid: " + std::string(Printer && Printer->vtable ? "YES" : "NO"));
+		std::lock_guard<std::mutex> lock(mutex);
+		addLogEntry("=== ExecuteFile called ===");
+		addLogEntry("Current status: " + std::to_string(static_cast<int>(status)));
+		addLogEntry("Printer valid: " + std::string(printer && printer->vtable ? "YES" : "NO"));
 
-		if (!Filename)
+		if (!filename)
 		{
-			AddLogEntry("Filename: NULL");
+			addLogEntry("Filename: NULL");
 			return false;
 		}
 
-		if (strlen(Filename) == 0)
+		if (strlen(filename) == 0)
 		{
-			AddLogEntry("Filename: EMPTY STRING");
+			addLogEntry("Filename: EMPTY STRING");
 			return false;
 		}
 
-		if (ThreadRunning)
+		if (threadRunning)
 		{
-			AddGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
+			addGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
 			return false;
 		}
 
 		// Clean up previous thread
-		if (ExecutionThread && ExecutionThread->joinable())
+		if (executionThread && executionThread->joinable())
 		{
-			ExecutionThread->detach();
+			executionThread->detach();
 		}
 
-		AddLogEntry("Filename: " + std::string(Filename));
-		AddLogEntry("Filename length: " + std::to_string(strlen(Filename)));
+		addLogEntry("Filename: " + std::string(filename));
+		addLogEntry("Filename length: " + std::to_string(strlen(filename)));
 
 		if (status == RUNNING)
 		{
-			AddGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
+			addGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
 			return false;
 		}
 
-		if (!Printer || !Printer->vtable)
+		if (!printer || !printer->vtable)
 		{
-			AddGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
+			addGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
 			return false;
 		}
 
 		// Check if file exists
-		std::ifstream TestFile(Filename);
-		if (!TestFile.is_open())
+		std::ifstream testFile(filename);
+		if (!testFile.is_open())
 		{
-			AddGCodeErrorInfo("File does not exist or cannot be opened: " + std::string(Filename), FILE_ERROR);
+			addGCodeErrorInfo("File does not exist or cannot be opened: " + std::string(filename), FILE_ERROR);
 		}
-		TestFile.close();
+		testFile.close();
 
-		CurrentPrinter = Printer;
+		currentPrinter = printer;
 		status = RUNNING;
-		StopRequested = false;
-		PauseRequested = false;
-		ThreadRunning = true;
-		Progress = 0.0;
+		stopRequested = false;
+		pauseRequested = false;
+		threadRunning = true;
+		progress = 0.0;
 
 		// Reset coordinates
-		CurrentX = 0.0;
-		CurrentY = 0.0;
-		CurrentZ = 0.0;
-		AbsolutePositioning = true;
-		Speed = 0.0;
+		currentX = 0.0;
+		currentY = 0.0;
+		currentZ = 0.0;
+		absolutePositioning = true;
+		speed = 0.0;
 
-		AddLogEntry("Starting execution thread...");
-		AddLogEntry("Reset coordinates to X = 0; Y = 0; Z = 0");
+		addLogEntry("Starting execution thread...");
+		addLogEntry("Reset coordinates to X = 0; Y = 0; Z = 0");
 
-		std::string FilenameCopy = Filename;
-		ExecutionThread = std::make_unique<std::thread>([this, FilenameCopy]()
+		std::string filenameCopy = filename;
+		executionThread = std::make_unique<std::thread>([this, filenameCopy]()
 			{
-				AddLogEntry("Execution thread started");
-				AddLogEntry("Thread filename: " + FilenameCopy);
-				RunFile(FilenameCopy);
-				AddLogEntry("Execution thread finished");
-				ThreadRunning = false;
+				addLogEntry("Execution thread started");
+				addLogEntry("Thread filename: " + filenameCopy);
+				runFile(filenameCopy);
+				addLogEntry("Execution thread finished");
+				threadRunning = false;
 			});
 
-		AddLogEntry("Execution started: " + std::string(Filename));
+		addLogEntry("Execution started: " + std::string(filename));
 		return true;
 	}
 
-	void Pause() // Pause execution
+	void pause() // Pause execution
 	{
 		if (status == RUNNING)
 		{
-			PauseRequested = true;
+			pauseRequested = true;
 			status = PAUSED;
-			AddLogEntry("Execution paused");
+			addLogEntry("Execution paused");
 		}
 		else
 		{
-			AddLogEntry("Pause request ignored - interpreter not running");
+			addLogEntry("Pause request ignored - interpreter not running");
 		}
 	}
 
-	void Resume() // Resume execution
+	void resume() // Resume execution
 	{
 		if (status == PAUSED)
 		{
-			PauseRequested = false;
+			pauseRequested = false;
 			status = RUNNING;
-			AddLogEntry("Execution resumed");
+			addLogEntry("Execution resumed");
 		}
 		else
 		{
-			AddLogEntry("Resume request ignored - interpreter not paused");
+			addLogEntry("Resume request ignored - interpreter not paused");
 		}
 	}
 
-	void Stop() // Stop execution
+	void stop() // Stop execution
 	{
-		AddLogEntry("Stop requested");
-		StopRequested = true;
+		addLogEntry("Stop requested");
+		stopRequested = true;
 		if (status == RUNNING || status == PAUSED || status == CHECKING_CODE)
 		{
 			status = IDLE;
-			AddLogEntry("Execution stopped by user request");
+			addLogEntry("Execution stopped by user request");
 		}
 
-		if (ExecutionThread->joinable())
+		if (executionThread->joinable())
 		{
-			ExecutionThread->join();
-			AddLogEntry("Execution thread joined");
+			executionThread->join();
+			addLogEntry("Execution thread joined");
 		}
 	}
 
-	Status GetStatus() // Get current status
+	Status getStatus() // Get current status
 	{
 		return status;
 	}
 
-	double GetProgress() // Get execution progress
+	double getProgress() // Get execution progress
 	{
-		return Progress;
+		return progress;
 	}
 
-	const char* GetLastError() // Get last error message
+	const char* getLastError() // Get last error message
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		return CacheString(LastError);
+		std::lock_guard<std::mutex> lock(logMutex);
+		return cacheString(lastError);
 	}
 
-	int GetLastErrorCode() // Get last error code
+	int getLastErrorCode() // Get last error code
 	{
-		return static_cast<int>(CurrentError.load());
+		return static_cast<int>(currentError.load());
 	}
 
-	double GetSpeed() // Get current speed
+	double getSpeed() // Get current speed
 	{
-		return Speed;
+		return speed;
 	}
 
-	int GetErrorCount() // Get error count
+	int getErrorCount() // Get error count
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		return static_cast<int>(GcodeErrors.size());
+		std::lock_guard<std::mutex> lock(logMutex);
+		return static_cast<int>(gCodeErrors.size());
 	}
 
-	const char* GetError(int Index) // Get error by index
+	const char* GetError(int index) // Get error by index
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		if (Index >= 0 && Index < GcodeErrors.size())
+		std::lock_guard<std::mutex> lock(logMutex);
+		if (index >= 0 && index < gCodeErrors.size())
 		{
-			return CacheString(GcodeErrors[Index]);
+			return cacheString(gCodeErrors[index]);
 		}
 
-		return CacheString("");
+		return cacheString("");
 	}
 
-	int GetLogCount() // Get log entry count
+	int getLogCount() // Get log entry count
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		return static_cast<int>(ExecutionLog.size());
+		std::lock_guard<std::mutex> lock(logMutex);
+		return static_cast<int>(executionLog.size());
 	}
 
-	const char* GetLogEntry(int Index) // Get log entry by index
+	const char* GetLogEntry(int index) // Get log entry by index
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		if (Index >= 0 && Index < ExecutionLog.size())
+		std::lock_guard<std::mutex> lock(logMutex);
+		if (index >= 0 && index < executionLog.size())
 		{
-			return CacheString(ExecutionLog[Index]);
+			return cacheString(executionLog[index]);
 		}
 
-		AddLogEntry("Invalid log index requested: " + std::to_string(Index));
-		return CacheString("");
+		addLogEntry("Invalid log index requested: " + std::to_string(index));
+		return cacheString("");
 	}
 
-	void ClearErrors() // Clear all errors
+	void clearErrors() // Clear all errors
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		GcodeErrors.clear();
-		LastError.clear();
-		CurrentError = NO_ERROR;
-		AddLogEntry("All errors cleared");
+		std::lock_guard<std::mutex> lock(logMutex);
+		gCodeErrors.clear();
+		lastError.clear();
+		currentError = NO_ERROR;
+		addLogEntry("All errors cleared");
 	}
 
-	void ClearLog() // Clear log
+	void clearLog() // Clear log
 	{
-		std::lock_guard<std::mutex> Lock(LogMutex);
-		ExecutionLog.clear();
-		AddLogEntry("Log cleared");
+		std::lock_guard<std::mutex> lock(logMutex);
+		executionLog.clear();
+		addLogEntry("Log cleared");
 	}
 
-	bool TestFunction(IPrinter* Printer) // Test function
+	bool testFunction(IPrinter* printer) // Test function
 	{
-		CurrentPrinter = Printer;
-		AddLogEntry("Test function started");
+		currentPrinter = printer;
+		addLogEntry("Test function started");
 
-		if (!CurrentPrinter || !CurrentPrinter->vtable)
+		if (!currentPrinter || !currentPrinter->vtable)
 		{
-			AddGCodeErrorInfo("Printer is not available for test", PRINTER_ERROR);
+			addGCodeErrorInfo("Printer is not available for test", PRINTER_ERROR);
 			return false;
 		}
 
-		std::vector<MotorCommand> Commands = {
+		std::vector<MotorCommand> commands = {
 			{0x02, 50, 1.0},
 			{0x03, 50, 1.0}
 		};
 
-		AddLogEntry("Sending test commands to printer");
-		CurrentPrinter->vtable->printer_rotate_motor(Printer, Commands.data(), Commands.size());
+		addLogEntry("Sending test commands to printer");
+		currentPrinter->vtable->printer_rotate_motor(printer, commands.data(), commands.size());
 
 		// Reverse direction
-		for (auto& Command : Commands)
+		for (auto& command : commands)
 		{
-			Command.speed = -50;
+			command.speed = -50;
 		}
-		CurrentPrinter->vtable->printer_rotate_motor(Printer, Commands.data(), Commands.size());
+		currentPrinter->vtable->printer_rotate_motor(printer, commands.data(), commands.size());
 
-		AddLogEntry("Test function completed successfully");
+		addLogEntry("Test function completed successfully");
 		return true;
 	}
 
-	bool ReadConfigFile(const std::string& Filename) // Read configuration file
+	bool readConfigFile(const std::string& filename) // Read configuration file
 	{
-		AddLogEntry("Reading interpreter config from: " + Filename);
+		addLogEntry("Reading interpreter config from: " + filename);
 
 		try
 		{
-			std::ifstream File(Filename);
-			if (!File.is_open())
+			std::ifstream file(filename);
+			if (!file.is_open())
 			{
-				AddGCodeErrorInfo("Cannot open file: " + Filename, FILE_ERROR);
+				addGCodeErrorInfo("Cannot open file: " + filename, FILE_ERROR);
 				return false;
 			}
 
-			std::string Line;
-			Section CurrentSection = Section::UNKNOWN;
-			int LineNumber = 0;
-			int ProcessedSections = 0;
+			std::string line;
+			Section currentSection = Section::UNKNOWN;
+			int lineNumber = 0;
+			int processedSections = 0;
 
-			while (std::getline(File, Line))
+			while (std::getline(file, line))
 			{
-				LineNumber++;
-				if (StopRequested)
+				lineNumber++;
+				if (stopRequested)
 				{
-					AddLogEntry("Config reading interrupted by stop request");
+					addLogEntry("Config reading interrupted by stop request");
 					break;
 				}
 
 				// Remove comments and trim
-				size_t CommentPos = Line.find('#');
-				if (CommentPos != std::string::npos)
+				size_t commentPosition = line.find('#');
+				if (commentPosition != std::string::npos)
 				{
-					Line = Line.substr(0, CommentPos);
+					line = line.substr(0, commentPosition);
 				}
 
 				// Trim whitespace
-				Line.erase(0, Line.find_first_not_of(" \t"));
-				Line.erase(Line.find_last_not_of(" \t") + 1);
+				line.erase(0, line.find_first_not_of(" \t"));
+				line.erase(line.find_last_not_of(" \t") + 1);
 
-				if (Line.empty())
+				if (line.empty())
 				{
 					continue;
 				}
 
 				// Process sections [section]
-				if (Line.front() == '[' && Line.back() == ']')
+				if (line.front() == '[' && line.back() == ']')
 				{
-					std::string SectionName = Line.substr(1, Line.length() - 2);
-					CurrentSection = StringToSection(SectionName);
+					std::string sectionName = line.substr(1, line.length() - 2);
+					currentSection = stringToSection(sectionName);
 
-					if (CurrentSection != Section::UNKNOWN)
+					if (currentSection != Section::UNKNOWN)
 					{
-						ProcessedSections++;
-						AddLogEntry("Found interpreter section: " + SectionName);
+						processedSections++;
+						addLogEntry("Found interpreter section: " + sectionName);
 					}
 					else
 					{
 						// Ignore non-interpreter sections
-						AddLogEntry("Ignoring non-interpreter section: " + SectionName);
+						addLogEntry("Ignoring non-interpreter section: " + sectionName);
 					}
 					continue;
 				}
 
 				// Process only lines in interpreter sections
-				if (CurrentSection == Section::UNKNOWN)
+				if (currentSection == Section::UNKNOWN)
 				{
 					continue;
 				}
 
 				// Process key=value pairs
-				size_t DelimiterPosition = Line.find('=');
-				if (DelimiterPosition == std::string::npos)
+				size_t delimiterPosition = line.find('=');
+				if (delimiterPosition == std::string::npos)
 				{
-					AddLogEntry("Invalid config line in interpreter section: " + Line);
+					addLogEntry("Invalid config line in interpreter section: " + line);
 					continue;
 				}
 				else
 				{
-					std::string Key = Line.substr(0, DelimiterPosition);
-					std::string Value = Line.substr(DelimiterPosition + 1);
+					std::string key = line.substr(0, delimiterPosition);
+					std::string value = line.substr(delimiterPosition + 1);
 
 					// Trim whitespace around key and value
-					Key.erase(0, Key.find_first_not_of(" \t"));
-					Key.erase(Key.find_last_not_of(" \t") + 1);
-					Value.erase(0, Value.find_first_not_of(" \t"));
-					Value.erase(Value.find_last_not_of(" \t") + 1);
+					key.erase(0, key.find_first_not_of(" \t"));
+					key.erase(key.find_last_not_of(" \t") + 1);
+					value.erase(0, value.find_first_not_of(" \t"));
+					value.erase(value.find_last_not_of(" \t") + 1);
 
-					ConfigKey configKey = StringToKey(Key);
+					ConfigKey configKey = stringToKey(key);
 					if (configKey == ConfigKey::UNKNOWN)
 					{
-						AddLogEntry("Unknown interpreter config key: " + Key);
+						addLogEntry("Unknown interpreter config key: " + key);
 					}
 					else
 					{
-						SetConfigValue(CurrentSection, configKey, Value);
+						setConfigValue(currentSection, configKey, value);
 
 						// Check status after setting value
 						if (status == ERROR)
 						{
-							AddLogEntry("Error setting config value for key: " + Key);
-							File.close();
+							addLogEntry("Error setting config value for key: " + key);
+							file.close();
 							return false;
 						}
 					}
 				}
 			}
 			
-			File.close();
+			file.close();
 
 			// Validate required settings
-			if (!ValidateConfig())
+			if (!validateConfig())
 			{
-				AddGCodeErrorInfo("Configuration validation failed", CONFIG_ERROR);
+				addGCodeErrorInfo("Configuration validation failed", CONFIG_ERROR);
 			}
 
 			if (status != ERROR)
 			{
-				AddLogEntry("Interpreter config loaded - processed " +
-				std::to_string(ProcessedSections) + " sections");
+				addLogEntry("Interpreter config loaded - processed " +
+				std::to_string(processedSections) + " sections");
 				return true;
 			}
 
@@ -940,143 +940,143 @@ public:
 		}
 		catch (const std::exception& ex)
 		{
-			AddLogEntry("Error with read: " + Filename + " config file: " + ex.what());
-			LastError = ex.what();
+			addLogEntry("Error with read: " + filename + " config file: " + ex.what());
+			lastError = ex.what();
 			status = ERROR;
 		}
 	}	
 
-	bool ExecuteLine(const std::string& Line, IPrinter* Printer)
+	bool executeLine(const std::string& line, IPrinter* printer)
 	{
-		AddLogEntry("ExecuteLine started: " + Line);
+		addLogEntry("ExecuteLine started: " + line);
 
 		if (status == RUNNING)
 		{
-			AddGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
+			addGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
 			return false;
 		}
 
-		if (!Printer || !Printer->vtable)
+		if (!printer || !printer->vtable)
 		{
-			AddGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
+			addGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
 			return false;
 		}
 		
-		CurrentPrinter = Printer;
+		currentPrinter = printer;
 
-		if (!CurrentPrinter || !CurrentPrinter->vtable)
+		if (!currentPrinter || !currentPrinter->vtable)
 		{
-			AddGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
+			addGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
 			status = ERROR;
 			return false;
 		}
 
-		if (ThreadRunning)
+		if (threadRunning)
 		{
-			AddGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
+			addGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
 			return false;
 		}
 
 		// Clean up previous thread
-		if (ExecutionThread && ExecutionThread->joinable())
+		if (executionThread && executionThread->joinable())
 		{
-			ExecutionThread->detach();
+			executionThread->detach();
 		}
 
 		try
 		{
 			// Try interpret single line to find errors
 			status = CHECKING_CODE;
-			bool HasErrors = false;
-			ProcessLine(Line, 1, true);
+			bool hasErrors = false;
+			processLine(line, 1, true);
 
 			if (status == ERROR)
 			{
-				AddLogEntry("Execution aborted due to errors");
-				ThreadRunning = false;
+				addLogEntry("Execution aborted due to errors");
+				threadRunning = false;
 				return false;
 			}
 
 			// Second pass: execution
 			status = RUNNING;
-			ProcessLine(Line, 1, false);
+			processLine(line, 1, false);
 
-			if (!StopRequested)
+			if (!stopRequested)
 			{
-				AddLogEntry("Execution completed successfully");
+				addLogEntry("Execution completed successfully");
 				status = COMPLETED;
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				status = IDLE;
 			}
 			else
 			{
-				AddLogEntry("Execution stopped by user");
+				addLogEntry("Execution stopped by user");
 				status = IDLE;
 			}
 		}
 		catch (const std::exception& ex)
 		{
-			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
-			LastError = ex.what();
+			addGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			lastError = ex.what();
 			status = ERROR;
 		}
 
-		ThreadRunning = false;
-		AddLogEntry("Line executed successfully!");
+		threadRunning = false;
+		addLogEntry("Line executed successfully!");
 		return true;
 	}
 
 private:
 
-	bool ValidateConfig() // Validate configuration
+	bool validateConfig() // Validate configuration
 	{
-		if (StepperX.Ports.empty())
+		if (stepperX.ports.empty())
 		{
-			AddGCodeErrorInfo("Stepper X has no ports configured", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper X has no ports configured", CONFIG_ERROR);
 			return false;
 		}
-		if (StepperX.RotationDistance <= 0)
+		if (stepperX.rotationDistance <= 0)
 		{
-			AddGCodeErrorInfo("Stepper X rotation distance not set", CONFIG_ERROR);
-			return false;
-		}
-
-		if (StepperY.Ports.empty())
-		{
-			AddGCodeErrorInfo("Stepper Y has no ports configured", CONFIG_ERROR);
-			return false;
-		}
-		if (StepperY.RotationDistance <= 0)
-		{
-			AddGCodeErrorInfo("Stepper Y rotation distance not set", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper X rotation distance not set", CONFIG_ERROR);
 			return false;
 		}
 
-		if (StepperZ.Ports.empty())
+		if (stepperY.ports.empty())
 		{
-			AddGCodeErrorInfo("Stepper Z has no ports configured", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper Y has no ports configured", CONFIG_ERROR);
 			return false;
 		}
-		if (StepperZ.RotationDistance <= 0)
+		if (stepperY.rotationDistance <= 0)
 		{
-			AddGCodeErrorInfo("Stepper Z rotation distance not set", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper Y rotation distance not set", CONFIG_ERROR);
+			return false;
+		}
+
+		if (stepperZ.ports.empty())
+		{
+			addGCodeErrorInfo("Stepper Z has no ports configured", CONFIG_ERROR);
+			return false;
+		}
+		if (stepperZ.rotationDistance <= 0)
+		{
+			addGCodeErrorInfo("Stepper Z rotation distance not set", CONFIG_ERROR);
 			return false;
 		}
 
 		// Validate speed ranges
-		if (StepperX.MinimumFeedrate >= StepperX.MaximumFeedrate)
+		if (stepperX.minimumFeedrate >= stepperX.maximumFeedrate)
 		{
-			AddGCodeErrorInfo("Stepper X feedrate range invalid", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper X feedrate range invalid", CONFIG_ERROR);
 			return false;
 		}
-		if (StepperY.MinimumFeedrate >= StepperY.MaximumFeedrate)
+		if (stepperY.minimumFeedrate >= stepperY.maximumFeedrate)
 		{
-			AddGCodeErrorInfo("Stepper Y feedrate range invalid", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper Y feedrate range invalid", CONFIG_ERROR);
 			return false;
 		}
-		if (StepperZ.MinimumFeedrate >= StepperZ.MaximumFeedrate)
+		if (stepperZ.minimumFeedrate >= stepperZ.maximumFeedrate)
 		{
-			AddGCodeErrorInfo("Stepper Z feedrate range invalid", CONFIG_ERROR);
+			addGCodeErrorInfo("Stepper Z feedrate range invalid", CONFIG_ERROR);
 			return false;
 		}
 
@@ -1084,33 +1084,33 @@ private:
 	}
 
 	// Execute G-code file
-	void RunFile(const std::string& Filename)
+	void runFile(const std::string& filename)
 	{
 		try
 		{
-			RunFileInternal(Filename);
+			RunFileInternal(filename);
 		}
 		catch (const std::exception& ex)
 		{
-			AddLogEntry("CRITICAL ERROR in RunFile: " + std::string(ex.what()));
+			addLogEntry("CRITICAL ERROR in RunFile: " + std::string(ex.what()));
 			status = ERROR;
-			ThreadRunning = false;
+			threadRunning = false;
 		}
 		catch (...)
 		{
-			AddLogEntry("CRITICAL ERROR: Unknown exception in RunFile");
+			addLogEntry("CRITICAL ERROR: Unknown exception in RunFile");
 			status = ERROR;
-			ThreadRunning = false;
+			threadRunning = false;
 		}
 	}
 
-	void RunFileInternal(const std::string& Filename)
+	void RunFileInternal(const std::string& filename)
 	{
-		AddLogEntry("Runfile started: " + Filename);
+		addLogEntry("Runfile started: " + filename);
 
-		if (!CurrentPrinter || !CurrentPrinter->vtable)
+		if (!currentPrinter || !currentPrinter->vtable)
 		{
-			AddGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
+			addGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
 			status = ERROR;
 			return;
 		}
@@ -1119,350 +1119,349 @@ private:
 		{
 			// First pass: syntax checing
 			status = CHECKING_CODE;
-			std::ifstream File(Filename);
-			if (!File.is_open())
+			std::ifstream file(filename);
+			if (!file.is_open())
 			{
-				AddGCodeErrorInfo("Cannot open file: " + Filename, FILE_ERROR);
-				LastError = "Cannot open file: " + Filename;
+				addGCodeErrorInfo("Cannot open file: " + filename, FILE_ERROR);
+				lastError = "Cannot open file: " + filename;
 				status = ERROR;
-				ThreadRunning = false;
+				threadRunning = false;
 				return;
 			}
 
-			std::string Line = "";
-			size_t LinesCount = 0;
-			bool HasErrors = false;
+			std::string line = "";
+			size_t linesCount = 0;
+			bool hasErrors = false;
 
 			// Try interpret lines to find errors
-			while (std::getline(File, Line))
+			while (std::getline(file, line))
 			{
-				WaitIfPaused();
-				if (StopRequested)
+				waitIfPaused();
+				if (stopRequested)
 				{
 					break;
 				}
 
-				while (PauseRequested && !StopRequested)
+				while (pauseRequested && !stopRequested)
 				{
 					std::this_thread::sleep_for(std::chrono::milliseconds(5));
 				}
 
-				if (StopRequested)
+				if (stopRequested)
 				{
 					break;
 				}
 
-				ProcessLine(Line, LinesCount, true);
-				LinesCount++;
+				processLine(line, linesCount, true);
+				linesCount++;
 
 				if (status == ERROR)
 				{
-					HasErrors = true;
+					hasErrors = true;
 					break;
 				}
 			}
 
-			File.close();
+			file.close();
 
-			if (HasErrors)
+			if (hasErrors)
 			{
-				AddLogEntry("Execution aborted due to errors");
+				addLogEntry("Execution aborted due to errors");
 				status = ERROR;
-				ThreadRunning = false;
+				threadRunning = false;
 				return;
 			}
 
 			// Second pass: execution
 			status = RUNNING;
-			std::ifstream File2(Filename);
-			if (!File2.is_open())
+			std::ifstream file2(filename);
+			if (!file2.is_open())
 			{
-				AddGCodeErrorInfo("Cannot open file: " + Filename, FILE_ERROR);
-				LastError = "Cannot open file: " + Filename;
+				addGCodeErrorInfo("Cannot open file: " + filename, FILE_ERROR);
+				lastError = "Cannot open file: " + filename;
 				status = ERROR;
-				ThreadRunning = false;
+				threadRunning = false;
 				return;
 			}
 
-			LinesCount = 0;
-			size_t TotalLines = 0;
+			linesCount = 0;
+			size_t totalLines = 0;
 
-			std::ifstream CountFile(Filename);
-			TotalLines = std::count(std::istreambuf_iterator<char>(CountFile),
+			std::ifstream countFile(filename);
+			totalLines = std::count(std::istreambuf_iterator<char>(countFile),
 				std::istreambuf_iterator<char>(), '\n');
 
-			CountFile.close();
+			countFile.close();
 
-			while (std::getline(File2, Line))
+			while (std::getline(file2, line))
 			{
-				WaitIfPaused();
-				if (StopRequested)
+				waitIfPaused();
+				if (stopRequested)
 				{
 					break;
 				}
 
-				while (PauseRequested && !StopRequested)
+				while (pauseRequested && !stopRequested)
 				{
 					std::this_thread::sleep_for(std::chrono::milliseconds(5));
 				}
 
-				if (StopRequested)
+				if (stopRequested)
 				{
 					break;
 				}
 
-				ProcessLine(Line, LinesCount, false);
-				LinesCount++;
+				processLine(line, linesCount, false);
+				linesCount++;
 
-				if (TotalLines > 0)
+				if (totalLines > 0)
 				{
-					Progress = static_cast<double>(LinesCount) / TotalLines * 100.0;
+					progress = static_cast<double>(linesCount) / totalLines * 100.0;
 				}
 			}
 
-			File2.close();
+			file2.close();
 
-			if (!StopRequested)
+			if (!stopRequested)
 			{
-				AddLogEntry("Execution completed successfully");
+				addLogEntry("Execution completed successfully");
 				status = COMPLETED;
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				status = IDLE;
 			}
 			else
 			{
-				AddLogEntry("Execution stopped by user");
+				addLogEntry("Execution stopped by user");
 				status = IDLE;
 			}
 		}
 		catch (const std::exception& ex)
 		{
-			AddGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
-			LastError = ex.what();
+			addGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			lastError = ex.what();
 			status = ERROR;
 		}		
 
-		ThreadRunning = false;
+		threadRunning = false;
 	}
 
-	void WaitIfPaused()
+	void waitIfPaused()
 	{
-		while (PauseRequested && !StopRequested)
+		while (pauseRequested && !stopRequested)
 		{
 			std::this_thread::sleep_for(std::chrono::microseconds(50));
 		}
 	}
 
 	// Process G-code line
-	void ProcessLine(const std::string& Line, int LinesCount, bool IsTryingInterpret)
+	void processLine(const std::string& line, int linesCount, bool isTryingInterpret)
 	{
 		// Clean line from comments and whitespace
-		std::string CleanLine = Line.substr(0, Line.find(';'));
-		CleanLine.erase(0, CleanLine.find_first_not_of(" \t"));
-		CleanLine.erase(CleanLine.find_last_not_of(" \t") + 1);
+		std::string cleanLine = line.substr(0, line.find(';'));
+		cleanLine.erase(0, cleanLine.find_first_not_of(" \t"));
+		cleanLine.erase(cleanLine.find_last_not_of(" \t") + 1);
 
-		if (CleanLine.empty())
+		if (cleanLine.empty())
 		{
 			return;
 		}
 
-		std::istringstream String(CleanLine);
-		std::string Command;
-		String >> Command;
+		std::istringstream string(cleanLine);
+		std::string command;
+		string >> command;
 
-		if (IsTryingInterpret)
+		if (isTryingInterpret)
 		{
-			AddLogEntry("Syntax checking line: " + std::to_string(LinesCount) + " : " + CleanLine);
-			if (Command[0] == 'G')
+			addLogEntry("Syntax checking line: " + std::to_string(linesCount) + " : " + cleanLine);
+			if (command[0] == 'G')
 			{
-				int Gcode = std::stoi(Command.substr(1));
+				int gCode = std::stoi(command.substr(1));
 
-				switch (Gcode)
+				switch (gCode)
 				{
 				case 0:
 				case 1:
-					ProcessMovement(String, LinesCount, true);
+					processMovement(string, linesCount, true);
 					break;
 				case 28:
-					ProcessHoming();
+					processHoming();
 					break;
 				case 90:
-					AbsolutePositioning = true;
+					absolutePositioning = true;
 					break;
 				case 91:
-					AbsolutePositioning = false;
+					absolutePositioning = false;
 					break;
 				default:
-					AddGCodeErrorInfo("Unknown G-code: " + std::to_string(Gcode) + 
-						" at line " + std::to_string(LinesCount), VALUE_NOT_DEFINED);
+					addGCodeErrorInfo("Unknown G-code: " + std::to_string(gCode) + 
+						" at line " + std::to_string(linesCount), VALUE_NOT_DEFINED);
 					break;
 				}
 			}
-			else if (Command[0] == 'M')
+			else if (command[0] == 'M')
 			{
-				int Mcode = std::stoi(Command.substr(1));
-				switch (Mcode)
+				int mCode = std::stoi(command.substr(1));
+				switch (mCode)
 				{
 				case 30:
 					break;
 				default:
-					AddGCodeErrorInfo("Unknown M-code: " + std::to_string(Mcode) +
-					" at line " + std::to_string(LinesCount));
+					addGCodeErrorInfo("Unknown M-code: " + std::to_string(mCode) +
+					" at line " + std::to_string(linesCount));
 					break;
 				}
 			}
-			else if (Command[0] == 'F')
+			else if (command[0] == 'F')
 			{
 				try
 				{
-					double NewSpeed = std::stoi(Command.substr(1));
-					if (NewSpeed < 0)
+					double newSpeed = std::stoi(command.substr(1));
+					if (newSpeed < 0)
 					{
-						AddGCodeErrorInfo("Negative feedrate not allowed: " + Command, VALUE_NOT_DEFINED);
+						addGCodeErrorInfo("Negative feedrate not allowed: " + command, VALUE_NOT_DEFINED);
 					}
 				}
 				catch (const std::exception& ex)
 				{
-					AddGCodeErrorInfo("Invalid feedrate value: " + Command, VALUE_NOT_DEFINED);
+					addGCodeErrorInfo("Invalid feedrate value: " + command, VALUE_NOT_DEFINED);
 				}
 			}
 			else
 			{
-				AddGCodeErrorInfo("Unknown processing command '" + Command + "' " +
-				" at line " + std::to_string(LinesCount));
+				addGCodeErrorInfo("Unknown processing command '" + command + "' " +
+				" at line " + std::to_string(linesCount));
 			}
 		}
 		else
 		{
-			AddLogEntry("Executing line " + std::to_string(LinesCount) + " : " + CleanLine);
-			if (Command[0] == 'G')
+			addLogEntry("Executing line " + std::to_string(linesCount) + " : " + cleanLine);
+			if (command[0] == 'G')
 			{
-				int Gcode = std::stoi(Command.substr(1));
+				int gCode = std::stoi(command.substr(1));
 
-				switch (Gcode)
+				switch (gCode)
 				{
 				case 0:
 				case 1:
-					ProcessMovement(String, LinesCount, false);
+					processMovement(string, linesCount, false);
 					break;
 				case 28:
-					ProcessHoming();
+					processHoming();
 					break;
 				case 90:
-					AbsolutePositioning = true;
+					absolutePositioning = true;
 					break;
 				case 91:
-					AbsolutePositioning = false;
+					absolutePositioning = false;
 					break;
 				default:
 					break;
 				}
 			}
-			else if (Command[0] == 'M')
+			else if (command[0] == 'M')
 			{
-				int Mcode = std::stoi(Command.substr(1));
-				switch (Mcode)
+				int mCode = std::stoi(command.substr(1));
+				switch (mCode)
 				{
 				case 30:
-					StopRequested = true;
+					stopRequested = true;
 					break;
 				default:
 					break;
 				}
 			}
-			else if (Command[0] == 'F')
+			else if (command[0] == 'F')
 			{
-				Speed = std::stoi(Command.substr(1));
+				speed = std::stoi(command.substr(1));
 			}
 		}
 	}
 	
 	//Process movement commands
-	void ProcessMovement(std::istringstream& String, int LineCount, bool IsTryingInterpret)
+	void processMovement(std::istringstream& string, int lineCount, bool isTryingInterpret)
 	{
-		std::string Token;
+		std::string token;
+		char axis;
+		double value;		
 
-		char Axis;
-		double Value;		
-
-		if (IsTryingInterpret)
+		if (isTryingInterpret)
 		{
-			if (!CurrentPrinter || !CurrentPrinter->vtable)
+			if (!currentPrinter || !currentPrinter->vtable)
 			{
-				AddGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
+				addGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
 				return;
 			}
 
-			if (StepperX.Ports.empty() || StepperY.Ports.empty() || StepperZ.Ports.empty())
+			if (stepperX.ports.empty() || stepperY.ports.empty() || stepperZ.ports.empty())
 			{
-				AddGCodeErrorInfo("Motor ports are not configured", CONFIG_ERROR);
+				addGCodeErrorInfo("Motor ports are not configured", CONFIG_ERROR);
 				return;
 			}
 
-			AddLogEntry("Checking movement command syntax");
-			while (String >> Token)
+			addLogEntry("Checking movement command syntax");
+			while (string >> token)
 			{
-				Axis = Token[0];
-				Value = std::stof(Token.substr(1));
+				axis = token[0];
+				value = std::stof(token.substr(1));
 
-				switch (Axis)
+				switch (axis)
 				{
 				case 'X':
 				case 'Y':
 				case 'Z':
 					break;
 				default:
-					AddGCodeErrorInfo("Unknown axis: " + std::string(1, Axis) + 
-					" at line " + std::to_string(LineCount));
+					addGCodeErrorInfo("Unknown axis: " + std::string(1, axis) + 
+					" at line " + std::to_string(lineCount));
 					break;
 				}
 			}
 		}
 		else
 		{
-			AddLogEntry("Execute movement command");
+			addLogEntry("Execute movement command");
 
 			// Initialize target coordinates
-			double TargetX = AbsolutePositioning ? CurrentX : 0.0;
-			double TargetY = AbsolutePositioning ? CurrentY : 0.0;
-			double TargetZ = AbsolutePositioning ? CurrentZ : 0.0;
+			double targetX = absolutePositioning ? currentX : 0.0;
+			double targetY = absolutePositioning ? currentY : 0.0;
+			double targetZ = absolutePositioning ? currentZ : 0.0;
 
 			// Parse movement commands
-			while (String >> Token)
+			while (string >> token)
 			{
-				Axis = Token[0];
-				Value = std::stof(Token.substr(1));
+				axis = token[0];
+				value = std::stof(token.substr(1));
 
-				switch (Axis)
+				switch (axis)
 				{
 				case 'X':
-					if (AbsolutePositioning)
+					if (absolutePositioning)
 					{
-						TargetX = Value;
+						targetX = value;
 					}
 					else
 					{
-						TargetX += Value;
+						targetX += value;
 					}
 					break;
 				case 'Y':
-					if (AbsolutePositioning)
+					if (absolutePositioning)
 					{
-						TargetY = Value;
+						targetY = value;
 					}
 					else
 					{
-						TargetY += Value;
+						targetY += value;
 					}
 					break;
 				case 'Z':
-					if (AbsolutePositioning)
+					if (absolutePositioning)
 					{
-						TargetZ = Value;
+						targetZ = value;
 					}
 					else
 					{
-						TargetZ += Value;
+						targetZ += value;
 					}
 					break;
 				default:
@@ -1470,496 +1469,495 @@ private:
 				}
 			}
 
-			double XMovement = TargetX - CurrentX;
-			double YMovement = TargetY - CurrentY;
-			double ZMovement = TargetZ - CurrentZ;
+			double xMovement = targetX - currentX;
+			double yMovement = targetY - currentY;
+			double zMovement = targetZ - currentZ;
 
-			AddLogEntry("Execute movement command - X:" + std::to_string(XMovement) +
-			 " Y: " + std::to_string(YMovement) + " Z:" + std::to_string(ZMovement));
+			addLogEntry("Execute movement command - X:" + std::to_string(xMovement) +
+			 " Y: " + std::to_string(yMovement) + " Z:" + std::to_string(zMovement));
 
 			// Process X and Y axis movement
-			if (std::abs(XMovement) > 0 || std::abs(YMovement) > 0)
+			if (std::abs(xMovement) > 0 || std::abs(yMovement) > 0)
 			{
 				// Initialized final command for XY movement as a vector
-				std::vector<MotorCommand> XYCommands;
+				std::vector<MotorCommand> xyCommands;
 
 				// Calculate movement times for each axis
-				double TimeX = 0.0;
-				double TimeY = 0.0;
+				double timeX = 0.0;
+				double timeY = 0.0;
 
 				// ========== X Axis ==========
-				if (std::abs(XMovement) > 0)
+				if (std::abs(xMovement) > 0)
 				{
-					double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+					double revolutionsX = (std::abs(xMovement) * stepperX.gearRatio) / stepperX.rotationDistance;
 
 					// Calculate base time for X movement
-					double BaseSpeedX = Speed;
-					if (XMovement < 0)
+					double baseSpeedX = speed;
+					if (xMovement < 0)
 					{
-						BaseSpeedX = -BaseSpeedX;
+						baseSpeedX = -baseSpeedX;
 					}
-					if (!StepperX.Direction)
+					if (!stepperX.direction)
 					{
-						BaseSpeedX = -BaseSpeedX;
+						baseSpeedX = -baseSpeedX;
 					}
 
 					// Apply speed limits
-					if (BaseSpeedX > 0)
+					if (baseSpeedX > 0)
 					{
-						BaseSpeedX = std::min(BaseSpeedX, StepperX.MaximumFeedrate);
-						BaseSpeedX = std::max(BaseSpeedX, StepperX.MinimumFeedrate);
+						baseSpeedX = std::min(baseSpeedX, stepperX.maximumFeedrate);
+						baseSpeedX = std::max(baseSpeedX, stepperX.minimumFeedrate);
 					}
 					else
 					{
-						BaseSpeedX = std::max(BaseSpeedX, -StepperX.MaximumFeedrate);
-						BaseSpeedX = std::min(BaseSpeedX, -StepperX.MinimumFeedrate);
+						baseSpeedX = std::max(baseSpeedX, -stepperX.maximumFeedrate);
+						baseSpeedX = std::min(baseSpeedX, -stepperX.minimumFeedrate);
 					}
 
-					TimeX = RevolutionsX / std::abs(BaseSpeedX);
+					timeX = revolutionsX / std::abs(baseSpeedX);
 				}
 
 				// ========== Y Axis ==========
-				if (std::abs(YMovement) > 0)
+				if (std::abs(yMovement) > 0)
 				{
-					double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+					double revolutionsY = (std::abs(yMovement) * stepperY.gearRatio) / stepperY.rotationDistance;
 
 					// Calculates base time for Y movement
-					double BaseSpeedY = Speed;
-					if (YMovement < 0)
+					double baseSpeedY = speed;
+					if (yMovement < 0)
 					{
-						BaseSpeedY = -BaseSpeedY;
+						baseSpeedY = -baseSpeedY;
 					}
-					if (!StepperY.Direction)
+					if (!stepperY.direction)
 					{
-						BaseSpeedY = -BaseSpeedY;
+						baseSpeedY = -baseSpeedY;
 					}
 
 					// Apply speed limits
-					if (BaseSpeedY > 0)
+					if (baseSpeedY > 0)
 					{
-						BaseSpeedY = std::min(BaseSpeedY, StepperY.MaximumFeedrate);
-						BaseSpeedY = std::max(BaseSpeedY, StepperY.MinimumFeedrate);
+						baseSpeedY = std::min(baseSpeedY, stepperY.maximumFeedrate);
+						baseSpeedY = std::max(baseSpeedY, stepperY.minimumFeedrate);
 					}
 					else
 					{
-						BaseSpeedY = std::max(BaseSpeedY, -StepperY.MaximumFeedrate);
-						BaseSpeedY = std::min(BaseSpeedY, -StepperY.MinimumFeedrate);
+						baseSpeedY = std::max(baseSpeedY, -stepperY.maximumFeedrate);
+						baseSpeedY = std::min(baseSpeedY, -stepperY.minimumFeedrate);
 					}
 
-					TimeY = RevolutionsY / std::abs(BaseSpeedY);
+					timeY = revolutionsY / std::abs(baseSpeedY);
 				}
 
 				// Determine the maximum time needed
-				double MaxTime = std::max(TimeX, TimeY);
-				if (MaxTime == 0.0) // Avoid division by zero
+				double maxTime = std::max(timeX, timeY);
+				if (maxTime == 0.0) // Avoid division by zero
 				{
-					MaxTime = 1.0;
+					maxTime = 1.0;
 				}
 
-
 				// ============ X Axis with synchronized speed =============
-				if (std::abs(XMovement) > 0)
+				if (std::abs(xMovement) > 0)
 				{
-					double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+					double revolutionsX = (std::abs(xMovement) * stepperX.gearRatio) / stepperX.rotationDistance;
 
 					// Calculate speed to match the maximum time
-					double SynchronizedSpeedX = RevolutionsX / MaxTime;
+					double synchronizedSpeedX = revolutionsX / maxTime;
 
-					for (uint8_t Port : StepperX.Ports)
+					for (uint8_t port : stepperX.ports)
 					{
-						MotorCommand Command;
-						Command.port = Port;
+						MotorCommand command;
+						command.port = port;
 
-						double CalculatedSpeed = SynchronizedSpeedX;
-						if (XMovement < 0)
+						double calculatedSpeed = synchronizedSpeedX;
+						if (xMovement < 0)
 						{
-							CalculatedSpeed = -CalculatedSpeed;
+							calculatedSpeed = -calculatedSpeed;
 						}
-						if (!StepperX.Direction)
+						if (!stepperX.direction)
 						{
-							CalculatedSpeed = -CalculatedSpeed;
+							calculatedSpeed = -calculatedSpeed;
 						}
 
 						// Apply speed limits to synchronized speed
-						if (CalculatedSpeed > 0)
+						if (calculatedSpeed > 0)
 						{
-							CalculatedSpeed = std::min(CalculatedSpeed, StepperX.MaximumFeedrate);
-							CalculatedSpeed = std::max(CalculatedSpeed, StepperX.MinimumFeedrate);
+							calculatedSpeed = std::min(calculatedSpeed, stepperX.maximumFeedrate);
+							calculatedSpeed = std::max(calculatedSpeed, stepperX.minimumFeedrate);
 						}
 						else
 						{
-							CalculatedSpeed = std::max(CalculatedSpeed, -StepperX.MaximumFeedrate);
-							CalculatedSpeed = std::min(CalculatedSpeed, -StepperX.MinimumFeedrate);
+							calculatedSpeed = std::max(calculatedSpeed, -stepperX.maximumFeedrate);
+							calculatedSpeed = std::min(calculatedSpeed, -stepperX.minimumFeedrate);
 						}
 
-						Command.speed = static_cast<signed char>(CalculatedSpeed);
-						Command.revolutions = RevolutionsX;
+						command.speed = static_cast<signed char>(calculatedSpeed);
+						command.revolutions = revolutionsX;
 
-						XYCommands.push_back(Command);
+						xyCommands.push_back(command);
 
-						AddLogEntry("X axis - Port: " + std::to_string(Port) +
-							" Speed: " + std::to_string(CalculatedSpeed) +
-							" Revolutions: " + std::to_string(RevolutionsX));
+						addLogEntry("X axis - Port: " + std::to_string(port) +
+							" Speed: " + std::to_string(calculatedSpeed) +
+							" Revolutions: " + std::to_string(revolutionsX));
 					}
 				}
 
 				// ============= Y Axis with synchronized speed ================
-				if (std::abs(YMovement) > 0)
+				if (std::abs(yMovement) > 0)
 				{
-					double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+					double revolutionsY = (std::abs(yMovement) * stepperY.gearRatio) / stepperY.rotationDistance;
 
 					// Calculate speed to match the maximum time
-					double SynchronizedSpeedY = RevolutionsY / MaxTime;
+					double synchronizedSpeedY = revolutionsY / maxTime;
 
-					for (uint8_t Port : StepperY.Ports)
+					for (uint8_t port : stepperY.ports)
 					{
-						MotorCommand Command;
-						Command.port = Port;
+						MotorCommand command;
+						command.port = port;
 
-						double CalculatedSpeed = SynchronizedSpeedY;
-						if (YMovement < 0)
+						double calculatedSpeed = synchronizedSpeedY;
+						if (yMovement < 0)
 						{
-							CalculatedSpeed = -CalculatedSpeed;
+							calculatedSpeed = -calculatedSpeed;
 						}
-						if (StepperY.Direction)
+						if (stepperY.direction)
 						{
-							CalculatedSpeed = -CalculatedSpeed;
+							calculatedSpeed = -calculatedSpeed;
 						}
 
 						// Apply speed limits to synchronized speed
-						if (CalculatedSpeed > 0)
+						if (calculatedSpeed > 0)
 						{
-							CalculatedSpeed = std::min(CalculatedSpeed, StepperY.MaximumFeedrate);
-							CalculatedSpeed = std::max(CalculatedSpeed, StepperY.MinimumFeedrate);
+							calculatedSpeed = std::min(calculatedSpeed, stepperY.maximumFeedrate);
+							calculatedSpeed = std::max(calculatedSpeed, stepperY.minimumFeedrate);
 						}
 						else
 						{
-							CalculatedSpeed = std::max(CalculatedSpeed, -StepperY.MaximumFeedrate);
-							CalculatedSpeed = std::min(CalculatedSpeed, -StepperY.MinimumFeedrate);
+							calculatedSpeed = std::max(calculatedSpeed, -stepperY.maximumFeedrate);
+							calculatedSpeed = std::min(calculatedSpeed, -stepperY.minimumFeedrate);
 						}
 
-						Command.speed = static_cast<signed char>(CalculatedSpeed);
-						Command.revolutions = RevolutionsY;
+						command.speed = static_cast<signed char>(calculatedSpeed);
+						command.revolutions = revolutionsY;
 
-						XYCommands.push_back(Command);
+						xyCommands.push_back(command);
 
-						AddLogEntry("Y axis - Port: " + std::to_string(Port) +
-						" Speed: " + std::to_string(CalculatedSpeed) +
-						" Revolutions " + std::to_string(RevolutionsY));
+						addLogEntry("Y axis - Port: " + std::to_string(port) +
+						" Speed: " + std::to_string(calculatedSpeed) +
+						" Revolutions " + std::to_string(revolutionsY));
 					}
 				}
 
 				// Send synchronized commands for X and Y axis
-				if (!XYCommands.empty())
+				if (!xyCommands.empty())
 				{
-					MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
-					std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
-					CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, XYCommands.size());
-					delete[] FinalCommands;
+					MotorCommand* finalCommands = new MotorCommand[xyCommands.size()];
+					std::copy(xyCommands.begin(), xyCommands.end(), finalCommands);
+					currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, xyCommands.size());
+					delete[] finalCommands;
 
-					AddLogEntry("XY movement synchronized. Max time: " + std::to_string(MaxTime));
+					addLogEntry("XY movement synchronized. Max time: " + std::to_string(maxTime));
 				}
 			}
 
 			// =================== Z Axis ===================
-			if (std::abs(ZMovement) > 0)
+			if (std::abs(zMovement) > 0)
 			{
-				std::vector<MotorCommand> ZCommands;
+				std::vector<MotorCommand> zCommands;
 				
-				for (uint8_t Port : StepperZ.Ports)
+				for (uint8_t port : stepperZ.ports)
 				{
-					MotorCommand Command;
-					Command.port = Port;
+					MotorCommand command;
+					command.port = port;
 
-					double CalculatedSpeed = Speed;
-					if (ZMovement < 0)
+					double calculatedSpeed = speed;
+					if (zMovement < 0)
 					{
-						CalculatedSpeed = -CalculatedSpeed;
+						calculatedSpeed = -calculatedSpeed;
 					}
-					if (!StepperZ.Direction)
+					if (!stepperZ.direction)
 					{
-						CalculatedSpeed = -CalculatedSpeed;
+						calculatedSpeed = -calculatedSpeed;
 					}
 
-					if (CalculatedSpeed > 0)
+					if (calculatedSpeed > 0)
 					{
-						CalculatedSpeed = std::min(CalculatedSpeed, StepperZ.MaximumFeedrate);
-						CalculatedSpeed = std::max(CalculatedSpeed, StepperZ.MinimumFeedrate);
+						calculatedSpeed = std::min(calculatedSpeed, stepperZ.maximumFeedrate);
+						calculatedSpeed = std::max(calculatedSpeed, stepperZ.minimumFeedrate);
 					}
 					else
 					{
-						CalculatedSpeed = std::max(CalculatedSpeed, -StepperZ.MaximumFeedrate);
-						CalculatedSpeed = std::min(CalculatedSpeed, -StepperZ.MinimumFeedrate);
+						calculatedSpeed = std::max(calculatedSpeed, -stepperZ.maximumFeedrate);
+						calculatedSpeed = std::min(calculatedSpeed, -stepperZ.minimumFeedrate);
 					}
 
-					Command.speed = static_cast<signed char>(CalculatedSpeed);
-					Command.revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
+					command.speed = static_cast<signed char>(calculatedSpeed);
+					command.revolutions = (std::abs(zMovement) * stepperZ.gearRatio) / stepperZ.rotationDistance;
 
-					ZCommands.push_back(Command);
+					zCommands.push_back(command);
 				}
 
-				MotorCommand* FinalCommands = new MotorCommand[ZCommands.size()];
-				std::copy(ZCommands.begin(), ZCommands.end(), FinalCommands);
-				CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, ZCommands.size());
-				delete[] FinalCommands;
+				MotorCommand* finalCommands = new MotorCommand[zCommands.size()];
+				std::copy(zCommands.begin(), zCommands.end(), finalCommands);
+				currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, zCommands.size());
+				delete[] finalCommands;
 			}
 
-			CurrentX = TargetX;
-			CurrentY = TargetY;
-			CurrentZ = TargetZ;
+			currentX = targetX;
+			currentY = targetY;
+			currentZ = targetZ;
 
-			AddLogEntry("Movement completed. New position: X=" + std::to_string(CurrentX) +
-			" Y=" + std::to_string(CurrentY) + " Z=" + std::to_string(CurrentZ));
+			addLogEntry("Movement completed. New position: X=" + std::to_string(currentX) +
+			" Y=" + std::to_string(currentY) + " Z=" + std::to_string(currentZ));
 		}
 	}
 
 	// Process homing command
-	void ProcessHoming()
+	void processHoming()
 	{
-		AddLogEntry("Homing command started");
+		addLogEntry("Homing command started");
 
-		double XMovement = -CurrentX;
-		double YMovement = -CurrentY;
-		double ZMovement = -CurrentZ;
+		double xMovement = -currentX;
+		double yMovement = -currentY;
+		double zMovement = -currentZ;
 
-		AddLogEntry("Execute movement command - X:" + std::to_string(XMovement) +
-			" Y: " + std::to_string(YMovement) + " Z:" + std::to_string(ZMovement));
+		addLogEntry("Execute movement command - X:" + std::to_string(xMovement) +
+			" Y: " + std::to_string(yMovement) + " Z:" + std::to_string(zMovement));
 
 		// Process X and Y axis movement
-		if (std::abs(XMovement) > 0 || std::abs(YMovement) > 0)
+		if (std::abs(xMovement) > 0 || std::abs(yMovement) > 0)
 		{
 			// Initialized final command for XY movement as a vector
-			std::vector<MotorCommand> XYCommands;
+			std::vector<MotorCommand> xyCommands;
 
 			// Calculate movement times for each axis
-			double TimeX = 0.0;
-			double TimeY = 0.0;
+			double timeX = 0.0;
+			double timeY = 0.0;
 
 			// ========== X Axis ==========
-			if (std::abs(XMovement) > 0)
+			if (std::abs(xMovement) > 0)
 			{
-				double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+				double revolutionsX = (std::abs(xMovement) * stepperX.gearRatio) / stepperX.rotationDistance;
 
 				// Calculate base time for X movement
-				double BaseSpeedX = Speed;
-				if (XMovement < 0)
+				double baseSpeedX = speed;
+				if (xMovement < 0)
 				{
-					BaseSpeedX = -BaseSpeedX;
+					baseSpeedX = -baseSpeedX;
 				}
-				if (!StepperX.Direction)
+				if (!stepperX.direction)
 				{
-					BaseSpeedX = -BaseSpeedX;
+					baseSpeedX = -baseSpeedX;
 				}
 
 				// Apply speed limits
-				if (BaseSpeedX > 0)
+				if (baseSpeedX > 0)
 				{
-					BaseSpeedX = std::min(BaseSpeedX, StepperX.MaximumFeedrate);
-					BaseSpeedX = std::max(BaseSpeedX, StepperX.MinimumFeedrate);
+					baseSpeedX = std::min(baseSpeedX, stepperX.maximumFeedrate);
+					baseSpeedX = std::max(baseSpeedX, stepperX.minimumFeedrate);
 				}
 				else
 				{
-					BaseSpeedX = std::max(BaseSpeedX, -StepperX.MaximumFeedrate);
-					BaseSpeedX = std::min(BaseSpeedX, -StepperX.MinimumFeedrate);
+					baseSpeedX = std::max(baseSpeedX, -stepperX.maximumFeedrate);
+					baseSpeedX = std::min(baseSpeedX, -stepperX.minimumFeedrate);
 				}
 
-				TimeX = RevolutionsX / std::abs(BaseSpeedX);
+				timeX = revolutionsX / std::abs(baseSpeedX);
 			}
 
 			// ========== Y Axis ==========
-			if (std::abs(YMovement) > 0)
+			if (std::abs(yMovement) > 0)
 			{
-				double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+				double revolutionsY = (std::abs(yMovement) * stepperY.gearRatio) / stepperY.rotationDistance;
 
 				// Calculates base time for Y movement
-				double BaseSpeedY = Speed;
-				if (YMovement < 0)
+				double baseSpeedY = speed;
+				if (yMovement < 0)
 				{
-					BaseSpeedY = -BaseSpeedY;
+					baseSpeedY = -baseSpeedY;
 				}
-				if (!StepperY.Direction)
+				if (!stepperY.direction)
 				{
-					BaseSpeedY = -BaseSpeedY;
+					baseSpeedY = -baseSpeedY;
 				}
 
 				// Apply speed limits
-				if (BaseSpeedY > 0)
+				if (baseSpeedY > 0)
 				{
-					BaseSpeedY = std::min(BaseSpeedY, StepperY.MaximumFeedrate);
-					BaseSpeedY = std::max(BaseSpeedY, StepperY.MinimumFeedrate);
+					baseSpeedY = std::min(baseSpeedY, stepperY.maximumFeedrate);
+					baseSpeedY = std::max(baseSpeedY, stepperY.minimumFeedrate);
 				}
 				else
 				{
-					BaseSpeedY = std::max(BaseSpeedY, -StepperY.MaximumFeedrate);
-					BaseSpeedY = std::min(BaseSpeedY, -StepperY.MinimumFeedrate);
+					baseSpeedY = std::max(baseSpeedY, -stepperY.maximumFeedrate);
+					baseSpeedY = std::min(baseSpeedY, -stepperY.minimumFeedrate);
 				}
 
-				TimeY = RevolutionsY / std::abs(BaseSpeedY);
+				timeY = revolutionsY / std::abs(baseSpeedY);
 			}
 
 			// Determine the maximum time needed
-			double MaxTime = std::max(TimeX, TimeY);
-			if (MaxTime == 0.0) // Avoid division by zero
+			double maxTime = std::max(timeX, timeY);
+			if (maxTime == 0.0) // Avoid division by zero
 			{
-				MaxTime = 1.0;
+				maxTime = 1.0;
 			}
 
 
 			// ============ X Axis with synchronized speed =============
-			if (std::abs(XMovement) > 0)
+			if (std::abs(xMovement) > 0)
 			{
-				double RevolutionsX = (std::abs(XMovement) * StepperX.GearRatio) / StepperX.RotationDistance;
+				double revolutionsX = (std::abs(xMovement) * stepperX.gearRatio) / stepperX.rotationDistance;
 
 				// Calculate speed to match the maximum time
-				double SynchronizedSpeedX = RevolutionsX / MaxTime;
+				double synchronizedSpeedX = revolutionsX / maxTime;
 
-				for (uint8_t Port : StepperX.Ports)
+				for (uint8_t port : stepperX.ports)
 				{
-					MotorCommand Command;
-					Command.port = Port;
+					MotorCommand command;
+					command.port = port;
 
-					double CalculatedSpeed = SynchronizedSpeedX;
-					if (XMovement < 0)
+					double calculatedSpeed = synchronizedSpeedX;
+					if (xMovement < 0)
 					{
-						CalculatedSpeed = -CalculatedSpeed;
+						calculatedSpeed = -calculatedSpeed;
 					}
-					if (!StepperX.Direction)
+					if (!stepperX.direction)
 					{
-						CalculatedSpeed = -CalculatedSpeed;
+						calculatedSpeed = -calculatedSpeed;
 					}
 
 					// Apply speed limits to synchronized speed
-					if (CalculatedSpeed > 0)
+					if (calculatedSpeed > 0)
 					{
-						CalculatedSpeed = std::min(CalculatedSpeed, StepperX.MaximumFeedrate);
-						CalculatedSpeed = std::max(CalculatedSpeed, StepperX.MinimumFeedrate);
+						calculatedSpeed = std::min(calculatedSpeed, stepperX.maximumFeedrate);
+						calculatedSpeed = std::max(calculatedSpeed, stepperX.minimumFeedrate);
 					}
 					else
 					{
-						CalculatedSpeed = std::max(CalculatedSpeed, -StepperX.MaximumFeedrate);
-						CalculatedSpeed = std::min(CalculatedSpeed, -StepperX.MinimumFeedrate);
+						calculatedSpeed = std::max(calculatedSpeed, -stepperX.maximumFeedrate);
+						calculatedSpeed = std::min(calculatedSpeed, -stepperX.minimumFeedrate);
 					}
 
-					Command.speed = static_cast<signed char>(CalculatedSpeed);
-					Command.revolutions = RevolutionsX;
+					command.speed = static_cast<signed char>(calculatedSpeed);
+					command.revolutions = revolutionsX;
 
-					XYCommands.push_back(Command);
+					xyCommands.push_back(command);
 
-					AddLogEntry("X axis - Port: " + std::to_string(Port) +
-						" Speed: " + std::to_string(CalculatedSpeed) +
-						" Revolutions: " + std::to_string(RevolutionsX));
+					addLogEntry("X axis - Port: " + std::to_string(port) +
+						" Speed: " + std::to_string(calculatedSpeed) +
+						" Revolutions: " + std::to_string(revolutionsX));
 				}
 			}
 
 			// ============= Y Axis with synchronized speed ================
-			if (std::abs(YMovement) > 0)
+			if (std::abs(yMovement) > 0)
 			{
-				double RevolutionsY = (std::abs(YMovement) * StepperY.GearRatio) / StepperY.RotationDistance;
+				double revolutionsY = (std::abs(yMovement) * stepperY.gearRatio) / stepperY.rotationDistance;
 
 				// Calculate speed to match the maximum time
-				double SynchronizedSpeedY = RevolutionsY / MaxTime;
+				double synchronizedSpeedY = revolutionsY / maxTime;
 
-				for (uint8_t Port : StepperY.Ports)
+				for (uint8_t port : stepperY.ports)
 				{
-					MotorCommand Command;
-					Command.port = Port;
+					MotorCommand command;
+					command.port = port;
 
-					double CalculatedSpeed = SynchronizedSpeedY;
-					if (YMovement < 0)
+					double calculatedSpeed = synchronizedSpeedY;
+					if (yMovement < 0)
 					{
-						CalculatedSpeed = -CalculatedSpeed;
+						calculatedSpeed = -calculatedSpeed;
 					}
-					if (StepperY.Direction)
+					if (stepperY.direction)
 					{
-						CalculatedSpeed = -CalculatedSpeed;
+						calculatedSpeed = -calculatedSpeed;
 					}
 
 					// Apply speed limits to synchronized speed
-					if (CalculatedSpeed > 0)
+					if (calculatedSpeed > 0)
 					{
-						CalculatedSpeed = std::min(CalculatedSpeed, StepperY.MaximumFeedrate);
-						CalculatedSpeed = std::max(CalculatedSpeed, StepperY.MinimumFeedrate);
+						calculatedSpeed = std::min(calculatedSpeed, stepperY.maximumFeedrate);
+						calculatedSpeed = std::max(calculatedSpeed, stepperY.minimumFeedrate);
 					}
 					else
 					{
-						CalculatedSpeed = std::max(CalculatedSpeed, -StepperY.MaximumFeedrate);
-						CalculatedSpeed = std::min(CalculatedSpeed, -StepperY.MinimumFeedrate);
+						calculatedSpeed = std::max(calculatedSpeed, -stepperY.maximumFeedrate);
+						calculatedSpeed = std::min(calculatedSpeed, -stepperY.minimumFeedrate);
 					}
 
-					Command.speed = static_cast<signed char>(CalculatedSpeed);
-					Command.revolutions = RevolutionsY;
+					command.speed = static_cast<signed char>(calculatedSpeed);
+					command.revolutions = revolutionsY;
 
-					XYCommands.push_back(Command);
+					xyCommands.push_back(command);
 
-					AddLogEntry("Y axis - Port: " + std::to_string(Port) +
-						" Speed: " + std::to_string(CalculatedSpeed) +
-						" Revolutions " + std::to_string(RevolutionsY));
+					addLogEntry("Y axis - Port: " + std::to_string(port) +
+						" Speed: " + std::to_string(calculatedSpeed) +
+						" Revolutions " + std::to_string(revolutionsY));
 				}
 			}
 
 			// Send synchronized commands for X and Y axis
-			if (!XYCommands.empty())
+			if (!xyCommands.empty())
 			{
-				MotorCommand* FinalCommands = new MotorCommand[XYCommands.size()];
-				std::copy(XYCommands.begin(), XYCommands.end(), FinalCommands);
-				CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, XYCommands.size());
-				delete[] FinalCommands;
+				MotorCommand* finalCommands = new MotorCommand[xyCommands.size()];
+				std::copy(xyCommands.begin(), xyCommands.end(), finalCommands);
+				currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, xyCommands.size());
+				delete[] finalCommands;
 
-				AddLogEntry("XY movement synchronized. Max time: " + std::to_string(MaxTime));
+				addLogEntry("XY movement synchronized. Max time: " + std::to_string(maxTime));
 			}
 		}
 
 		// =================== Z Axis ===================
-		if (std::abs(ZMovement) > 0)
+		if (std::abs(zMovement) > 0)
 		{
-			std::vector<MotorCommand> ZCommands;
+			std::vector<MotorCommand> zCommands;
 
-			for (uint8_t Port : StepperZ.Ports)
+			for (uint8_t port : stepperZ.ports)
 			{
-				MotorCommand Command;
-				Command.port = Port;
+				MotorCommand command;
+				command.port = port;
 
-				double CalculatedSpeed = Speed;
-				if (ZMovement < 0)
+				double calculatedSpeed = speed;
+				if (zMovement < 0)
 				{
-					CalculatedSpeed = -CalculatedSpeed;
+					calculatedSpeed = -calculatedSpeed;
 				}
-				if (!StepperZ.Direction)
+				if (!stepperZ.direction)
 				{
-					CalculatedSpeed = -CalculatedSpeed;
+					calculatedSpeed = -calculatedSpeed;
 				}
 
-				if (CalculatedSpeed > 0)
+				if (calculatedSpeed > 0)
 				{
-					CalculatedSpeed = std::min(CalculatedSpeed, StepperZ.MaximumFeedrate);
-					CalculatedSpeed = std::max(CalculatedSpeed, StepperZ.MinimumFeedrate);
+					calculatedSpeed = std::min(calculatedSpeed, stepperZ.maximumFeedrate);
+					calculatedSpeed = std::max(calculatedSpeed, stepperZ.minimumFeedrate);
 				}
 				else
 				{
-					CalculatedSpeed = std::max(CalculatedSpeed, -StepperZ.MaximumFeedrate);
-					CalculatedSpeed = std::min(CalculatedSpeed, -StepperZ.MinimumFeedrate);
+					calculatedSpeed = std::max(calculatedSpeed, -stepperZ.maximumFeedrate);
+					calculatedSpeed = std::min(calculatedSpeed, -stepperZ.minimumFeedrate);
 				}
 
-				Command.speed = static_cast<signed char>(CalculatedSpeed);
-				Command.revolutions = (std::abs(ZMovement) * StepperZ.GearRatio) / StepperZ.RotationDistance;
+				command.speed = static_cast<signed char>(calculatedSpeed);
+				command.revolutions = (std::abs(zMovement) * stepperZ.gearRatio) / stepperZ.rotationDistance;
 
-				ZCommands.push_back(Command);
+				zCommands.push_back(command);
 			}
 
-			MotorCommand* FinalCommands = new MotorCommand[ZCommands.size()];
-			std::copy(ZCommands.begin(), ZCommands.end(), FinalCommands);
-			CurrentPrinter->vtable->printer_rotate_motor(CurrentPrinter, FinalCommands, ZCommands.size());
-			delete[] FinalCommands;
+			MotorCommand* finalCommands = new MotorCommand[zCommands.size()];
+			std::copy(zCommands.begin(), zCommands.end(), finalCommands);
+			currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, zCommands.size());
+			delete[] finalCommands;
 		}
 
-		CurrentX = 0;
-		CurrentY = 0;
-		CurrentZ = 0;
+		currentX = 0;
+		currentY = 0;
+		currentZ = 0;
 
-		AddLogEntry("Movement completed. New position: X=" + std::to_string(CurrentX) +
-			" Y=" + std::to_string(CurrentY) + " Z=" + std::to_string(CurrentZ));
+		addLogEntry("Movement completed. New position: X=" + std::to_string(currentX) +
+			" Y=" + std::to_string(currentY) + " Z=" + std::to_string(currentZ));
 
-		AddLogEntry("Homing completed");
+		addLogEntry("Homing completed");
 	}
 };
 
@@ -1971,34 +1969,34 @@ extern "C"
 		return new Interpreter();
 	}
 
-	GCODE_API void DestroyInterpreter(InterpreterHandle Handle)
+	GCODE_API void DestroyInterpreter(InterpreterHandle handle)
 	{
-		delete static_cast<Interpreter*>(Handle);
+		delete static_cast<Interpreter*>(handle);
 	}
 
-	GCODE_API bool TestCode(InterpreterHandle Handle, IPrinter* Printer)
+	GCODE_API bool TestCode(InterpreterHandle handle, IPrinter* printer)
 	{
-		if (!Handle || !Printer)
+		if (!handle || !printer)
 		{
 			return false;
 		}
 
-		return static_cast<Interpreter*>(Handle)->TestFunction(Printer);
+		return static_cast<Interpreter*>(handle)->testFunction(printer);
 	}
 
-	GCODE_API bool ExecuteGcode(InterpreterHandle Handle, const char* Filename, IPrinter* Printer)
+	GCODE_API bool ExecuteGcode(InterpreterHandle handle, const char* filename, IPrinter* printer)
 	{
 		// Добавляем детальное логирование
 		printf("C++: ExecuteGcode called\n");
-		printf("C++: Handle: %p\n", Handle);
-		printf("C++: Printer: %p\n", Printer);
-		if (Printer) 
+		printf("C++: Handle: %p\n", handle);
+		printf("C++: Printer: %p\n", printer);
+		if (printer) 
 		{
-			printf("C++: Printer->VirtualTable: %p\n", Printer->vtable);
+			printf("C++: Printer->VirtualTable: %p\n", printer->vtable);
 		}
-		printf("C++: Filename: %s\n", Filename ? Filename : "NULL");
+		printf("C++: Filename: %s\n", filename ? filename : "NULL");
 
-		if (!Handle || !Printer || !Filename)
+		if (!handle || !printer || !filename)
 		{
 			printf("C++: ERROR - Invalid parameters\n");
 			return false;
@@ -2006,143 +2004,143 @@ extern "C"
 
 		// БЕЗОПАСНАЯ проверка файла с использованием fopen_s
 		FILE* testFile = nullptr;
-		errno_t err = fopen_s(&testFile, Filename, "r");
+		errno_t err = fopen_s(&testFile, filename, "r");
 		if (err != 0 || !testFile)
 		{
-			printf("C++: ERROR - Cannot open file: %s, error code: %d\n", Filename, err);
+			printf("C++: ERROR - Cannot open file: %s, error code: %d\n", filename, err);
 			return false;
 		}
 		fclose(testFile);
 
 		printf("C++: File exists, calling ExecuteFile\n");
-		return static_cast<Interpreter*>(Handle)->ExecuteFile(Filename, Printer);
+		return static_cast<Interpreter*>(handle)->executeFile(filename, printer);
 	}
 
-	GCODE_API bool ExecuteLine(InterpreterHandle Handle, const char* Line, IPrinter* Printer)
+	GCODE_API bool ExecuteLine(InterpreterHandle handle, const char* line, IPrinter* printer)
 	{
-		if (Printer)
+		if (printer)
 		{
-			printf("C++: Printer->VirtualTable: %p\n", Printer->vtable);
+			printf("C++: Printer->VirtualTable: %p\n", printer->vtable);
 		}
 
-		if (!Handle || !Printer)
+		if (!handle || !printer)
 		{
 			printf("C++: ERROR - Invalid parameters\n");
 			return false;
 		}
 
-		return static_cast<Interpreter*>(Handle)->ExecuteLine(Line, Printer);
+		return static_cast<Interpreter*>(handle)->executeLine(line, printer);
 	}
 
-	GCODE_API void PauseExecution(InterpreterHandle Handle)
+	GCODE_API void PauseExecution(InterpreterHandle handle)
 	{
-		if (Handle)
+		if (handle)
 		{
-			static_cast<Interpreter*>(Handle)->Pause();
+			static_cast<Interpreter*>(handle)->pause();
 		}
 	}
 
-	GCODE_API void ResumeExecution(InterpreterHandle Handle)
+	GCODE_API void ResumeExecution(InterpreterHandle handle)
 	{
-		if (Handle)
+		if (handle)
 		{
-			static_cast<Interpreter*>(Handle)->Resume();
+			static_cast<Interpreter*>(handle)->resume();
 		}
 	}
 
-	GCODE_API int GetStatus(InterpreterHandle Handle)
+	GCODE_API int GetStatus(InterpreterHandle handle)
 	{
-		if (!Handle)
+		if (!handle)
 		{
 			return -1;
 		}
 
-		return static_cast<Interpreter*>(Handle)->GetStatus();
+		return static_cast<Interpreter*>(handle)->getStatus();
 	}
 
-	GCODE_API double GetProgress(InterpreterHandle Handle)
+	GCODE_API double GetProgress(InterpreterHandle handle)
 	{
-		if (!Handle)
+		if (!handle)
 		{
 			return 0.0;
 		}
 
-		return static_cast<Interpreter*>(Handle)->GetProgress();
+		return static_cast<Interpreter*>(handle)->getProgress();
 	}
 
-	GCODE_API const char* GetLastInterpreterError(InterpreterHandle Handle)
+	GCODE_API const char* GetLastInterpreterError(InterpreterHandle handle)
 	{
-		if (!Handle)
+		if (!handle)
 		{
-			return "";
+			return nullptr;
 		}
 
-		return static_cast<Interpreter*>(Handle)->GetLastError();
+		return static_cast<Interpreter*>(handle)->getLastError();
 	}
 
-	GCODE_API int GetErrorCount(InterpreterHandle Handle)
+	GCODE_API int GetErrorCount(InterpreterHandle handle)
 	{
-		if (!Handle)
-		{
-			return 0;
-		}
-
-		return static_cast<Interpreter*>(Handle)->GetErrorCount();
-	}
-
-	GCODE_API const char* GetError(InterpreterHandle Handle, int Index)
-	{
-		if (!Handle)
-		{
-			return "";
-		}
-
-		return static_cast<Interpreter*>(Handle)->GetError(Index);
-	}
-
-	GCODE_API int GetLogCount(InterpreterHandle Handle)
-	{
-		if (!Handle)
+		if (!handle)
 		{
 			return 0;
 		}
 
-		return static_cast<Interpreter*>(Handle)->GetLogCount();
+		return static_cast<Interpreter*>(handle)->getErrorCount();
 	}
 
-	GCODE_API const char* GetLogEntry(InterpreterHandle Handle, int Index)
+	GCODE_API const char* GetError(InterpreterHandle handle, int index)
 	{
-		if (!Handle)
+		if (!handle)
 		{
-			return "";
+			return nullptr;
 		}
 
-		return static_cast<Interpreter*>(Handle)->GetLogEntry(Index);
+		return static_cast<Interpreter*>(handle)->GetError(index);
 	}
 
-	GCODE_API void ClearErrors(InterpreterHandle Handle)
+	GCODE_API int GetLogCount(InterpreterHandle handle)
 	{
-		if (Handle)
+		if (!handle)
 		{
-			static_cast<Interpreter*>(Handle)->ClearErrors();
+			return 0;
+		}
+
+		return static_cast<Interpreter*>(handle)->getLogCount();
+	}
+
+	GCODE_API const char* GetLogEntry(InterpreterHandle handle, int index)
+	{
+		if (!handle)
+		{
+			return nullptr;
+		}
+
+		return static_cast<Interpreter*>(handle)->GetLogEntry(index);
+	}
+
+	GCODE_API void ClearErrors(InterpreterHandle handle)
+	{
+		if (handle)
+		{
+			static_cast<Interpreter*>(handle)->clearErrors();
 		}
 	}
 
-	GCODE_API void ClearLog(InterpreterHandle Handle)
+	GCODE_API void ClearLog(InterpreterHandle handle)
 	{
-		if (Handle)
+		if (handle)
 		{
-			static_cast<Interpreter*>(Handle)->ClearLog();
+			static_cast<Interpreter*>(handle)->clearLog();
 		}
 	}
 
-	GCODE_API bool ReadConfig(InterpreterHandle Handle, const char* Filename)
+	GCODE_API bool ReadConfig(InterpreterHandle handle, const char* filename)
 	{
-		if (!Handle || !Filename)
+		if (!handle || !filename)
 		{
 			return false;
 		}
 
-		return static_cast<Interpreter*>(Handle)->ReadConfigFile(Filename);
+		return static_cast<Interpreter*>(handle)->readConfigFile(filename);
 	}
 }
