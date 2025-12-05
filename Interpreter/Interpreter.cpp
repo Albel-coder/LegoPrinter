@@ -14,6 +14,8 @@
 #include <fstream>
 #include <future>
 
+const double PI = 3.14159265358979323846;
+
 // Global mutex for thread-safe string access
 std::mutex stringCacheMutex;
 std::map<int, std::string> stringCache;
@@ -114,6 +116,19 @@ private:
 	StepperConfig stepperZ;
 
 	double zDistanceToPrint = 0.0;
+		
+	struct ArcParameters {
+		double centerX;
+		double centerY;
+		double radius;
+		double startAngle;
+		double endAngle;
+		bool clockwise;
+		double startX;
+		double startY;
+		double endX;
+		double endY;
+	};
 
 	void addLogEntry(const std::string& entry) {
 		std::unique_lock<std::mutex> lock(logMutex, std::try_to_lock);
@@ -444,7 +459,7 @@ private:
 			: 0.0;
 
 		return result;
-	}
+	}	
 
 	std::vector<MotorCommand> generateMotorCommands(const StepperConfig& config, double synchronizedSpeed, double revolutions) {
 		std::vector<MotorCommand> commands;
@@ -457,6 +472,152 @@ private:
 		}
 
 		return commands;
+	}
+
+	ArcParameters calculateArcParameters(double endX, double endY, double i, double j, double r, bool clockwise) {
+		ArcParameters arc;
+		arc.startX = currentX;
+		arc.startY = currentY;
+		arc.endX = absolutePositioning ? endX : currentX + endX;
+		arc.endY = absolutePositioning ? endY : currentY + endY;
+		arc.clockwise = clockwise;
+
+		if (r > 0) {
+			// Calculate arc with radius
+			double dx = arc.endX - arc.startX;
+			double dy = arc.endY - arc.startY;
+			double chordLength = std::sqrt(dx * dx + dy * dy);
+
+			if (chordLength > 2 * r) {
+				addLogEntry("Warning: radius is too small for given endpoints");
+				return {};
+			}
+
+			double middleX = (arc.startX + arc.endX) / 2.0;
+			double middleY = (arc.startY + arc.endY) / 2.0;
+
+			double h = std::sqrt(r * r - chordLength * chordLength / 4.0);
+
+			double dxPerl = -dy / chordLength;
+			double dyPerl = dx / chordLength;
+
+			if (clockwise) {
+				arc.centerX = middleX + h * dxPerl;
+				arc.centerY = middleY + h * dyPerl;
+			}
+			else {
+				arc.centerX = middleX - h * dxPerl;
+				arc.centerY = middleY - h * dyPerl;
+			}
+
+			arc.radius = r;
+		}
+		else {
+			// Calculate arc with I and J - center offset
+			arc.centerX = arc.startX + i;
+			arc.centerY = arc.startY + j;
+			arc.radius = std::sqrt(i * i + j * j);
+		}
+
+		// Calculate angles
+		arc.startAngle = std::atan2(arc.startY - arc.centerY, arc.startX - arc.centerX);
+		arc.endAngle = std::atan2(arc.endY - arc.centerY, arc.endX - arc.centerX);
+
+		// Adjust angles for clockwise direction
+		if (clockwise) {
+			if (arc.endAngle > arc.startAngle) {
+				arc.endAngle -= 2 * PI;
+			}
+		}
+		else {
+			if (arc.endAngle < arc.startAngle) {
+				arc.endAngle += 2 * PI;
+			}
+		}
+	}
+
+	bool generateArcSpeedProfile(const ArcParameters& arc, int steps, SpeedProfile& profileX, SpeedProfile& profileY) {
+		if (!currentPrinter || !currentPrinter->vtable) {
+			return false;
+		}
+
+		double angleStep = (arc.endAngle - arc.startAngle) / steps;
+
+		profileX.port = stepperX.ports[0];
+		profileX.count = steps;
+		profileX.timeoutMs = 10000000;
+		profileX.points = new SpeedProfilePoint[steps];
+
+		for (int i = 0; i < steps; i++) {
+			double angle = arc.startAngle + i * angleStep;
+			double x = arc.centerX + arc.radius * std::cos(angle);
+			double y = arc.centerY + arc.radius * std::sin(angle);
+
+			double xDistance = x - arc.startX;
+			double yDistance = y - arc.startY;
+
+			double xRevolutions = (std::abs(xDistance) * stepperX.gearRatio) / stepperX.rotationDistance;
+			double yRevolutions = (std::abs(yDistance) * stepperY.gearRatio) / stepperY.rotationDistance;
+
+			double segmentLength = arc.radius * std::abs(angleStep);
+			double timePerSegment = segmentLength / speed;
+
+			double xSpeed = (xDistance > 0 ? 1 : -1) * xRevolutions / timePerSegment;
+			double ySpeed = (yDistance > 0 ? 1 : -1) * yRevolutions / timePerSegment;
+
+			if (!stepperX.direction) xSpeed = -xSpeed;
+			if (!stepperY.direction) ySpeed = -ySpeed;
+
+			xSpeed = std::max(std::min(xSpeed, stepperX.maximumFeedrate), -stepperX.maximumFeedrate);
+			ySpeed = std::max(std::min(ySpeed, stepperY.maximumFeedrate), -stepperY.maximumFeedrate);
+
+			profileX.points[i].distance = xRevolutions;
+			profileX.points[i].speed = static_cast<signed char>(xSpeed * 100);
+			profileX.points[i].tolerance = 0.01;
+
+			profileY.points[i].distance = yRevolutions;
+			profileY.points[i].speed = static_cast<signed char>(ySpeed * 100);
+			profileY.points[i].tolerance = 0.01;
+		}
+
+		return true;
+	}
+
+	void executeArcMovement(const ArcParameters& arc) {
+		addLogEntry("Executing arc movement: R=" + std::to_string(arc.radius) +
+			" Center=(" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")" +
+			" Clockwise=" + std::to_string(arc.clockwise));
+
+		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
+		int segments = static_cast<int>(std::ceil(arcLength / 0.1));
+		segments = std::max(segments, 10);
+
+		if (!currentPrinter || !currentPrinter->vtable ||
+			!currentPrinter->vtable->printer_printer_execute_speed_profile) {
+			addGCodeErrorInfo("Printer does not support speed profile for arc movement", PRINTER_ERROR);
+			return;
+		}
+
+		SpeedProfile profileX; SpeedProfile profileY;
+		if (!generateArcSpeedProfile(arc, segments, profileX, profileY)) {
+			addGCodeErrorInfo("Failed to generate speed profile for arc", MOVEMENT_ERROR);
+			return;
+		}
+
+		bool successX = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileX);
+		bool successY = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileY);
+
+		delete[] profileX.points;
+		delete[] profileY.points;
+
+		if (successX && successX) {
+			currentX = arc.endX;
+			currentY = arc.endY;
+			addLogEntry("Arc movement completed using speed profile");
+		}
+		else {
+			addGCodeErrorInfo("Failed to execute speed profile for arc", MOVEMENT_ERROR);
+		}
 	}
 
 public:	
@@ -1069,7 +1230,7 @@ private:
 
 		if (isTryingInterpret) {
 			addLogEntry("Syntax checking line: " + std::to_string(linesCount) + " : " + cleanLine);
-			if (command[0] == 'G') {
+			if (command[0] == 'G' || command[0] == 'g') {
 				int gCode = std::stoi(command.substr(1));
 
 				switch (gCode) {
@@ -1092,7 +1253,7 @@ private:
 					break;
 				}
 			}
-			else if (command[0] == 'M')	{
+			else if (command[0] == 'M' || command[0] == 'm') {
 				int mCode = std::stoi(command.substr(1));
 				switch (mCode) {
 				case 30:
@@ -1103,7 +1264,7 @@ private:
 					break;
 				}
 			}
-			else if (command[0] == 'F')	{
+			else if (command[0] == 'F' || command[0] == 'f') {
 				try	{
 					double newSpeed = std::stoi(command.substr(1));
 					if (newSpeed < 0) {
@@ -1121,7 +1282,7 @@ private:
 		}
 		else {
 			addLogEntry("Executing line " + std::to_string(linesCount) + " : " + cleanLine);
-			if (command[0] == 'G') {
+			if (command[0] == 'G' || command[0] == 'g') {
 				int gCode = std::stoi(command.substr(1));
 
 				switch (gCode) {
@@ -1142,7 +1303,7 @@ private:
 					break;
 				}
 			}
-			else if (command[0] == 'M') {
+			else if (command[0] == 'M' || command[0] == 'm') {
 				int mCode = std::stoi(command.substr(1));
 				switch (mCode) {
 				case 30:
@@ -1152,13 +1313,137 @@ private:
 					break;
 				}
 			}
-			else if (command[0] == 'F')	{
+			else if (command[0] == 'F' || command[0] == 'f') {
 				speed = std::stoi(command.substr(1));
 			}
 		}
 	}
-	
-	//Process movement commands
+
+	void processArc(std::istringstream& string, int lineCount, bool isTryingInterpret, bool clockwise) {
+		if (isTryingInterpret) {
+			// Syntax checking
+			addLogEntry("Checking arc command syntax (G" + std::to_string(clockwise ? 2 : 3) + ")");
+
+			// Parse parameters
+			std::string token;
+			double x = 0; // start x
+			double y = 0; // start y
+			double i = 0; // end x
+			double j = 0; // end y
+			double r = 0; // radius
+
+			bool hasX = false;
+			bool hasY = false;
+			bool hasI = false;
+			bool hasJ = false;
+			bool hasR = false;
+
+			while (string >> token) {
+				char axis = token[0];
+				double value = std::stof(token.substr(1));
+
+				switch (axis) {
+				case 'X':
+				case 'x':
+					hasX = true;
+					x = value;
+					break;
+				case 'Y':
+				case 'y':
+					hasY = true;
+					y = value;
+					break;
+				case 'I':
+				case 'i':
+					hasI = true;
+					i = value;
+					break;
+				case 'J':
+				case 'j':
+					hasJ = true;
+					j = value;
+					break;
+				case 'R':
+				case 'r':
+					hasR = true;
+					r = value;
+					break;
+				default:
+					addGCodeErrorInfo("Unknown axis in arc command: " + std::string(1, axis), SYNTAX_ERROR);
+					return;
+				}
+
+				if (!hasX || !hasY) {
+					addGCodeErrorInfo("Arc command requires X and Y parameters", SYNTAX_ERROR);
+					return;
+				}
+
+				if (!hasR && (!hasI || !hasJ)) {
+					addGCodeErrorInfo("Arc command requires either R or I, J parameters", SYNTAX_ERROR);
+					return;
+				}
+
+				if (hasR && (hasI || hasJ)) {
+					addLogEntry("Warning: both R and I, J specified in arc command, using R");
+				}
+
+				addLogEntry("Arc suntax check passed");
+			}
+		}
+		else {
+			// Execution
+			addGCodeErrorInfo("Execution arc command (G" + std::to_string(clockwise ? 2 : 3) + ")");
+
+			// Parse parameters
+			std::string token;
+			double x = 0;
+			double y = 0;
+			double i = 0;
+			double j = 0;
+			double r = -1;
+
+			while (string >> token) {
+				char axis = token[0];
+				double value = std::stof(token.substr(1));
+
+				switch (axis) {
+				case 'X':
+				case 'x':
+					x = value;
+					break;
+				case 'Y':
+				case 'y':
+					y = value;
+					break;
+				case 'I':
+				case 'i':
+					i = value;
+					break;
+				case 'J':
+				case 'j':
+					j = value;
+					break;
+				case 'R':
+				case 'r':
+					r = value;
+					break;
+				}
+			}
+
+			try {
+				ArcParameters arc = calculateArcParameters(x, y, i, j, r, clockwise);
+
+				executeArcMovement(arc);
+
+				addLogEntry("Arc completed. New position: X=" + std::to_string(currentX) +
+				"Y=" + std::to_string(currentY));
+			}
+			catch (const std::exception& ex) {
+				addGCodeErrorInfo("Arc error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			}
+		}
+	}
+
 	void processMovement(std::istringstream& string, int lineCount, bool isTryingInterpret) {
 		std::string token;
 		char axis;
@@ -1182,8 +1467,11 @@ private:
 
 				switch (axis) {
 				case 'X':
+				case 'x':
 				case 'Y':
+				case 'y':
 				case 'Z':
+				case 'z':
 					break;
 				default:
 					addGCodeErrorInfo("Unknown axis: " + std::string(1, axis) + 
@@ -1207,14 +1495,17 @@ private:
 
 				switch (axis) {
 				case 'X':
+				case 'x':
 					if (absolutePositioning) targetX = value;
 					else targetX += value;
 					break;
 				case 'Y':
+				case 'y':
 					if (absolutePositioning) targetY = value;
 					else targetY += value;
 					break;
 				case 'Z':
+				case 'z':
 					if (absolutePositioning) targetZ = value;
 					else targetZ += value;
 					break;
