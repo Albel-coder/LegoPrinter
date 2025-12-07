@@ -759,6 +759,22 @@ private:
         int32_t degrees = static_cast<int32_t>(std::round(command.revolutions * 360.0));
         addLog("Calculated degrees: %d", degrees);
 
+        // Command 1: Activate the rotation mode by angle
+        std::vector<uint8_t> setupCommand = {
+            0x09, // Message length
+            0x00, // Hub ID
+            0x41, // Port configuration command
+            command.port, // Motor port
+            0x02, // Mode: speed (to rotate at a certain angle)
+            0x00, // Data Format
+            0x01, // Unit of measurement: degrees
+            0x00, // Range
+            0x00  // Range
+        };
+        sendCommandVector(setupCommand);
+        std::this_thread::sleep_for(50ms);
+
+        // Command 2: Rotate by a given angle
         std::vector<uint8_t> payload = {
             0x0F,       // Message length (15 bytes)
             0x00,       // Message counter
