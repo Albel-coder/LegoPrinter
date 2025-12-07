@@ -584,64 +584,80 @@ private:
 	}
 
 	void executeArcMovement(const ArcParameters& arc) {
-		addLogEntry("Executing arc movement: R=" + std::to_string(arc.radius) +
-			" Center=(" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")" +
-			" Clockwise=" + std::to_string(arc.clockwise));
-
-		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
-		int segments = static_cast<int>(std::ceil(arcLength / 0.1));
-		segments = std::max(segments, 10);
-
-		if (!currentPrinter || !currentPrinter->vtable ||
-			!currentPrinter->vtable->printer_printer_execute_speed_profile) {
-			addGCodeErrorInfo("Printer does not support speed profile for arc movement", PRINTER_ERROR);
+		if (!currentPrinter || !currentPrinter->vtable->printer_printer_execute_speed_profile) {
+			addLogEntry("printer is invalid");
 			return;
-		}
-
-		SpeedProfile profileX; SpeedProfile profileY;
-		if (!generateArcSpeedProfile(arc, segments, profileX, profileY)) {
-			addGCodeErrorInfo("Failed to generate speed profile for arc", MOVEMENT_ERROR);
-			return;
-		}
-
-		bool successX = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileX);
-		bool successY = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileY);
-
-		delete[] profileX.points;
-		delete[] profileY.points;
-
-		if (successX && successX) {
-			currentX = arc.endX;
-			currentY = arc.endY;
-			addLogEntry("Arc movement completed using speed profile");
 		}
 		else {
-			addGCodeErrorInfo("Failed to execute speed profile for arc", MOVEMENT_ERROR);
+			addLogEntry("Executing arc movement: R=" + std::to_string(arc.radius) +
+				" Center=(" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")" +
+				" Clockwise=" + std::to_string(arc.clockwise));
+
+			double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
+			int segments = static_cast<int>(std::ceil(arcLength / 0.1));
+			segments = std::max(segments, 10);
+
+			if (!currentPrinter || !currentPrinter->vtable ||
+				!currentPrinter->vtable->printer_printer_execute_speed_profile) {
+				addGCodeErrorInfo("Printer does not support speed profile for arc movement", PRINTER_ERROR);
+				return;
+			}
+
+			SpeedProfile profileX; SpeedProfile profileY;
+			if (!generateArcSpeedProfile(arc, segments, profileX, profileY)) {
+				addGCodeErrorInfo("Failed to generate speed profile for arc", MOVEMENT_ERROR);
+				return;
+			}
+
+			bool successX = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileX);
+			bool successY = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileY);
+
+			delete[] profileX.points;
+			delete[] profileY.points;
+
+			if (successX && successY) {
+				currentX = arc.endX;
+				currentY = arc.endY;
+				addLogEntry("Arc movement completed using speed profile");
+			}
+			else {
+				addGCodeErrorInfo("Failed to execute speed profile for arc", MOVEMENT_ERROR);
+			}
 		}
 	}
 
 public:	
-	Interpreter() { // Constructor
-		std::lock_guard<std::mutex> lock(gInterpreterMutex);
-		gActiveInterpreters++;
-		threadRunning = false;
-		status = IDLE;
-		currentError = NO_ERROR;
-		stopRequested = false;
-		progress = 0.0;
-		currentX = 0.0;
-		currentY = 0.0;
-		currentZ = 0.0;
-		absolutePositioning = true;
-		speed = 0.0;
-		currentPrinter = nullptr;
-		executionThread = nullptr;
-		addLogEntry("Interpreter initialized successfully");
+	Interpreter() {
+		try	{
+			std::lock_guard<std::mutex> lock(gInterpreterMutex);
+			gActiveInterpreters++;
+			threadRunning = false;
+			status = IDLE;
+			currentError = NO_ERROR;
+			stopRequested = false;
+			progress = 0.0;
+			currentX = 0.0;
+			currentY = 0.0;
+			currentZ = 0.0;
+			absolutePositioning = true;
+			speed = 0.0;
+			currentPrinter = nullptr;
+			executionThread = nullptr;
+
+			stepperX = StepperConfig();
+			stepperY = StepperConfig();
+			stepperZ = StepperConfig();
+
+			addLogEntry("Interpreter initialized successfully");
+		}
+		catch (const std::exception& ex) {
+			addLogEntry("Error in interpreter constructor: " + std::string(ex.what()));
+		}
 	}
 
-	~Interpreter() { // Destructor
+	~Interpreter() {
 		std::lock_guard<std::mutex> lock(gInterpreterMutex);
-		stopRequested = true; // Set stop flag
+		stopRequested = true;
 		threadRunning = false;
 
 		if (executionThread && executionThread->joinable())	{
@@ -1081,7 +1097,7 @@ private:
 	// Execute G-code file
 	void runFile(const std::string& filename) {
 		try	{
-			RunFileInternal(filename);
+			runFileInternal(filename);
 		}
 		catch (const std::exception& ex) {
 			addLogEntry("CRITICAL ERROR in RunFile: " + std::string(ex.what()));
@@ -1095,7 +1111,7 @@ private:
 		}
 	}
 
-	void RunFileInternal(const std::string& filename) {
+	void runFileInternal(const std::string& filename) {
 		addLogEntry("Runfile started: " + filename);
 
 		if (!currentPrinter || !currentPrinter->vtable)	{
@@ -1224,97 +1240,126 @@ private:
 
 		if (cleanLine.empty()) return;
 
-		std::istringstream string(cleanLine);
+		std::istringstream commandStream(cleanLine);
 		std::string command;
-		string >> command;
+		commandStream >> command;
+
+		if (command.empty()) {
+			addLogEntry("Empty command in line: " + line);
+			return;
+		}
 
 		if (isTryingInterpret) {
-			addLogEntry("Syntax checking line: " + std::to_string(linesCount) + " : " + cleanLine);
-			if (command[0] == 'G' || command[0] == 'g') {
-				int gCode = std::stoi(command.substr(1));
+			try {
+				addLogEntry("Syntax checking line: " + std::to_string(linesCount) + " : " + cleanLine);
+				if (command[0] == 'G' || command[0] == 'g') {
+					int gCode = std::stoi(command.substr(1));
 
-				switch (gCode) {
-				case 0:
-				case 1:
-					processMovement(string, linesCount, true);
-					break;
-				case 28:
-					processHoming();
-					break;
-				case 90:
-					absolutePositioning = true;
-					break;
-				case 91:
-					absolutePositioning = false;
-					break;
-				default:
-					addGCodeErrorInfo("Unknown G-code: " + std::to_string(gCode) + 
-						" at line " + std::to_string(linesCount), VALUE_NOT_DEFINED);
-					break;
-				}
-			}
-			else if (command[0] == 'M' || command[0] == 'm') {
-				int mCode = std::stoi(command.substr(1));
-				switch (mCode) {
-				case 30:
-					break;
-				default:
-					addGCodeErrorInfo("Unknown M-code: " + std::to_string(mCode) +
-					" at line " + std::to_string(linesCount));
-					break;
-				}
-			}
-			else if (command[0] == 'F' || command[0] == 'f') {
-				try	{
-					double newSpeed = std::stoi(command.substr(1));
-					if (newSpeed < 0) {
-						addGCodeErrorInfo("Negative feedrate not allowed: " + command, VALUE_NOT_DEFINED);
+					switch (gCode) {
+					case 0:
+					case 1:
+						processMovement(commandStream, linesCount, true);
+						break;
+					case 2:
+						processArc(commandStream, linesCount, true, true);
+						break;
+					case 3:
+						processArc(commandStream, linesCount, true, false);
+						break;
+					case 28:
+						processHoming();
+						break;
+					case 90:
+						absolutePositioning = true;
+						break;
+					case 91:
+						absolutePositioning = false;
+						break;
+					default:
+						addGCodeErrorInfo("Unknown G-code: " + std::to_string(gCode) +
+							" at line " + std::to_string(linesCount), VALUE_NOT_DEFINED);
+						break;
 					}
 				}
-				catch (const std::exception& ex) {
-					addGCodeErrorInfo("Invalid feedrate value: " + command, VALUE_NOT_DEFINED);
+				else if (command[0] == 'M' || command[0] == 'm') {
+					int mCode = std::stoi(command.substr(1));
+					switch (mCode) {
+					case 30:
+						break;
+					default:
+						addGCodeErrorInfo("Unknown M-code: " + std::to_string(mCode) +
+							" at line " + std::to_string(linesCount));
+						break;
+					}
+				}
+				else if (command[0] == 'F' || command[0] == 'f') {
+					try {
+						double newSpeed = std::stoi(command.substr(1));
+						if (newSpeed < 0) {
+							addGCodeErrorInfo("Negative feedrate not allowed: " + command, VALUE_NOT_DEFINED);
+						}
+					}
+					catch (const std::exception& ex) {
+						addGCodeErrorInfo("Invalid feedrate value: " + command, VALUE_NOT_DEFINED);
+					}
+				}
+				else {
+					addGCodeErrorInfo("Unknown processing command '" + command + "' " +
+						" at line " + std::to_string(linesCount));
 				}
 			}
-			else {
-				addGCodeErrorInfo("Unknown processing command '" + command + "' " +
-				" at line " + std::to_string(linesCount));
+			catch (const std::exception& ex) {
+				addGCodeErrorInfo("Exception in processLine: " + std::string(ex.what()) + " at line " +
+				std::to_string(linesCount), SYNTAX_ERROR);
 			}
 		}
 		else {
-			addLogEntry("Executing line " + std::to_string(linesCount) + " : " + cleanLine);
-			if (command[0] == 'G' || command[0] == 'g') {
-				int gCode = std::stoi(command.substr(1));
+			try {
+				addLogEntry("Executing line " + std::to_string(linesCount) + " : " + cleanLine);
+				if (command[0] == 'G' || command[0] == 'g') {
+					int gCode = std::stoi(command.substr(1));
 
-				switch (gCode) {
-				case 0:
-				case 1:
-					processMovement(string, linesCount, false);
-					break;
-				case 28:
-					processHoming();
-					break;
-				case 90:
-					absolutePositioning = true;
-					break;
-				case 91:
-					absolutePositioning = false;
-					break;
-				default:
-					break;
+					switch (gCode) {
+					case 0:
+					case 1:
+						processMovement(commandStream, linesCount, false);
+						break;
+					case 2:
+						processArc(commandStream, linesCount, false, true);
+						break;
+					case 3:
+						processArc(commandStream, linesCount, false, false);
+						break;
+					case 28:
+						processHoming();
+						break;
+					case 90:
+						absolutePositioning = true;
+						break;
+					case 91:
+						absolutePositioning = false;
+						break;
+					default:
+						break;
+					}
+				}
+				else if (command[0] == 'M' || command[0] == 'm') {
+					int mCode = std::stoi(command.substr(1));
+					switch (mCode) {
+					case 30:
+						stopRequested = true;
+						break;
+					default:
+						break;
+					}
+				}
+				else if (command[0] == 'F' || command[0] == 'f') {
+					speed = std::stoi(command.substr(1));
 				}
 			}
-			else if (command[0] == 'M' || command[0] == 'm') {
-				int mCode = std::stoi(command.substr(1));
-				switch (mCode) {
-				case 30:
-					stopRequested = true;
-					break;
-				default:
-					break;
-				}
-			}
-			else if (command[0] == 'F' || command[0] == 'f') {
-				speed = std::stoi(command.substr(1));
+			catch (const std::exception& ex) {
+				addGCodeErrorInfo("Exception during execution: " + std::string(ex.what()) + " at line " +
+				std::to_string(linesCount), MOVEMENT_ERROR);
 			}
 		}
 	}
@@ -1326,6 +1371,7 @@ private:
 
 			// Parse parameters
 			std::string token;
+
 			double x = 0; // start x
 			double y = 0; // start y
 			double i = 0; // end x
@@ -1347,48 +1393,53 @@ private:
 				case 'x':
 					hasX = true;
 					x = value;
+					addLogEntry("Find X with value=" + std::to_string(value));
 					break;
 				case 'Y':
 				case 'y':
 					hasY = true;
 					y = value;
+					addLogEntry("Find Y with value=" + std::to_string(value));
 					break;
 				case 'I':
 				case 'i':
 					hasI = true;
 					i = value;
+					addLogEntry("Find I with value=" + std::to_string(value));
 					break;
 				case 'J':
 				case 'j':
 					hasJ = true;
 					j = value;
+					addLogEntry("Find J with value=" + std::to_string(value));
 					break;
 				case 'R':
 				case 'r':
 					hasR = true;
 					r = value;
+					addLogEntry("Find R with value=" + std::to_string(value));
 					break;
 				default:
 					addGCodeErrorInfo("Unknown axis in arc command: " + std::string(1, axis), SYNTAX_ERROR);
 					return;
 				}
-
-				if (!hasX || !hasY) {
-					addGCodeErrorInfo("Arc command requires X and Y parameters", SYNTAX_ERROR);
-					return;
-				}
-
-				if (!hasR && (!hasI || !hasJ)) {
-					addGCodeErrorInfo("Arc command requires either R or I, J parameters", SYNTAX_ERROR);
-					return;
-				}
-
-				if (hasR && (hasI || hasJ)) {
-					addLogEntry("Warning: both R and I, J specified in arc command, using R");
-				}
-
-				addLogEntry("Arc suntax check passed");
 			}
+
+			if (!hasX || !hasY) {
+				addGCodeErrorInfo("Arc command requires X and Y parameters", SYNTAX_ERROR);
+				return;
+			}
+
+			if (!hasR && (!hasI || !hasJ)) {
+				addGCodeErrorInfo("Arc command requires either R or I, J parameters", SYNTAX_ERROR);
+				return;
+			}
+
+			if (hasR && (hasI || hasJ)) {
+				addLogEntry("Warning: both R and I, J specified in arc command, using R");
+			}
+
+			addLogEntry("Arc syntax check passed");
 		}
 		else {
 			// Execution
@@ -1436,7 +1487,7 @@ private:
 				executeArcMovement(arc);
 
 				addLogEntry("Arc completed. New position: X=" + std::to_string(currentX) +
-				"Y=" + std::to_string(currentY));
+					"Y=" + std::to_string(currentY));
 			}
 			catch (const std::exception& ex) {
 				addGCodeErrorInfo("Arc error: " + std::string(ex.what()), MOVEMENT_ERROR);
