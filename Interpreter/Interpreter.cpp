@@ -461,6 +461,71 @@ private:
 		return result;
 	}	
 
+	std::vector<SpeedProfile> createSpeedProfile(const StepperConfig& config, const std::vector<SpeedProfilePoint>& movementPoints, int timeoutMs) {
+		std::vector<SpeedProfile> profiles;
+
+		if (config.ports.empty() || movementPoints.empty()) {
+			addLogEntry("Warning: no ports or movement ports for axis");
+			return profiles;
+		}
+
+		std::vector<SpeedProfilePoint> pointsWithStop = movementPoints;
+
+		SpeedProfilePoint stopPoint;
+		if (!pointsWithStop.empty()) {
+			stopPoint.distance = pointsWithStop.back().distance;
+		}
+		else {
+			stopPoint.distance = 0.0;
+		}
+		stopPoint.speed = 0;
+		stopPoint.tolerance = 0.0;
+
+		pointsWithStop.push_back(stopPoint);
+		addLogEntry("Added stop point at distance " + std::to_string(stopPoint.distance));
+
+		if (config.ports.size() == 1) {
+			SpeedProfile profile;
+			profile.port = config.ports[0];
+			profile.count = static_cast<int>(pointsWithStop.size());
+			profile.timeoutMs = timeoutMs;
+
+			profile.points = new SpeedProfilePoint[pointsWithStop.size()];
+			std::copy(pointsWithStop.begin(), pointsWithStop.end(), profile.points);
+
+			profiles.push_back(profile);
+			addLogEntry("Created single speed profile with stop for port " + std::to_string(profile.port));
+		}
+		else {
+			for (uint8_t port : config.ports) {
+				SpeedProfile profile;
+				profile.port = port;
+				profile.count = static_cast<int>(pointsWithStop.size());
+				profile.timeoutMs = timeoutMs;
+
+				profile.points = new SpeedProfilePoint[pointsWithStop.size()];
+				std::copy(pointsWithStop.begin(), pointsWithStop.end(), profile.points);
+
+				profiles.push_back(profile);
+				addLogEntry("Created speed profile with stop for port " + std::to_string(port));
+			}
+
+			addLogEntry("Created " + std::to_string(profiles.size()) + " speed profiles with stop");
+		}
+
+		return profiles;
+	}
+
+	void cleanupSpeedProfiles(std::vector<SpeedProfile>& profiles) {
+		for (auto& profile : profiles) {
+			if (profile.points) {
+				delete[] profile.points;
+				profile.points = nullptr;
+			}
+		}
+		profiles.clear();
+	}
+
 	std::vector<MotorCommand> generateMotorCommands(const StepperConfig& config, double synchronizedSpeed, double revolutions) {
 		std::vector<MotorCommand> commands;
 		for (uint8_t port : config.ports) {
@@ -534,6 +599,62 @@ private:
 				arc.endAngle += 2 * PI;
 			}
 		}
+
+		return arc;
+	}
+
+	std::vector<SpeedProfilePoint> generateArcPointsForAxis(const StepperConfig& config, const ArcParameters& arc, int steps, bool isXAxis) {
+		std::vector<SpeedProfilePoint> points;
+		points.reserve(steps);
+
+		double angleStep = (arc.endAngle - arc.startAngle) / steps;
+
+		for (int i = 0; i < steps; i++) {
+			double angle = arc.startAngle + i * angleStep;
+			double x = arc.centerX + arc.radius * std::cos(angle);
+			double y = arc.centerY + arc.radius * std::sin(angle);
+
+			double distance = isXAxis ? (x - arc.startX) : (y - arc.startY);
+
+			double revolution = (std::abs(distance) * config.gearRatio) / config.rotationDistance;
+			double segmentLength = arc.radius * std::abs(angleStep);
+			double timePerSegment = segmentLength / speed;
+
+			double axisSpeed = (distance > 0 ? 1 : -1) * revolution / timePerSegment;
+
+			if (!config.direction) {
+				axisSpeed = -axisSpeed;
+			}
+
+			axisSpeed = std::max(std::min(axisSpeed, config.maximumFeedrate), -config.maximumFeedrate);
+
+			SpeedProfilePoint point;
+			point.distance = revolution;
+			point.speed = static_cast<signed char>(axisSpeed * 100);
+			point.tolerance = 0.01;
+
+			points.push_back(point);
+		}
+
+		return points;
+	}
+
+	bool validateArc(const ArcParameters& arc) {
+		if (arc.radius < 1) {
+			addGCodeErrorInfo("Invalid arc radius: " + std::to_string(arc.radius));
+			return false;
+		}
+
+		double dx = arc.endX - arc.startX;
+		double dy = arc.endY - arc.startY;
+		double chordLength = std::sqrt(dx * dx + dy * dy);
+
+		if (chordLength > 2 * arc.radius) {
+			addGCodeErrorInfo("Arc radius too small for given endpoints. Radius: " + std::to_string(arc.radius) + ", Chord: " + std::to_string(chordLength), MOVEMENT_ERROR);
+			return false;
+		}
+
+		return true;
 	}
 
 	bool generateArcSpeedProfile(const ArcParameters& arc, int steps, SpeedProfile& profileX, SpeedProfile& profileY) {
@@ -547,6 +668,11 @@ private:
 		profileX.count = steps;
 		profileX.timeoutMs = 10000000;
 		profileX.points = new SpeedProfilePoint[steps];
+
+		profileY.port = stepperY.ports[0];
+		profileY.count = steps;
+		profileY.timeoutMs = 10000000;
+		profileY.points = new SpeedProfilePoint[steps];
 
 		for (int i = 0; i < steps; i++) {
 			double angle = arc.startAngle + i * angleStep;
@@ -589,40 +715,109 @@ private:
 			return;
 		}
 		else {
-			addLogEntry("Executing arc movement: R=" + std::to_string(arc.radius) +
-				" Center=(" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")" +
-				" Clockwise=" + std::to_string(arc.clockwise));
-
-			double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
-			int segments = static_cast<int>(std::ceil(arcLength / 0.1));
-			segments = std::max(segments, 10);
-
 			if (!currentPrinter || !currentPrinter->vtable ||
 				!currentPrinter->vtable->printer_printer_execute_speed_profile) {
 				addGCodeErrorInfo("Printer does not support speed profile for arc movement", PRINTER_ERROR);
 				return;
 			}
 
-			SpeedProfile profileX; SpeedProfile profileY;
-			if (!generateArcSpeedProfile(arc, segments, profileX, profileY)) {
-				addGCodeErrorInfo("Failed to generate speed profile for arc", MOVEMENT_ERROR);
+			if (!validateArc(arc)) {
 				return;
 			}
 
-			bool successX = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileX);
-			bool successY = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profileY);
+			addLogEntry("Executing arc movement: R=" + std::to_string(arc.radius) +
+				" Center=(" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")" +
+				" Clockwise=" + std::to_string(arc.clockwise));
 
-			delete[] profileX.points;
-			delete[] profileY.points;
+			double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
+			int segments = static_cast<int>(std::ceil(arcLength / 0.1));
+			segments = std::max(segments, 10);				
 
-			if (successX && successY) {
-				currentX = arc.endX;
-				currentY = arc.endY;
-				addLogEntry("Arc movement completed using speed profile");
+			addLogEntry("Arc length: " + std::to_string(arcLength) + ", Segments: " + std::to_string(segments));
+
+			std::vector<SpeedProfilePoint> pointsX = generateArcPointsForAxis(stepperX, arc, segments, true);
+			std::vector<SpeedProfilePoint> pointsY = generateArcPointsForAxis(stepperY, arc, segments, false);
+
+			std::vector<SpeedProfile> profilesX = createSpeedProfile(stepperX, pointsX, 1000000);
+			std::vector<SpeedProfile> profilesY = createSpeedProfile(stepperY, pointsY, 1000000);
+
+			if (profilesX.empty() || profilesY.empty()) {
+				addGCodeErrorInfo("Failed to create speed profiles for arc movement", MOVEMENT_ERROR);
+				cleanupSpeedProfiles(profilesX);
+				cleanupSpeedProfiles(profilesY);
+				return;
 			}
-			else {
-				addGCodeErrorInfo("Failed to execute speed profile for arc", MOVEMENT_ERROR);
+
+			bool successX = true;
+			bool successY = true;
+
+			try
+			{
+				for (auto& profile : profilesX) {
+					if (!currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profile)) {
+						successX = false;
+						addLogEntry("Failed to execute speed profile for X axis port " + std::to_string(profile.port));
+					}
+					else {
+						addLogEntry("Successfully executed profile for X axis port " + std::to_string(profile.port));
+					}
+				}
+
+				for (auto& profile : profilesY) {
+					if (!currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profile)) {
+						successY = false;
+						addLogEntry("Failed to execute speed profile for Y axis port " + std::to_string(profile.port));
+					}
+					else {
+						addLogEntry("Successfully executed profile for Y axis port " + std::to_string(profile.port));
+					}
+				}
+
+				if (successX && successY) {
+					std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+					stopMotorsAfterProfile(stepperX);
+					stopMotorsAfterProfile(stepperY);
+
+					currentX = arc.endX;
+					currentY = arc.endY;
+					addLogEntry("Arc movement completed successfully with motor stop");
+				}
+				else {
+					addGCodeErrorInfo("Failed to execute speed profile for arc", MOVEMENT_ERROR);
+
+					stopMotorsAfterProfile(stepperX);
+					stopMotorsAfterProfile(stepperY);
+				}
+
 			}
+			catch (const std::exception& ex)
+			{
+				addGCodeErrorInfo("Exception during arc execution: " + std::string(ex.what()), MOVEMENT_ERROR);
+				successX = false;
+				successY = false;
+
+				stopMotorsAfterProfile(stepperX);
+				stopMotorsAfterProfile(stepperY);
+			}
+
+			cleanupSpeedProfiles(profilesX);
+			cleanupSpeedProfiles(profilesY);
+
+			if (!successX || !successX) {
+				status = ERROR;
+			}
+		}
+	}
+
+	void stopMotorsAfterProfile(const StepperConfig& config) {
+		if (!currentPrinter || !currentPrinter->vtable) {
+			return;
+		}
+
+		for (uint8_t port : config.ports) {
+			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
+			addLogEntry("Stopped motor on port " + std::to_string(static_cast<int>(port)));
 		}
 	}
 
@@ -853,7 +1048,7 @@ public:
 			return false;
 		}
 
-		std::vector<MotorCommand> commands = {
+		/*std::vector<MotorCommand> commands = {
 			{0x02, 50, 1.0},
 			{0x03, 50, 1.0}
 		};
@@ -866,6 +1061,19 @@ public:
 			command.speed = -50;
 		}
 		currentPrinter->vtable->printer_rotate_motor(printer, commands.data(), commands.size());
+		*/
+
+		SpeedProfilePoint points[] = {
+		{3.0, 20, 0.0005},
+		{3.0, 30, 0.0005},
+		{0.0, 0, 1.0}
+		};
+
+		std::vector<SpeedProfile> profile = {
+			{0x00, points, 3, 30000}
+		};
+
+		currentPrinter->vtable->printer_printer_execute_speed_profile(printer, profile.data());
 
 		addLogEntry("Test function completed successfully");
 		return true;
@@ -1266,14 +1474,10 @@ private:
 					case 3:
 						processArc(commandStream, linesCount, true, false);
 						break;
+					case 4:
 					case 28:
-						processHoming();
-						break;
 					case 90:
-						absolutePositioning = true;
-						break;
 					case 91:
-						absolutePositioning = false;
 						break;
 					default:
 						addGCodeErrorInfo("Unknown G-code: " + std::to_string(gCode) +
@@ -1330,6 +1534,9 @@ private:
 					case 3:
 						processArc(commandStream, linesCount, false, false);
 						break;
+					case 4:
+						stopAllMotors();
+						break;
 					case 28:
 						processHoming();
 						break;
@@ -1372,10 +1579,10 @@ private:
 			// Parse parameters
 			std::string token;
 
-			double x = 0; // start x
-			double y = 0; // start y
-			double i = 0; // end x
-			double j = 0; // end y
+			double x = 0; // end x
+			double y = 0; // end y
+			double i = 0; // offset x
+			double j = 0; // offset y
 			double r = 0; // radius
 
 			bool hasX = false;
@@ -1756,7 +1963,6 @@ private:
 		}
 	}
 
-	// Process homing command
 	void processHoming() {
 		addLogEntry("Homing command started");
 
@@ -1951,6 +2157,30 @@ private:
 			" Y=" + std::to_string(currentY) + " Z=" + std::to_string(currentZ));
 
 		addLogEntry("Homing completed");
+	}
+
+	void stopAllMotors() {
+		if (!currentPrinter || !currentPrinter->vtable) {
+			addGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
+			return;
+		}
+
+		if (stepperX.ports.empty() || stepperY.ports.empty() || stepperZ.ports.empty()) {
+			addGCodeErrorInfo("Motor ports are not configured", CONFIG_ERROR);
+			return;
+		}
+
+		for (uint8_t port : stepperX.ports) {
+			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
+		}
+		for (uint8_t port : stepperY.ports) {
+			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
+		}
+		for (uint8_t port : stepperZ.ports) {
+			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
+		}
+
+		addLogEntry("All motors have already stopped");
 	}
 };
 

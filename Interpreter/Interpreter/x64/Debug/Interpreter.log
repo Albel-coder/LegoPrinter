@@ -1,0 +1,11 @@
+﻿  Interpreter.cpp
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(1358,23): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(1406,23): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(1506,35): warning C4101: ex: неиспользованная локальная переменная
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(1917,97): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(1953,95): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(2112,96): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(2148,94): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+D:\aleksey\programming\C++\LegoPrinter\Interpreter\Interpreter.cpp(1189,1): warning C4715: Interpreter::readConfigFile: значение возвращается не при всех путях выполнения
+     Создается библиотека D:\aleksey\programming\C++\LegoPrinter\Interpreter\x64\Debug\Interpreter.lib и объект D:\aleksey\programming\C++\LegoPrinter\Interpreter\x64\Debug\Interpreter.exp
+  Interpreter.vcxproj -> D:\aleksey\programming\C++\LegoPrinter\Interpreter\x64\Debug\Interpreter.dll
