@@ -58,6 +58,7 @@ extern "C" {
         void (*printer_printer_connection_info)(IPrinter* self);
 
         bool (*printer_test_encoder_functionality)(IPrinter* self);
+        bool (*printer_execute_speed_profiles)(IPrinter* self, const SpeedProfile* profiles, int count);
 
     } IPrinterVirtualTable;
 

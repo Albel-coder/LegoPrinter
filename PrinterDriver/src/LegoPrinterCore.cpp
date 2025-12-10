@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <mutex>
 #include <atomic>
 #include <memory>
@@ -950,6 +951,62 @@ public:
         return startRelativeProfileController(port, profilePoints, profile->timeoutMs);
     }
 
+    bool executeSpeedProfiles(const SpeedProfile* profiles, int count) {
+        if (!isValid || !profiles || count < 1) {
+            addLog("Error: Invalid parameters for executeSpeedProfiles");
+            return false;
+        }
+
+        addLog("=== Execution multiple speed profiles ===");
+        addLog("Number of profiles: %d", count);
+
+        std::set<uint8_t> usedPorts;
+        for (int i = 0; i < count; i++) {
+            if (usedPorts.count(profiles[i].port)) {
+                addLog("Error: duplicate port 0x%02X in profiles", profiles[i].port);
+                return false;
+            }
+            usedPorts.insert(profiles[i].port);
+
+            addLog("Profile %d: Port=0x%02X, Segments=%d, Timeout=%dms", i, profiles[i].port, profiles[i].count, profiles[i].timeoutMs);
+        }
+
+        stopAllProfiles();
+
+        for (int i = 0; i < count; i++) {
+            startProfileExecution(profiles[i].port, profiles[i]);
+        }
+
+        std::this_thread::sleep_for(100ms);
+
+        int maxTimeoutMs = 0;
+        for (int i = 0; i < count; i++) {
+            if (profiles[i].timeoutMs > maxTimeoutMs) {
+                maxTimeoutMs = profiles[i].timeoutMs;
+            }
+        }
+
+        waitForAllProfiles(maxTimeoutMs + 10000);
+
+        bool allSuccessful = true;
+        {
+            std::lock_guard<std::mutex> lock(profileExecutionsMutex);
+            for (auto& [port, execution] : profileExecutions) {
+                if (!execution.completed) {
+                    allSuccessful = false;
+                    addLog("Profile for port 0x%02X did not complete ", port);
+                }
+            }
+        }
+
+        for (int i = 0; i < count; i++) {
+            setMotorSpeed(profiles[i].port, 0);
+        }
+
+        addLog("Multiple profiles execution %s", allSuccessful ? "success" : "failed");
+        return allSuccessful;
+    }
+
 private:
 
     bool startRelativeProfileController(uint8_t port, const std::vector<SpeedProfilePoint>& profilePoints, int timeoutMs) {
@@ -1339,6 +1396,177 @@ private:
         addLog("Encoder mode activated for port 0x%02X", port);
     }
 
+private:
+
+    struct ProfileExecution {
+        std::atomic<bool> active{ false };
+        std::atomic<bool> completed{ false };
+        std::unique_ptr<std::thread> executionThread;
+        SpeedProfile profile;
+
+        ProfileExecution() = default;
+
+        ProfileExecution(const ProfileExecution&) = delete;
+        ProfileExecution& operator=(const ProfileExecution&) = delete;
+
+        ProfileExecution(ProfileExecution&& other) noexcept
+            : active(other.active.load())
+            , completed(other.completed.load())
+            , executionThread(std::move(other.executionThread))
+            , profile(std::move(other.profile)) {
+        }
+
+        ProfileExecution& operator=(ProfileExecution&& other) noexcept {
+            if (this != &other) {
+                active.store(other.active.load());
+                completed.store(other.completed.load());
+                executionThread = std::move(other.executionThread);
+                profile = std::move(other.profile);
+            }
+            return *this;
+        }
+
+        ~ProfileExecution() {
+            active = false;
+            if (executionThread && executionThread->joinable()) {
+                executionThread->join();
+            }
+        }
+    };
+
+    std::map<uint8_t, ProfileExecution> profileExecutions;
+    std::mutex profileExecutionsMutex;
+
+    void executeSingleProfileThread(uint8_t port) {
+        auto& execution = profileExecutions[port];
+
+        try {
+            bool success = executeSpeedProfile(&execution.profile);
+
+            if (success) {
+                addLog("Profile completed successfully for port 0x%02X", port);
+            }
+            else {
+                addLog("Profile failed for port 0x%02X", port);
+            }
+        }
+        catch (const std::exception& ex) {
+            addLog("Exception in profile execution for port 0x%02X: %s", port, ex.what());
+        }
+
+        delete[] execution.profile.points;
+        execution.profile.points = nullptr;
+
+        execution.active = false;
+        execution.completed = true;
+    }
+
+    void waitForAllProfiles(int timeoutMs) {
+        auto startTime = std::chrono::steady_clock::now();
+
+        while (true) {
+            bool allCompleted = true;
+
+            {
+                std::lock_guard<std::mutex> lock(profileExecutionsMutex);
+                for (auto& [port, execution] : profileExecutions) {
+                    if (execution.active && !execution.completed) {
+                        allCompleted = false;
+                        break;
+                    }
+                }
+            }
+
+            if (allCompleted) {
+                addLog("All profiles completed");
+                break;
+            }
+
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
+
+            if (elapsed.count() > timeoutMs) {
+                addLog("Timeout waiting for profiles to complete");
+                stopAllProfiles();
+                break;
+            }
+
+            std::this_thread::sleep_for(5ms);
+        }
+    }
+
+    void stopAllProfiles() {
+        std::lock_guard<std::mutex> lock(profileExecutionsMutex);
+
+        addLog("Stopping all profiles");
+
+        std::vector<uint8_t> portsToStop;
+        for (auto& [port, execution] : profileExecutions) {
+            if (execution.active) {
+                portsToStop.push_back(port);
+            }
+        }
+
+        for (uint8_t port : portsToStop) {
+            stopProfileExecution(port);
+        }
+
+        addLog("All profiles stopped");
+    }
+
+    void startProfileExecution(uint8_t port, const SpeedProfile& profile) {
+        std::lock_guard<std::mutex> lock(profileExecutionsMutex);
+
+        if (profileExecutions.count(port)) {
+            stopProfileExecution(port);
+        }
+
+        ProfileExecution execution;
+        execution.profile.port = profile.port;
+        execution.profile.count = profile.count;
+        execution.profile.timeoutMs = profile.timeoutMs;
+
+        if (profile.points && profile.count > 0) {
+            execution.profile.points = new SpeedProfilePoint[profile.count];
+            std::copy(profile.points, profile.points + profile.count, execution.profile.points);
+        }
+        else {
+            execution.profile.points = nullptr;
+        }
+
+        execution.active = true;
+        execution.completed = false;
+
+        execution.executionThread = std::make_unique<std::thread>([this, port]() {
+            this->executeSingleProfileThread(port);
+            });
+
+        profileExecutions[port] = std::move(execution);
+        addLog("Started profile execution for port 0x%02X", port);
+    }
+
+    void stopProfileExecution(uint8_t port) {
+        std::lock_guard<std::mutex> lock(profileExecutionsMutex);
+
+        if (profileExecutions.count(port)) {
+            auto& execution = profileExecutions[port];
+            execution.active = false;
+
+            setMotorSpeed(port, 0);
+
+            if (execution.executionThread && execution.executionThread->joinable()) {
+                execution.executionThread->join();
+            }
+
+            if (execution.profile.points) {
+                delete[] execution.profile.points;
+                execution.profile.points = nullptr;
+            }
+
+            profileExecutions.erase(port);
+            addLog("Stopped profile execution for port 0x%02X", port);
+        }
+    }
 };
 
 // Main context and virtual table
@@ -1471,6 +1699,12 @@ namespace
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
         return Implementation->testEncoderFunctionality(self);
     }
+
+    bool printer_execute_speed_profiles(IPrinter* self, const SpeedProfile* profiles, int count) {
+        if (!self || !self->vtable) return false;
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->executeSpeedProfiles(profiles, count);
+    }
 }
 
 // Virtual Method Table - C-INTERFACE
@@ -1490,7 +1724,8 @@ static IPrinterVirtualTable PrinterVTable = {
     printer_clear_log,
     printer_get_last_error,
     printer_printer_connection_info,
-    printer_test_encoder_functionality
+    printer_test_encoder_functionality,
+    printer_execute_speed_profiles
 };
 
 // Tested function - remove after deep testing
@@ -1635,5 +1870,15 @@ extern "C"
         if (!printer || !printer->vtable || !printer->vtable->printer_printer_execute_speed_profile) return false;
 
         return printer->vtable->printer_printer_execute_speed_profile(printer, profile);
-    }    
+    }
+    PRINTER_DRIVER_API bool PrinterExecuteSpeedProfiles(IPrinter* printer, const SpeedProfile* profiles, int count) {
+        if (!printer || !printer->vtable) return false;
+
+        if (printer->vtable->printer_execute_speed_profiles) {
+            return printer->vtable->printer_execute_speed_profiles(printer, profiles, count);
+        }
+        else {
+            return false;
+        }
+    }
 }

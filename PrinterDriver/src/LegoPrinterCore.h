@@ -31,6 +31,7 @@ extern "C"
 	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer);
 
 	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile);
+	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfiles(IPrinter* printer, const SpeedProfile* profiles, int count);
 
 	PRINTER_DRIVER_API bool PrinterIsMotorMoving(IPrinter* printer, int count);
 	PRINTER_DRIVER_API double PrinterGetMotorPosition(IPrinter* printer, unsigned char port);
