@@ -710,16 +710,11 @@ private:
 	}
 
 	void executeArcMovement(const ArcParameters& arc) {
-		if (!currentPrinter || !currentPrinter->vtable->printer_printer_execute_speed_profile) {
+		if (!currentPrinter || !currentPrinter->vtable->printer_execute_speed_profiles) {
 			addLogEntry("printer is invalid");
 			return;
 		}
 		else {
-			if (!currentPrinter || !currentPrinter->vtable ||
-				!currentPrinter->vtable->printer_printer_execute_speed_profile) {
-				addGCodeErrorInfo("Printer does not support speed profile for arc movement", PRINTER_ERROR);
-				return;
-			}
 
 			if (!validateArc(arc)) {
 				return;
@@ -740,6 +735,7 @@ private:
 
 			std::vector<SpeedProfile> profilesX = createSpeedProfile(stepperX, pointsX, 1000000);
 			std::vector<SpeedProfile> profilesY = createSpeedProfile(stepperY, pointsY, 1000000);
+			
 
 			if (profilesX.empty() || profilesY.empty()) {
 				addGCodeErrorInfo("Failed to create speed profiles for arc movement", MOVEMENT_ERROR);
@@ -748,65 +744,25 @@ private:
 				return;
 			}
 
-			bool successX = true;
-			bool successY = true;
+			std::vector<SpeedProfile> allProfiles;
+			allProfiles.reserve(profilesX.size() + profilesY.size());
+			allProfiles.insert(allProfiles.end(), profilesX.begin(), profilesX.end());
+			allProfiles.insert(allProfiles.end(), profilesY.begin(), profilesY.end());
 
-			try
-			{
-				for (auto& profile : profilesX) {
-					if (!currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profile)) {
-						successX = false;
-						addLogEntry("Failed to execute speed profile for X axis port " + std::to_string(profile.port));
-					}
-					else {
-						addLogEntry("Successfully executed profile for X axis port " + std::to_string(profile.port));
-					}
-				}
+			addLogEntry("Created " + std::to_string(allProfiles.size()) + " profiles for arc movement");
 
-				for (auto& profile : profilesY) {
-					if (!currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profile)) {
-						successY = false;
-						addLogEntry("Failed to execute speed profile for Y axis port " + std::to_string(profile.port));
-					}
-					else {
-						addLogEntry("Successfully executed profile for Y axis port " + std::to_string(profile.port));
-					}
-				}
+			bool success = executeProfiles(allProfiles);
 
-				if (successX && successY) {
-					std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-					stopMotorsAfterProfile(stepperX);
-					stopMotorsAfterProfile(stepperY);
-
-					currentX = arc.endX;
-					currentY = arc.endY;
-					addLogEntry("Arc movement completed successfully with motor stop");
-				}
-				else {
-					addGCodeErrorInfo("Failed to execute speed profile for arc", MOVEMENT_ERROR);
-
-					stopMotorsAfterProfile(stepperX);
-					stopMotorsAfterProfile(stepperY);
-				}
-
+			if (success) {
+				currentX = arc.endX;
+				currentY = arc.endY;
+				addLogEntry("Arc movement completed successfully");
 			}
-			catch (const std::exception& ex)
-			{
-				addGCodeErrorInfo("Exception during arc execution: " + std::string(ex.what()), MOVEMENT_ERROR);
-				successX = false;
-				successY = false;
-
-				stopMotorsAfterProfile(stepperX);
-				stopMotorsAfterProfile(stepperY);
+			else {
+				addGCodeErrorInfo("Failed to execute speed profiles for arc", MOVEMENT_ERROR);
 			}
 
-			cleanupSpeedProfiles(profilesX);
-			cleanupSpeedProfiles(profilesY);
-
-			if (!successX || !successX) {
-				status = ERROR;
-			}
+			cleanupProfiles(allProfiles);
 		}
 	}
 
@@ -819,6 +775,33 @@ private:
 			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
 			addLogEntry("Stopped motor on port " + std::to_string(static_cast<int>(port)));
 		}
+	}
+
+	bool executeProfiles(const std::vector<SpeedProfile>& profiles) {
+		if (profiles.empty() || !currentPrinter || !currentPrinter->vtable) {
+			return false;
+		}
+
+		if (currentPrinter->vtable->printer_execute_speed_profiles) {
+			return currentPrinter->vtable->printer_execute_speed_profiles(
+				currentPrinter, 
+				profiles.data(),
+				static_cast<int>(profiles.size())
+			);
+		}
+		else {
+			return false;
+		}
+	}
+
+	void cleanupProfiles(std::vector<SpeedProfile>& profiles) {
+		for (auto& profile : profiles) {
+			if (profile.points) {
+				delete[] profile.points;
+				profile.points = nullptr;
+			}
+		}
+		profiles.clear();
 	}
 
 public:	

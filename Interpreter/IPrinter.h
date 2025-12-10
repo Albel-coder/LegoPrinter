@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +29,7 @@ extern "C" {
     } SpeedProfile;
 
     // Virtual table - ONLY low-level methods
-    typedef struct
+    typedef struct 
     {
         // Basic Operations
         bool (*printer_connect)(IPrinter* self);
@@ -58,13 +58,14 @@ extern "C" {
         void (*printer_printer_connection_info)(IPrinter* self);
 
         bool (*printer_test_encoder_functionality)(IPrinter* self);
+        bool (*printer_execute_speed_profiles)(IPrinter* self, const SpeedProfile* profiles, int count);
 
     } IPrinterVirtualTable;
 
-    struct IPrinter
+    struct IPrinter 
     {
         IPrinterVirtualTable* vtable;
-    };
+    };    
 
 #ifdef __cplusplus
 }
