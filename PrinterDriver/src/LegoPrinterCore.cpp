@@ -107,6 +107,7 @@ private:
     std::map<uint8_t, MotorState> motorStates;
     std::map<uint8_t, std::thread> motorThreads;
     std::condition_variable motorStatesCV;
+    std::mutex motorStatesMutex;
 
     // Logging system
     std::vector<std::string> logEntries;
@@ -148,7 +149,7 @@ private:
     std::map<uint8_t, SpeedControlState> speedControlStates;
     std::mutex speedControlMutex;
 
-    std::mutex motorStatesMutex;
+    std::mutex profileExecutionsMutex;
 
 public:
 
@@ -927,6 +928,11 @@ public:
 
         uint8_t port = profile->port;
 
+        {
+            std::lock_guard<std::mutex> lock(motorStatesMutex);
+            initializeMotorState(port);
+        }
+
         // Activate the encoder
         ActivateEncoderMode(port);
         std::this_thread::sleep_for(200ms);
@@ -957,53 +963,82 @@ public:
             return false;
         }
 
-        addLog("=== Execution multiple speed profiles ===");
-        addLog("Number of profiles: %d", count);
+        addLog("=== Executing multiple speed profiles ===");
 
-        std::set<uint8_t> usedPorts;
+        // Assembling ports
+        std::set<uint8_t> portsToUse;
+        std::vector<SpeedProfile> profileCopies;
+
         for (int i = 0; i < count; i++) {
-            if (usedPorts.count(profiles[i].port)) {
-                addLog("Error: duplicate port 0x%02X in profiles", profiles[i].port);
+            if (portsToUse.count(profiles[i].port)) {
+                addLog("Error: Duplicate port 0x%02X", profiles[i].port);
                 return false;
             }
-            usedPorts.insert(profiles[i].port);
+            portsToUse.insert(profiles[i].port);
 
-            addLog("Profile %d: Port=0x%02X, Segments=%d, Timeout=%dms", i, profiles[i].port, profiles[i].count, profiles[i].timeoutMs);
+            // Create a copy of the profile
+            SpeedProfile copy;
+            copy.port = profiles[i].port;
+            copy.count = profiles[i].count;
+            copy.timeoutMs = profiles[i].timeoutMs;
+            copy.points = new SpeedProfilePoint[copy.count];
+            std::copy(profiles[i].points,
+                profiles[i].points + copy.count,
+                copy.points);
+            profileCopies.push_back(copy);
         }
 
-        stopAllProfiles();
-
-        for (int i = 0; i < count; i++) {
-            startProfileExecution(profiles[i].port, profiles[i]);
-        }
-
-        std::this_thread::sleep_for(100ms);
-
-        int maxTimeoutMs = 0;
-        for (int i = 0; i < count; i++) {
-            if (profiles[i].timeoutMs > maxTimeoutMs) {
-                maxTimeoutMs = profiles[i].timeoutMs;
-            }
-        }
-
-        waitForAllProfiles(maxTimeoutMs + 10000);
-
-        bool allSuccessful = true;
+        // Stop old profiles
         {
             std::lock_guard<std::mutex> lock(profileExecutionsMutex);
-            for (auto& [port, execution] : profileExecutions) {
-                if (!execution.completed) {
-                    allSuccessful = false;
-                    addLog("Profile for port 0x%02X did not complete ", port);
+            for (uint8_t port : portsToUse) {
+                if (profileExecutions.count(port)) {
+                    stopProfileExecution(port);
                 }
             }
         }
 
-        for (int i = 0; i < count; i++) {
-            setMotorSpeed(profiles[i].port, 0);
+        std::this_thread::sleep_for(200ms);
+
+        // Activate the encoders
+        for (uint8_t port : portsToUse) {
+            ActivateEncoderMode(port);
+            initializeMotorState(port);
+            std::this_thread::sleep_for(50ms);
         }
 
-        addLog("Multiple profiles execution %s", allSuccessful ? "success" : "failed");
+        // Launch a single encoder poll
+        startUnifiedEncoderPolling(portsToUse);
+        std::this_thread::sleep_for(100ms);
+
+        // Launch profiles
+        for (int i = 0; i < count; i++) {
+            startProfileExecution(profileCopies[i].port, profileCopies[i]);
+        }
+
+        // Wait for completion
+        int maxTimeout = 0;
+        for (int i = 0; i < count; i++) {
+            if (profiles[i].timeoutMs > maxTimeout) {
+                maxTimeout = profiles[i].timeoutMs;
+            }
+        }
+
+        bool allSuccessful = waitForAllProfiles(maxTimeout + 10000);
+
+        stopUnifiedEncoderPolling();
+
+        for (auto& profile : profileCopies) {
+            delete[] profile.points;
+        }
+
+        for (uint8_t port : portsToUse) {
+            setMotorSpeed(port, 0);
+            std::this_thread::sleep_for(20ms);
+        }
+
+        addLog("Multiple profiles execution %s",
+            allSuccessful ? "SUCCESS" : "FAILED");
         return allSuccessful;
     }
 
@@ -1401,8 +1436,11 @@ private:
     struct ProfileExecution {
         std::atomic<bool> active{ false };
         std::atomic<bool> completed{ false };
+        std::atomic<bool> started{ false };
         std::unique_ptr<std::thread> executionThread;
         SpeedProfile profile;
+
+        std::chrono::steady_clock::time_point startTime;
 
         ProfileExecution() = default;
 
@@ -1435,13 +1473,37 @@ private:
     };
 
     std::map<uint8_t, ProfileExecution> profileExecutions;
-    std::mutex profileExecutionsMutex;
 
     void executeSingleProfileThread(uint8_t port) {
         auto& execution = profileExecutions[port];
+        execution.startTime = std::chrono::steady_clock::now();
+        execution.started = true;
 
         try {
-            bool success = executeSpeedProfile(&execution.profile);
+            addLog("Starting profile execution for port 0x%02X in thread", port);
+
+            // Copy the profile, since the original may be deleted
+            SpeedProfile localProfile;
+            localProfile.port = execution.profile.port;
+            localProfile.count = execution.profile.count;
+            localProfile.timeoutMs = execution.profile.timeoutMs;
+
+            // Copy profile points
+            if (execution.profile.points && execution.profile.count > 0) {
+                localProfile.points = new SpeedProfilePoint[execution.profile.count];
+                std::copy(execution.profile.points,
+                    execution.profile.points + execution.profile.count,
+                    localProfile.points);
+            }
+            else {
+                addLog("Error: No points in profile for port 0x%02X", port);
+                execution.completed = true;
+                execution.active = false;
+                return;
+            }
+
+            // IMPORTANT: We use the synchronous method executeSpeedProfileInternal
+            bool success = executeSpeedProfileInternal(port, localProfile);
 
             if (success) {
                 addLog("Profile completed successfully for port 0x%02X", port);
@@ -1449,19 +1511,134 @@ private:
             else {
                 addLog("Profile failed for port 0x%02X", port);
             }
+
+            delete[] localProfile.points;
+
+            execution.completed = true;
         }
         catch (const std::exception& ex) {
-            addLog("Exception in profile execution for port 0x%02X: %s", port, ex.what());
+            addLog("Exception in profile execution for port 0x%02X: %s",
+                port, ex.what());
+            execution.completed = true;
         }
 
-        delete[] execution.profile.points;
-        execution.profile.points = nullptr;
-
         execution.active = false;
-        execution.completed = true;
+
+        // Clear the original memory (if not cleared yet)
+        if (execution.profile.points) {
+            delete[] execution.profile.points;
+            execution.profile.points = nullptr;
+        }
     }
 
-    void waitForAllProfiles(int timeoutMs) {
+    bool executeSpeedProfileInternal(uint8_t port, const SpeedProfile& profile) {
+        if (profile.count < 1) return false;
+
+        addLog("Executing profile internally for port 0x%02X", port);
+
+        // Initialize the motor state
+        initializeMotorState(port);
+        auto& state = motorStates[port];
+
+        // Stop the previous profile
+        state.profileActive = false;
+        std::this_thread::sleep_for(100ms);
+
+        // Reset the state
+        state.segmentAccumulator.store(0.0);
+        state.currentSegmentIndex.store(0);
+        state.activeProfile.clear();
+
+        // Copy profile points
+        for (int i = 0; i < profile.count; i++) {
+            state.activeProfile.push_back(profile.points[i]);
+        }
+
+        state.profileActive.store(true);
+        state.profileTimeoutMs = profile.timeoutMs;
+
+        // Launch the first segment
+        if (!state.activeProfile.empty()) {
+            const auto& firstSegment = state.activeProfile[0];
+            setMotorSpeed(port, firstSegment.speed);
+            addLog("Started segment 0 for port 0x%02X: target=%.3f, speed=%d",
+                port, firstSegment.distance, firstSegment.speed);
+        }
+        else {
+            addLog("Error: Empty profile for port 0x%02X", port);
+            return false;
+        }
+
+        // Wait for the profile to complete
+        auto startTime = std::chrono::steady_clock::now();
+
+        while (state.profileActive && isValid && !stopRequested) {
+            int currentSegment = state.currentSegmentIndex.load();
+
+            // Check for completion of all segments
+            if (currentSegment >= state.activeProfile.size()) {
+                setMotorSpeed(port, 0);
+                state.profileActive = false;
+                addLog("Profile completed for port 0x%02X", port);
+                return true;
+            }
+
+            const auto& segment = state.activeProfile[currentSegment];
+            double traveled = state.segmentAccumulator.load();
+
+            // Log progress every 500ms
+            auto currentTime = std::chrono::steady_clock::now();
+            static auto lastLogTime = startTime;
+            auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - lastLogTime);
+
+            if (timeSinceLastLog.count() > 500) {
+                addLog("Port 0x%02X Segment %d: %.3f/%.3f rev (%.1f%%)",
+                    port, currentSegment, traveled, segment.distance,
+                    (traveled / segment.distance) * 100);
+                lastLogTime = currentTime;
+            }
+
+            // Check for completion of the current segment
+            if (traveled >= segment.distance - segment.tolerance) {
+                addLog("Segment %d completed for port 0x%02X: %.3f/%.3f",
+                    currentSegment, port, traveled, segment.distance);
+
+                int nextSegment = currentSegment + 1;
+                state.currentSegmentIndex.store(nextSegment);
+
+                if (nextSegment < state.activeProfile.size()) {
+                    // Reset the accumulator for the new segment
+                    state.segmentAccumulator.store(0.0);
+
+                    // Set a new speed
+                    const auto& nextSegmentData = state.activeProfile[nextSegment];
+                    setMotorSpeed(port, nextSegmentData.speed);
+
+                    addLog("Starting segment %d for port 0x%02X: target=%.3f, speed=%d",
+                        nextSegment, port, nextSegmentData.distance, nextSegmentData.speed);
+                }
+            }
+
+            // Checking the timeout
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                currentTime - startTime);
+
+            if (elapsed.count() > profile.timeoutMs) {
+                addLog("Profile timeout for port 0x%02X after %d ms",
+                    port, elapsed.count());
+                setMotorSpeed(port, 0);
+                state.profileActive = false;
+                return false;
+            }
+
+            std::this_thread::sleep_for(10ms);
+        }
+
+        return false;
+    }
+
+    bool waitForAllProfiles(int timeoutMs) {
         auto startTime = std::chrono::steady_clock::now();
 
         while (true) {
@@ -1479,7 +1656,7 @@ private:
 
             if (allCompleted) {
                 addLog("All profiles completed");
-                break;
+                return true;
             }
 
             auto currentTime = std::chrono::steady_clock::now();
@@ -1488,7 +1665,7 @@ private:
             if (elapsed.count() > timeoutMs) {
                 addLog("Timeout waiting for profiles to complete");
                 stopAllProfiles();
-                break;
+                return false;
             }
 
             std::this_thread::sleep_for(5ms);
@@ -1565,6 +1742,66 @@ private:
 
             profileExecutions.erase(port);
             addLog("Stopped profile execution for port 0x%02X", port);
+        }
+    }
+
+private:
+    std::thread unifiedEncoderThread;
+    std::set<uint8_t> unifiedPollingPorts;
+    std::mutex unifiedPollingMutex;
+
+    void startUnifiedEncoderPolling(const std::set<uint8_t>& ports) {
+        std::lock_guard<std::mutex> lock(unifiedPollingMutex);
+
+        if (unifiedEncoderThread.joinable()) {
+            unifiedEncoderThread.join();
+        }
+
+        unifiedPollingPorts = ports;
+
+        if (ports.empty()) {
+            addLog("No ports for unified encoder polling");
+            return;
+        }
+
+        addLog("Starting unified encoder polling for %zu ports", ports.size());
+
+        unifiedEncoderThread = std::thread([this]() {
+            std::set<uint8_t> localPorts;
+            {
+                std::lock_guard<std::mutex> lock(unifiedPollingMutex);
+                localPorts = unifiedPollingPorts;
+            }
+
+            while (isValid && !stopRequested && !localPorts.empty()) {
+                for (uint8_t port : localPorts) {
+                    pollEncoderPosition(port);
+                }
+                std::this_thread::sleep_for(10ms);
+
+                {
+                    std::lock_guard<std::mutex> lock(unifiedPollingMutex);
+                    localPorts = unifiedPollingPorts;
+                }
+            }
+            addLog("Unified encoder polling stopped");
+        });
+    }
+
+    void stopUnifiedEncoderPolling() {
+        std::lock_guard<std::mutex> lock(unifiedPollingMutex);
+        unifiedPollingPorts.clear();
+
+        if (unifiedEncoderThread.joinable()) {
+            for (int i = 0; i < 10; i++) {
+                if (unifiedEncoderThread.joinable()) {
+                    std::this_thread::sleep_for(10ms);
+                }
+            }
+            if (unifiedEncoderThread.joinable()) {
+                unifiedEncoderThread.detach();
+                addLog("WARNING: Unified encoder thread detached");
+            }
         }
     }
 };
@@ -1871,6 +2108,7 @@ extern "C"
 
         return printer->vtable->printer_printer_execute_speed_profile(printer, profile);
     }
+
     PRINTER_DRIVER_API bool PrinterExecuteSpeedProfiles(IPrinter* printer, const SpeedProfile* profiles, int count) {
         if (!printer || !printer->vtable) return false;
 
