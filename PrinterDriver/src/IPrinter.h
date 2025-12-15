@@ -59,6 +59,7 @@ extern "C" {
 
         bool (*printer_test_encoder_functionality)(IPrinter* self);
         bool (*printer_execute_speed_profiles)(IPrinter* self, const SpeedProfile* profiles, int count);
+        void (*printer_reset_motor_position)(IPrinter* self, unsigned char port);
 
     } IPrinterVirtualTable;
 
