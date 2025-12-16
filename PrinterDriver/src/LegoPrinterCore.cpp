@@ -39,25 +39,25 @@ private:
     std::atomic<bool> stopRequested;
     std::atomic<bool> isValid;
     std::atomic<int> status;
-    std::atomic<bool> wasConnected {false};
+    std::atomic<bool> wasConnected{ false };
 
     struct MotorState {
-        std::atomic<double> absolutePosition { 0.0 };
-        std::atomic<double> segmentAccumulator { 0.0 };
-        std::atomic<double> relativePosition { 0.0 };
-        std::atomic<double> currentPosition { 0.0 };
-        std::atomic<double> currentSpeed { 0.0 };
-        std::atomic<bool> isMoving { false };
-        std::atomic<bool> threadRunning { false };
+        std::atomic<double> absolutePosition{ 0.0 };
+        std::atomic<double> segmentAccumulator{ 0.0 };
+        std::atomic<double> relativePosition{ 0.0 };
+        std::atomic<double> currentPosition{ 0.0 };
+        std::atomic<double> currentSpeed{ 0.0 };
+        std::atomic<bool> isMoving{ false };
+        std::atomic<bool> threadRunning{ false };
 
-        std::atomic<double> segmentTarget { 0.0 };
+        std::atomic<double> segmentTarget{ 0.0 };
 
-        std::atomic<double> segmentStartPosition { 0.0 };
-        std::atomic<double> segmentStartRelative { 0.0 };
-        std::atomic<double> segmentTargetDistance { 0.0 };
-        std::atomic<double> currentSegmentTraveled { 0.0 };
-        std::atomic<int> currentSegmentIndex { 0 };
-        std::atomic<bool> profileActive { false };
+        std::atomic<double> segmentStartPosition{ 0.0 };
+        std::atomic<double> segmentStartRelative{ 0.0 };
+        std::atomic<double> segmentTargetDistance{ 0.0 };
+        std::atomic<double> currentSegmentTraveled{ 0.0 };
+        std::atomic<int> currentSegmentIndex{ 0 };
+        std::atomic<bool> profileActive{ false };
 
         std::vector<SpeedProfilePoint> activeProfile;
         int profileTimeoutMs = 60000;
@@ -107,7 +107,6 @@ private:
     std::map<uint8_t, MotorState> motorStates;
     std::map<uint8_t, std::thread> motorThreads;
     std::condition_variable motorStatesCV;
-    std::mutex motorStatesMutex;
 
     // Logging system
     std::vector<std::string> logEntries;
@@ -132,14 +131,15 @@ private:
         CommandExecution& operator=(const CommandExecution&) = delete;
 
         CommandExecution(CommandExecution&& Other) noexcept
-            : completed(Other.completed.load()), waiting(Other.waiting.load()) {}
+            : completed(Other.completed.load()), waiting(Other.waiting.load()) {
+        }
     };
 
     std::map<uint8_t, CommandExecution> commandStatus;
 
     struct SpeedControlState {
-        std::atomic<bool> active {false};
-        std::atomic<size_t> currentPointIndex{0};
+        std::atomic<bool> active{ false };
+        std::atomic<size_t> currentPointIndex{ 0 };
         std::thread controlThread;
 
         std::vector<SpeedProfilePoint> profilePoints;
@@ -149,59 +149,7 @@ private:
     std::map<uint8_t, SpeedControlState> speedControlStates;
     std::mutex speedControlMutex;
 
-    std::mutex profileExecutionsMutex;
-    
-    struct ProfileQueue {
-        std::queue<SpeedProfile> profiles;
-        std::atomic<bool> isExecuting{ false };
-        std::mutex queueMutex;
-        std::condition_variable cv;
-
-        ProfileQueue() = default;
-
-        ProfileQueue(const ProfileQueue&) = delete;
-        ProfileQueue& operator=(const ProfileQueue&) = delete;
-
-        ProfileQueue(ProfileQueue&& other) noexcept {
-            std::lock_guard<std::mutex> lock(other.queueMutex);
-            while (!other.profiles.empty()) {
-                profiles.push(std::move(other.profiles.front()));
-                other.profiles.pop();
-            }
-            isExecuting.store(other.isExecuting.load());
-        }
-
-        ProfileQueue& operator=(ProfileQueue&& other) noexcept {
-            if (this != &other) {
-                std::lock(queueMutex, other.queueMutex);
-                std::lock_guard<std::mutex> lock1(queueMutex, std::adopt_lock);
-                std::lock_guard<std::mutex> lock2(other.queueMutex, std::adopt_lock);
-
-                while (!profiles.empty()) {
-                    profiles.pop();
-                }
-
-                while (!other.profiles.empty()) {
-                    profiles.push(std::move(other.profiles.front()));
-                    other.profiles.pop();
-                }
-
-                isExecuting.store(other.isExecuting.load());
-            }
-            return *this;
-        }
-
-        ~ProfileQueue() {
-            std::lock_guard<std::mutex> lock(queueMutex);
-            while (!profiles.empty()) {
-                profiles.pop();
-            }
-        }
-    };
-
-    std::map<uint8_t, ProfileQueue> profileQueues;
-    std::map<uint8_t, std::thread> profileQueueThreads;
-    std::mutex profileQueuesMutex;
+    std::mutex motorStatesMutex;
 
 public:
 
@@ -214,10 +162,23 @@ public:
         addLog("PrinterImplementation created");
     }
 
-    ~PrinterImplementation() {      
+    ~PrinterImplementation() {
         try {
+            // Stop all port flows
+            for (auto& [port, running] : portThreadRunning) {
+                running = false;
+                portQueueCVs[port].notify_all();
+            }
+
+            for (auto& [port, thread] : portThreads) {
+                if (thread.joinable()) {
+                    thread.join();
+                }
+            }
+
             std::lock_guard<std::mutex> lock(completionMutex);
             completionCV.notify_all();
+
             for (auto& [port, state] : speedControlStates) {
                 state.active = false;
                 if (state.controlThread.joinable()) {
@@ -233,52 +194,16 @@ public:
         if (wasConnected) {
             isValid = false;
             stopRequested = true;
+
             // Stop all motor threads
             for (auto& [port, State] : motorStates) {
                 State.threadRunning = false;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-                unifiedPollingPorts.clear();
-            }
-
-            if (unifiedEncoderThread.joinable()) {
-                unifiedEncoderThread.join();
-            }
-
-            for (auto& [port, state] : speedControlStates) {
-                state.active = false;
-                if (state.controlThread.joinable()) {
-                    state.controlThread.join();
-                }
+                State.profileActive = false;
             }
 
             for (auto& [port, Thread] : motorThreads) {
                 if (Thread.joinable()) {
                     Thread.join();
-                }
-            }
-
-            // Notify all queue threads
-            for (auto& [port, queue] : profileQueues) {
-                queue.cv.notify_all();
-            }
-
-            // Stop all queue flows
-            for (auto& [port, thread] : profileQueueThreads) {
-                if (thread.joinable()) {
-                    thread.join();
-                }
-            }
-
-            // Clearing queues
-            for (auto& [port, queue] : profileQueues) {
-                std::lock_guard<std::mutex> lock(queue.queueMutex);
-                while (!queue.profiles.empty()) {
-                    auto& profile = queue.profiles.front();
-                    delete[] profile.points;
-                    queue.profiles.pop();
                 }
             }
 
@@ -295,7 +220,7 @@ public:
         }
     }
 
-private:
+private:    
 
     // Set notification handler
     void setupNotificationHandler() {
@@ -417,35 +342,20 @@ private:
     void updateMotorPosition(uint8_t port, double positionDelta) {
         auto& state = motorStates[port];
 
-        // CRITICAL: Ignore data if profile is not active
-        if (!state.profileActive.load(std::memory_order_relaxed)) {
-            // Logging, but not updating the position
-            static thread_local std::map<uint8_t, int> ignoreCounters;
-            if (++ignoreCounters[port] % 50 == 0) {
-                addLog("IGNORING encoder data for inactive port 0x%02X: Delta=%.6f",
-                    port, positionDelta);
-            }
-            return;
-        }
-
-        // Apply calibration
+        // We apply empirical calibration
         double calibratedDelta = positionDelta * EMPIRICAL_CALIBRATION;
 
-        // Update the segment drive ONLY if the profile is active
+        double currentAbs = state.absolutePosition.load(std::memory_order_relaxed);
+        double newAbs = currentAbs + calibratedDelta;
+        state.absolutePosition.store(newAbs, std::memory_order_relaxed);
+
         double currentSeg = state.segmentAccumulator.load(std::memory_order_relaxed);
         double newSeg = currentSeg + calibratedDelta;
         state.segmentAccumulator.store(newSeg, std::memory_order_relaxed);
 
-        // Absolute position - for information (not used in profile logic)
-        state.absolutePosition.store(
-            state.absolutePosition.load(std::memory_order_relaxed) + calibratedDelta,
-            std::memory_order_relaxed
-        );
-
-        // Log only significant changes
         if (std::abs(calibratedDelta) > 0.001) {
-            addLog("ACTIVE_UPDATE: Port=0x%02X, Delta=%.6f, SegAcc=%.6f",
-                port, calibratedDelta, newSeg);
+            addLog("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalibratedDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
+                port, positionDelta, calibratedDelta, newAbs, newSeg);
         }
     }
 
@@ -606,40 +516,40 @@ public:
                 adapter.address().c_str());
 
             // Setting up callbacks
-            adapter.set_callback_on_scan_start([]() { });
+            adapter.set_callback_on_scan_start([]() {});
 
             addLog("Scanning started...");
 
-            adapter.set_callback_on_scan_stop([]() { });
+            adapter.set_callback_on_scan_stop([]() {});
 
             addLog("Scanning stopped");
 
             adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral peripheral) {
-                    std::string name = peripheral.identifier();
-                    std::string address = peripheral.address();
-                    int rssi = peripheral.rssi();
+                std::string name = peripheral.identifier();
+                std::string address = peripheral.address();
+                int rssi = peripheral.rssi();
 
-                    // Convert the name to uppercase for universality
-                    std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+                // Convert the name to uppercase for universality
+                std::transform(name.begin(), name.end(), name.begin(), ::toupper);
 
-                    // Check by name
-                    bool isLego = (name.find("LEGO") != std::string::npos) ||
-                        (name.find("HUB") != std::string::npos) ||
-                        (name.find("CONTROL") != std::string::npos);
+                // Check by name
+                bool isLego = (name.find("LEGO") != std::string::npos) ||
+                    (name.find("HUB") != std::string::npos) ||
+                    (name.find("CONTROL") != std::string::npos);
 
-                    // Check with manufacturer data (LEGO Company ID: 0x0397)
-                    auto manufacturer_data = peripheral.manufacturer_data();
-                    for (const auto& data : manufacturer_data) {
-                        // LEGO Company ID: 0x0397 (little-endian: 97 03)
-                        if (data.first == 0x0397) {
-                            isLego = true;
-                            addLog("[LEGO Manufacturer Data Found]");
-                        }
+                // Check with manufacturer data (LEGO Company ID: 0x0397)
+                auto manufacturer_data = peripheral.manufacturer_data();
+                for (const auto& data : manufacturer_data) {
+                    // LEGO Company ID: 0x0397 (little-endian: 97 03)
+                    if (data.first == 0x0397) {
+                        isLego = true;
+                        addLog("[LEGO Manufacturer Data Found]");
                     }
+                }
 
-                    if (isLego) {
-                        addLog("LEGO HUB DISCOVERED!");
-                    }
+                if (isLego) {
+                    addLog("LEGO HUB DISCOVERED!");
+                }
                 });
 
             // Start scanning
@@ -758,7 +668,7 @@ public:
 
         for (auto Service : Services) {
             addLog("Service UUID: %s", Service.uuid().c_str());
-            
+
             if (Service.uuid() == LEGO_HUB_SERVICE_UUID) {
                 addLog(" >>> LEGO SERVICE FOUND!");
                 for (auto Characteristic : Service.characteristics()) {
@@ -773,7 +683,7 @@ public:
         addLog("========================================");
     }
 
-    void rotateMotor(const MotorCommand* commands, int count) {      
+    void rotateMotor(const MotorCommand* commands, int count) {
         // Check parameters
         if (!isValid || count <= 0 || !commands) {
             addLog("RotateMotor: Invalid parameters");
@@ -788,7 +698,7 @@ public:
             return;
         }
 
-        std::lock_guard<std::mutex> operationLock(operationMutex);        
+        std::lock_guard<std::mutex> operationLock(operationMutex);
 
         // Prepare command tracking
         for (int i = 0; i < count; i++) {
@@ -1016,73 +926,36 @@ public:
         }
     }
 
-  //----- Execute speed profile methods -----
+    //----- Execute speed profile methods -----
 
 public:
 
-    bool executeSpeedProfile(const SpeedProfile* profile) {
+    bool executeSpeedProfile(const SpeedProfile* profile)
+    {
         if (!isValid || !profile || profile->count < 1) {
             addLog("Error: Invalid profile parameters");
             return false;
         }
 
+        addLog("=== EXECUTE SPEED PROFILE ===");
+        addLog("Port: 0x%02X, Segments: %d, Timeout: %d ms",
+            profile->port, profile->count, profile->timeoutMs);
+
         uint8_t port = profile->port;
 
-        addLog("=== COLD START PROFILE ===");
-
-        // CRITICAL: Completely stop all threads for this port
-        {
-            std::lock_guard<std::mutex> lock(profileQueuesMutex);
-
-            // Stop the current profile if it is running
-            if (profileQueues.find(port) != profileQueues.end()) {
-                auto& queue = profileQueues[port];
-                std::lock_guard<std::mutex> qLock(queue.queueMutex);
-                queue.isExecuting = false;
-
-                // Clear the queue
-                while (!queue.profiles.empty()) {
-                    auto& oldProfile = queue.profiles.front();
-                    delete[] oldProfile.points;
-                    queue.profiles.pop();
-                }
-
-                // Stop the thread
-                if (profileQueueThreads.find(port) != profileQueueThreads.end()) {
-                    auto& thread = profileQueueThreads[port];
-                    if (thread.joinable()) {
-                        // Send a stop signal
-                        queue.cv.notify_all();
-                        thread.join();
-                        profileQueueThreads.erase(port);
-                    }
-                }
-
-                // Delete the queue
-                profileQueues.erase(port);
-                addLog("Stopped and removed old queue for port 0x%02X", port);
-            }
+        // Copying profile data for use in lambda
+        std::vector<SpeedProfilePoint> profilePoints;
+        for (int i = 0; i < profile->count; i++) {
+            profilePoints.push_back(profile->points[i]);
         }
+        int timeoutMs = profile->timeoutMs;
 
-        // We are waiting for a complete stop
-        std::this_thread::sleep_for(500ms);
+        // Adding a task to the port queue
+        enqueuePortCommand(port, [this, port, profilePoints, timeoutMs]() {
+            this->executeSpeedProfileInternal(port, profilePoints, timeoutMs);
+        });
 
-        // Create a new profile instance to run
-        SpeedProfile* newProfile = new SpeedProfile();
-        newProfile->port = profile->port;
-        newProfile->count = profile->count;
-        newProfile->timeoutMs = profile->timeoutMs;
-        newProfile->points = new SpeedProfilePoint[profile->count];
-        std::copy(profile->points, profile->points + profile->count, newProfile->points);
-
-        // We start synchronously, without a queue
-        bool result = executeProfileInternal(port, *newProfile);
-
-        // Clear memory
-        delete[] newProfile->points;
-        delete newProfile;
-
-        return result;
+        return true;
     }
 
     bool executeSpeedProfiles(const SpeedProfile* profiles, int count) {
@@ -1091,517 +964,154 @@ public:
             return false;
         }
 
-        addLog("=== Executing multiple speed profiles ===");
+        addLog("=== Execution multiple speed profiles ===");
+        addLog("Number of profiles: %d", count);
 
-        // Assembling ports
-        std::set<uint8_t> portsToUse;
-        std::vector<SpeedProfile> profileCopies;
-
+        std::set<uint8_t> usedPorts;
         for (int i = 0; i < count; i++) {
-            if (portsToUse.count(profiles[i].port)) {
-                addLog("Error: Duplicate port 0x%02X", profiles[i].port);
+            if (usedPorts.count(profiles[i].port)) {
+                addLog("Error: duplicate port 0x%02X in profiles", profiles[i].port);
                 return false;
             }
-            portsToUse.insert(profiles[i].port);
+            usedPorts.insert(profiles[i].port);
 
-            // Create a copy of the profile
-            SpeedProfile copy;
-            copy.port = profiles[i].port;
-            copy.count = profiles[i].count;
-            copy.timeoutMs = profiles[i].timeoutMs;
-            copy.points = new SpeedProfilePoint[copy.count];
-            std::copy(profiles[i].points,
-                profiles[i].points + copy.count,
-                copy.points);
-            profileCopies.push_back(copy);
+            addLog("Profile %d: Port=0x%02X, Segments=%d, Timeout=%dms", i, profiles[i].port, profiles[i].count, profiles[i].timeoutMs);
         }
 
-        // Stop old profiles
+        stopAllProfiles();
+
+        for (int i = 0; i < count; i++) {
+            startProfileExecution(profiles[i].port, profiles[i]);
+        }
+
+        std::this_thread::sleep_for(100ms);
+
+        int maxTimeoutMs = 0;
+        for (int i = 0; i < count; i++) {
+            if (profiles[i].timeoutMs > maxTimeoutMs) {
+                maxTimeoutMs = profiles[i].timeoutMs;
+            }
+        }
+
+        waitForAllProfiles(maxTimeoutMs + 10000);
+
+        bool allSuccessful = true;
         {
             std::lock_guard<std::mutex> lock(profileExecutionsMutex);
-            for (uint8_t port : portsToUse) {
-                if (profileExecutions.count(port)) {
-                    stopProfileExecution(port);
+            for (auto& [port, execution] : profileExecutions) {
+                if (!execution.completed) {
+                    allSuccessful = false;
+                    addLog("Profile for port 0x%02X did not complete ", port);
                 }
             }
         }
 
-        std::this_thread::sleep_for(200ms);
-
-        // Activate the encoders
-        for (uint8_t port : portsToUse) {
-            ActivateEncoderMode(port);
-            initializeMotorState(port);
-            std::this_thread::sleep_for(50ms);
-        }
-
-        // Launch a single encoder poll
-        startUnifiedEncoderPolling(portsToUse);
-        std::this_thread::sleep_for(100ms);
-
-        // Launch profiles
         for (int i = 0; i < count; i++) {
-            startProfileExecution(profileCopies[i].port, profileCopies[i]);
+            setMotorSpeed(profiles[i].port, 0);
         }
 
-        // Wait for completion
-        int maxTimeout = 0;
-        for (int i = 0; i < count; i++) {
-            if (profiles[i].timeoutMs > maxTimeout) {
-                maxTimeout = profiles[i].timeoutMs;
-            }
-        }
-
-        bool allSuccessful = waitForAllProfiles(maxTimeout + 10000);
-
-        stopUnifiedEncoderPolling();
-
-        for (auto& profile : profileCopies) {
-            delete[] profile.points;
-        }
-
-        for (uint8_t port : portsToUse) {
-            setMotorSpeed(port, 0);
-            std::this_thread::sleep_for(20ms);
-        }
-
-        addLog("Multiple profiles execution %s",
-            allSuccessful ? "SUCCESS" : "FAILED");
+        addLog("Multiple profiles execution %s", allSuccessful ? "success" : "failed");
         return allSuccessful;
     }
 
 private:
 
-    void clearNotificationBuffer(uint8_t port) {
-        if (!peripheral.is_connected()) return;
+    void executeSpeedProfileInternal(uint8_t port, const std::vector<SpeedProfilePoint>& profilePoints, int timeoutMs) {
+        addLog("=== Starting speed profile execution for port 0x%02X ===", port);
 
-        addLog("Clearing notification buffer for port 0x%02X", port);
-
-        // 1. Unsubscribing from notifications
-        std::vector<uint8_t> unsubscribeCommand = {
-            0x08,       // Length
-            0x00,       // Hub ID
-            0x47,       // Hub Attached IO
-            port,       // Port  
-            0x02,       // Subcommand: Subscribe
-            0x00,       // Mode
-            0x00,       // Subscribe flag: 0 = unsubscribe
-            0x00        // Padding
-        };
-
-        sendCommandVector(unsubscribeCommand);
-        std::this_thread::sleep_for(100ms);
-
-        // 2. Send several "empty" requests to clear the buffer
-        for (int i = 0; i < 5; i++) {
-            pollEncoderPosition(port);
-            std::this_thread::sleep_for(10ms);
-        }
-
-        // 3. Wait until all old notifications are processed.
-        std::this_thread::sleep_for(200ms);
-
-        // 4. Now let's sign up again
-        std::vector<uint8_t> subscribeCommand = {
-            0x08,       // Length
-            0x00,       // Hub ID
-            0x47,       // Hub Attached IO
-            port,       // Port  
-            0x02,       // Subcommand: Subscribe
-            0x00,       // Mode
-            0x01,       // Subscription flag: 1 = subscribe
-            0x00        // Padding
-        };
-
-        sendCommandVector(subscribeCommand);
-        std::this_thread::sleep_for(100ms);
-
-        addLog("Notification buffer cleared for port 0x%02X", port);
-    }
-
-    void synchronizeEncoder(uint8_t port) {
-        addLog("=== FORCED ENCODER SYNCHRONIZATION ===");
-
-        // 1. Stop all polls
-        stopEncoderPolling(port);
-        requestEncoderPolling(port, false);
-
-        // 2. Unsubscribe from all notifications
-        std::vector<uint8_t> unsubscribeAll = {
-            0x06,       // Length
-            0x00,       // Hub ID
-            0x2F,       // Port Input Format Setup (Single)
-            port,       // Port
-            0x00,       // Mode
-            0x00        // Disable notifications
-        };
-        sendCommandVector(unsubscribeAll);
-
-        // 3. Wait for all pending notifications to be cleared
-        std::this_thread::sleep_for(300ms);
-
-        // 4. Reset the hardware encoder
-        resetHardwareEncoderPosition(port);
-
-        // 5. Clear the BLE buffer
-        for (int i = 0; i < 10; i++) {
-            peripheral.read(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID);
-            std::this_thread::sleep_for(10ms);
-        }
-
-        // 6. Completely reset the state
-        auto& state = motorStates[port];
-        state.absolutePosition.store(0.0);
-        state.segmentAccumulator.store(0.0);
-        state.currentSegmentIndex.store(0);
-        state.profileActive.store(false);
-        state.activeProfile.clear();
-
-        // 7. Give time for a full reset
-        std::this_thread::sleep_for(500ms);
-
-        addLog("Encoder synchronized for port 0x%02X", port);
-    }
-
-    bool isProfileExecuting(uint8_t port) {
-        std::lock_guard<std::mutex> lock(profileQueuesMutex);
-        auto it = profileQueues.find(port);
-        if (it != profileQueues.end()) {
-            return it->second.isExecuting || !it->second.profiles.empty();
-        }
-
-        return false;
-    }
-
-    void clearProfileQueue(uint8_t port) {
-        std::lock_guard<std::mutex> lock(profileQueuesMutex);
-        auto it = profileQueues.find(port);
-        if (it != profileQueues.end()) {
-            std::lock_guard<std::mutex> qLock(it->second.queueMutex);
-            while (!it->second.profiles.empty()) {
-                auto& profile = it->second.profiles.front();
-                delete[] profile.points;
-                it->second.profiles.pop();
-            }
-            addLog("Cleared profile queue for port 0x%02X", port);
-        }
-    }
-
-    void requestEncoderPolling(uint8_t port, bool enabled) {
-        std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-
-        if (enabled) {
-            unifiedPollingPorts.insert(port);
-
-            // Start the polling thread if it is not already running.
-            if (!unifiedEncoderThread.joinable()) {
-                unifiedEncoderThread = std::thread([this]() {
-                    addLog("Unified encoder polling thread started");
-
-                    while (isValid && !stopRequested) {
-                        std::set<uint8_t> portsCopy;
-                        {
-                            std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-                            portsCopy = unifiedPollingPorts;
-                        }
-
-                        if (portsCopy.empty()) {
-                            std::this_thread::sleep_for(10ms);
-                            continue;
-                        }
-
-                        // We query all active ports
-                        for (uint8_t port : portsCopy) {
-                            pollEncoderPosition(port);
-                        }
-
-                        std::this_thread::sleep_for(10ms);
-                    }
-
-                    addLog("Unified encoder polling thread stopped");
-                });
-            }
-        }
-        else {
-            unifiedPollingPorts.erase(port);
-
-            // If there are no more ports to poll, stop the flow
-            if (unifiedPollingPorts.empty() && unifiedEncoderThread.joinable()) {
-                // Let's give the flow some time to complete.
-                for (int i = 0; i < 10 && unifiedEncoderThread.joinable(); i++) {
-                    std::this_thread::sleep_for(10ms);
-                }
-
-                if (unifiedEncoderThread.joinable()) {
-                    unifiedEncoderThread.detach();
-                    addLog("Unified encoder polling thread detached");
-                }
-            }
-        }
-    }
-
-    void resetHardwareEncoderPosition(uint8_t port) {
-        if (!isValid || !peripheral.is_connected()) return;
-
-        addLog("Resetting hardware encoder for port 0x%02X", port);
-
-        // Command to reset the incremental encoder (0x45)
-        std::vector<uint8_t> resetCmd = {
-            0x05,       // Length
-            0x00,       // Hub ID
-            0x51,       // Command: Set Absolute Encoder
-            port,       // Port
-            0x00        // Subcommand: Reset
-        };
-
-        sendCommandVector(resetCmd);
-        std::this_thread::sleep_for(100ms);
-
-        // Command to reset the absolute encoder (0x04)
-        std::vector<uint8_t> resetAbsCmd = {
-            0x09,       // Length
-            0x00,       // Hub ID  
-            0x51,       // Command: Set Absolute Encoder
-            port,       // Port
-            0x01,       // Subcommand: Set value
-            0x00, 0x00, 0x00, 0x00  // New value: 0
-        };
-
-        sendCommandVector(resetAbsCmd);
-        std::this_thread::sleep_for(100ms);
-
-        // Request the current position to update the cache
-        pollEncoderPosition(port);
-
-        addLog("Hardware encoder reset complete for port 0x%02X", port);
-    }
-
-    void processProfileQueue(uint8_t port) {
-        addLog("Profile queue processor started for port 0x%02X", port);
-
-        while (isValid && !stopRequested) {
-            SpeedProfile nextProfile;
-
-            {
-                std::unique_lock<std::mutex> lock(profileQueues[port].queueMutex);
-
-                // Wait until the profile appears in the queue
-                profileQueues[port].cv.wait(lock, [this, port]() {
-                    return !profileQueues[port].profiles.empty() ||
-                        !isValid || stopRequested;
-                    });
-
-                if (!isValid || stopRequested) break;
-
-                if (profileQueues[port].profiles.empty()) continue;
-
-                // Extract the next profile
-                nextProfile = std::move(profileQueues[port].profiles.front());
-                profileQueues[port].profiles.pop();
-
-                // Set the execution flag
-                profileQueues[port].isExecuting = true;
-            }
-
-            // Before executing the profile
-            addLog("=== STARTING NEW PROFILE FOR PORT 0x%02X ===", port);
-
-            // Request an encoder poll
-            requestEncoderPolling(port, true);
-
-            {
-                std::lock_guard<std::mutex> lock(motorStatesMutex);
-                if (motorStates.count(port)) {
-                    auto& state = motorStates[port];
-
-                    state.absolutePosition = 0.0;
-                    state.segmentAccumulator = 0.0;
-                    state.segmentStartPosition = 0.0;
-                    state.currentSegmentIndex = 0.0;
-                    state.currentSegmentTraveled = 0.0;
-
-                    std::vector<uint8_t> resetCommand = { 0x05, 0x00, 0x51, port, 0x00 };
-                    sendCommandVector(resetCommand);
-                }
-            }
-
-            // Add an extra delay before starting
-            std::this_thread::sleep_for(200ms);
-
-            // Execute the profile
-            bool success = executeProfileInternal(port, nextProfile);
-
-            // After running the profile
-            addLog("=== PROFILE COMPLETED FOR PORT 0x%02X, success: %s ===",
-                port, success ? "true" : "false");
-
-            delete[] nextProfile.points;
-
-            // Complete stop of the motor
-            setMotorSpeed(port, 0);
-            std::this_thread::sleep_for(100ms);
-
-            // Reset flags
-            {
-                std::lock_guard<std::mutex> lock(profileQueues[port].queueMutex);
-                profileQueues[port].isExecuting = false;
-
-                // Stop polling the encoder if the queue is empty
-                if (profileQueues[port].profiles.empty()) {
-                    requestEncoderPolling(port, false);
-                }
-            }
-        }
-
-        // When exiting the loop, we guarantee that the polling will stop
-        requestEncoderPolling(port, false);
-
-        addLog("Profile queue processor stopped for port 0x%02X", port);
-    }
-
-    bool executeProfileInternal(uint8_t port, const SpeedProfile& profile) {
-        if (profile.count < 1) return false;
-
-        addLog("Executing profile for port 0x%02X", port);
-
-        synchronizeEncoder(port);
-
-        std::this_thread::sleep_for(200ms);
-
-        initializeMotorState(port);
-        auto& state = motorStates[port];
-
-        state.profileActive.store(false);
-        state.segmentAccumulator.store(0.0);
-        state.currentSegmentIndex.store(0.0);
-        state.activeProfile.clear();
-
-        for (int i = 0; i < profile.count; i++) {
-            state.activeProfile.push_back(profile.points[i]);
-        }
-
-        state.profileTimeoutMs = profile.timeoutMs;
-
+        // Activate the encoder
         ActivateEncoderMode(port);
-        std::this_thread::sleep_for(300ms);
-
-        resetHardwareEncoderPosition(port);
-
         std::this_thread::sleep_for(200ms);
 
-        requestEncoderPolling(port, true);
+        // Setting up notifications
+        setupNotificationHandler();
+        std::this_thread::sleep_for(200ms);
 
-        // Start the first segment
-        if (!state.activeProfile.empty()) {
-            const auto& firstSegment = state.activeProfile[0];
-            setMotorSpeed(port, firstSegment.speed);
-            addLog("Started segment 0 for port 0x%02X: target=%.3f, speed=%d, SegAcc=0.0",
-                port, firstSegment.distance, firstSegment.speed);
+        // Launching the profile controller
+        if (!startRelativeProfileController(port, profilePoints, timeoutMs)) {
+            addLog("Failed to start profile controller for port 0x%02X", port);
         }
 
-        // Wait for profile completion
+        // We are waiting for the profile to be completed
+        auto& state = motorStates[port];
         auto startTime = std::chrono::steady_clock::now();
-        auto lastLogTime = startTime;
-        auto segmentStartTime = startTime;
 
-        while (state.profileActive && isValid && !stopRequested) {
-            int currentSegment = state.currentSegmentIndex.load();
-
-            // Check if all segments are complete
-            if (currentSegment >= state.activeProfile.size()) {
-                setMotorSpeed(port, 0);
-                state.profileActive = false;
-                addLog("Profile completed for port 0x%02X", port);
-                return true;
-            }
-
-            const auto& segment = state.activeProfile[currentSegment];
-            double traveled = state.segmentAccumulator.load();
-
-            // Logging progress every 500ms
+        while (state.profileActive && isValid && portThreadRunning[port]) {
             auto currentTime = std::chrono::steady_clock::now();
-            auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::milliseconds>(
-                currentTime - lastLogTime);
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
 
-            if (timeSinceLastLog.count() > 500) {
-                addLog("Port 0x%02X Segment %d: %.6f/%.3f rev (%.1f%%), Time: %dms",
-                    port, currentSegment, traveled, segment.distance,
-                    (segment.distance > 0 ? (traveled / segment.distance) * 100 : 0),
-                    std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - segmentStartTime).count());
-                lastLogTime = currentTime;
+            if (elapsed.count() > timeoutMs) {
+                addLog("Profile execution timeout for port 0x%02X", port);
+                break;
             }
 
-            // Check for completion of the current segment
-            bool segmentCompleted = false;
-            if (segment.distance <= 0) {
-                segmentCompleted = true;
-                addLog("Zero-distance segment %d completed immediately", currentSegment);
-            }
-            else if (traveled >= segment.distance - segment.tolerance) {
-                segmentCompleted = true;
-                addLog("Segment %d completed for port 0x%02X: %.6f/%.3f (tolerance: %.3f)",
-                    currentSegment, port, traveled, segment.distance, segment.tolerance);
-            }
-
-            if (segmentCompleted) {
-                int nextSegment = currentSegment + 1;
-                state.currentSegmentIndex.store(nextSegment);
-
-                // IMPORTANT: reset segmentAccumulator for the new segment
-                state.segmentAccumulator.store(0.0);
-
-                // IMPORTANT: Clear any accumulated values ​​from the encoder queue
-                // by requesting the current position
-                pollEncoderPosition(port);
-                std::this_thread::sleep_for(50ms);
-
-                // Clear any accumulated values ​​during the wait time
-                state.segmentAccumulator.store(0.0);
-
-                if (nextSegment < state.activeProfile.size()) {
-                    // Set a new speed
-                    const auto& nextSegmentData = state.activeProfile[nextSegment];
-                    setMotorSpeed(port, nextSegmentData.speed);
-
-                    addLog("Segment transition: %d->%d, speed=%d, accumulator reset to 0",
-                        currentSegment, nextSegment, nextSegmentData.speed);
-                }
-            }
-
-
-            // Check timeout
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                currentTime - startTime);
-
-            if (elapsed.count() > profile.timeoutMs) {
-                addLog("Profile timeout for port 0x%02X after %d ms",
-                    port, elapsed.count());
-                setMotorSpeed(port, 0);
-                state.profileActive = false;
-                return false;
-            }
-
-            std::this_thread::sleep_for(10ms);
+            std::this_thread::sleep_for(100ms);
         }
 
-        requestEncoderPolling(port, false);
-        stopEncoderPolling(port);
-
-        return false;
+        addLog("=== Speed profile executino completed for port 0x%02X ===", port);
     }
 
-    void clearEncoderBuffer(uint8_t port) {
-        std::vector<uint8_t> clearCommand = {
-            0x06, // Length
-            0x00, // Hub ID
-            0x21, // Port Information Request
-            port, // Port
-            0x02, // Mode: increment encoder
-            0x00  // poll without subscribe
-        };
+    // Command queues for each port
+    std::map<uint8_t, std::queue<std::function<void()>>> portCommandQueues;
+    std::map<uint8_t, std::thread> portThreads;
+    std::map<uint8_t, std::atomic<bool>> portThreadRunning;
+    std::map<uint8_t, std::mutex> portQueueMutexes;
+    std::map<uint8_t, std::condition_variable> portQueueCVs;
 
-        sendCommandVector(clearCommand);
-        std::this_thread::sleep_for(50ms);
+    // Method to start the port handler thread
+    void startPortThread(uint8_t port) {
+        if (portThreadRunning[port]) return;
+
+        portThreadRunning[port] = true;
+        portThreads[port] = std::thread([this, port]() {
+            this->portCommandProcessor(port);
+        });
+    }
+
+    // Command processing method for the port
+    void portCommandProcessor(uint8_t port) {
+        while (portThreadRunning[port] && isValid) {
+            std::function<void()> task;
+
+            {
+                std::unique_lock<std::mutex> lock(portQueueMutexes[port]);
+
+                // We wait until a command appears or until a stop is requested
+                portQueueCVs[port].wait(lock, [this, port]() {
+                    return !portCommandQueues[port].empty() || !portThreadRunning[port];
+                });
+
+                if (!portThreadRunning[port]) break;
+
+                if (portCommandQueues[port].empty()) continue;
+
+                task = std::move(portCommandQueues[port].front());
+                portCommandQueues[port].pop();
+            }
+
+            // We are completing the task
+            try {
+                task();
+            }
+            catch (const std::exception& ex) {
+                addLog("Error executing task for port 0x%02X: %s", port, ex.what());
+            }
+        }
+
+        addLog("Command processor stopped for port 0x%02X", port);
+    }
+
+    // Method for adding a command to a port queue
+    void enqueuePortCommand(uint8_t port, std::function<void()> task) {
+        std::lock_guard<std::mutex> lock(portQueueMutexes[port]);
+
+        // If the stream is not running yet, start it.
+        if (!portThreadRunning.count(port) || !portThreadRunning[port]) {
+            startPortThread(port);
+        }
+
+        portCommandQueues[port].push(std::move(task));
+        portQueueCVs[port].notify_one();
     }
 
     bool startRelativeProfileController(uint8_t port, const std::vector<SpeedProfilePoint>& profilePoints, int timeoutMs) {
@@ -1799,38 +1309,12 @@ private:
         state.segmentAccumulator.store(0.0);
         state.relativePosition.store(0.0); // if this variable is still in use
 
-        std::vector<uint8_t> resetAbsEncoder = {
-            0x09, // Length
-            0x00, // Hub ID
-            0x51, // Command: Set Absolute Encoder
-            port, // Port
-            0x00, // SubCommand: Reset/Set value
-            0x00, 0x00, 0x00, 0x00 // 4 bytes: new value (0)
-        };
-
-        sendCommandVector(resetAbsEncoder);
-        std::this_thread::sleep_for(50ms);
-
-        std::vector<uint8_t> resetIncrementEncoder = {
-            0x05, // Length
-            0x00, // Hub ID
-            0x22, // Command: Reset Increment Encoder
-            port, // Port
-            0x00  // Mode
-        };
-
-        sendCommandVector(resetIncrementEncoder);
-        std::this_thread::sleep_for(50ms);
-
-        pollEncoderPosition(port);
-        std::this_thread::sleep_for(2ms);
-
         addLog("Reset: Port=0x%02X, Was=%.3f, Now=0.000", port, currentAbsolute);
     }
 
     void pollEncoderPosition(uint8_t port) {
         // Encoder position query command
-        std::vector<uint8_t> requestCmd = 
+        std::vector<uint8_t> requestCmd =
         {
             0x05,       // Length
             0x00,       // Hub ID
@@ -1853,7 +1337,7 @@ public:
         addLog("FUNCTION do not do everything");
     }
 
-private:          
+private:
 
     void startEncoderPolling(uint8_t port)
     {
@@ -1870,7 +1354,7 @@ private:
             }
             addLog("Encoder polling stopped for port 0x%02X after %d requests", port);
             });
-    }    
+    }
 
     bool quickEncoderTest(uint8_t port)
     {
@@ -2022,11 +1506,8 @@ private:
     struct ProfileExecution {
         std::atomic<bool> active{ false };
         std::atomic<bool> completed{ false };
-        std::atomic<bool> started{ false };
         std::unique_ptr<std::thread> executionThread;
         SpeedProfile profile;
-
-        std::chrono::steady_clock::time_point startTime;
 
         ProfileExecution() = default;
 
@@ -2059,37 +1540,13 @@ private:
     };
 
     std::map<uint8_t, ProfileExecution> profileExecutions;
+    std::mutex profileExecutionsMutex;
 
     void executeSingleProfileThread(uint8_t port) {
         auto& execution = profileExecutions[port];
-        execution.startTime = std::chrono::steady_clock::now();
-        execution.started = true;
 
         try {
-            addLog("Starting profile execution for port 0x%02X in thread", port);
-
-            // Copy the profile, since the original may be deleted
-            SpeedProfile localProfile;
-            localProfile.port = execution.profile.port;
-            localProfile.count = execution.profile.count;
-            localProfile.timeoutMs = execution.profile.timeoutMs;
-
-            // Copy profile points
-            if (execution.profile.points && execution.profile.count > 0) {
-                localProfile.points = new SpeedProfilePoint[execution.profile.count];
-                std::copy(execution.profile.points,
-                    execution.profile.points + execution.profile.count,
-                    localProfile.points);
-            }
-            else {
-                addLog("Error: No points in profile for port 0x%02X", port);
-                execution.completed = true;
-                execution.active = false;
-                return;
-            }
-
-            // IMPORTANT: We use the synchronous method executeSpeedProfileInternal
-            bool success = executeSpeedProfileInternal(port, localProfile);
+            bool success = executeSpeedProfile(&execution.profile);
 
             if (success) {
                 addLog("Profile completed successfully for port 0x%02X", port);
@@ -2097,134 +1554,19 @@ private:
             else {
                 addLog("Profile failed for port 0x%02X", port);
             }
-
-            delete[] localProfile.points;
-
-            execution.completed = true;
         }
         catch (const std::exception& ex) {
-            addLog("Exception in profile execution for port 0x%02X: %s",
-                port, ex.what());
-            execution.completed = true;
+            addLog("Exception in profile execution for port 0x%02X: %s", port, ex.what());
         }
+
+        delete[] execution.profile.points;
+        execution.profile.points = nullptr;
 
         execution.active = false;
-
-        // Clear the original memory (if not cleared yet)
-        if (execution.profile.points) {
-            delete[] execution.profile.points;
-            execution.profile.points = nullptr;
-        }
+        execution.completed = true;
     }
 
-    bool executeSpeedProfileInternal(uint8_t port, const SpeedProfile& profile) {
-        if (profile.count < 1) return false;
-
-        addLog("Executing profile internally for port 0x%02X", port);
-
-        // Initialize the motor state
-        initializeMotorState(port);
-        auto& state = motorStates[port];
-
-        // Stop the previous profile
-        state.profileActive = false;
-        std::this_thread::sleep_for(100ms);
-
-        // Reset the state
-        state.segmentAccumulator.store(0.0);
-        state.currentSegmentIndex.store(0);
-        state.activeProfile.clear();
-
-        // Copy profile points
-        for (int i = 0; i < profile.count; i++) {
-            state.activeProfile.push_back(profile.points[i]);
-        }
-
-        state.profileActive.store(true);
-        state.profileTimeoutMs = profile.timeoutMs;
-
-        // Launch the first segment
-        if (!state.activeProfile.empty()) {
-            const auto& firstSegment = state.activeProfile[0];
-            setMotorSpeed(port, firstSegment.speed);
-            addLog("Started segment 0 for port 0x%02X: target=%.3f, speed=%d",
-                port, firstSegment.distance, firstSegment.speed);
-        }
-        else {
-            addLog("Error: Empty profile for port 0x%02X", port);
-            return false;
-        }
-
-        // Wait for the profile to complete
-        auto startTime = std::chrono::steady_clock::now();
-
-        while (state.profileActive && isValid && !stopRequested) {
-            int currentSegment = state.currentSegmentIndex.load();
-
-            // Check for completion of all segments
-            if (currentSegment >= state.activeProfile.size()) {
-                setMotorSpeed(port, 0);
-                state.profileActive = false;
-                addLog("Profile completed for port 0x%02X", port);
-                return true;
-            }
-
-            const auto& segment = state.activeProfile[currentSegment];
-            double traveled = state.segmentAccumulator.load();
-
-            // Log progress every 500ms
-            auto currentTime = std::chrono::steady_clock::now();
-            static auto lastLogTime = startTime;
-            auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::milliseconds>(
-                currentTime - lastLogTime);
-
-            if (timeSinceLastLog.count() > 500) {
-                addLog("Port 0x%02X Segment %d: %.3f/%.3f rev (%.1f%%)",
-                    port, currentSegment, traveled, segment.distance,
-                    (traveled / segment.distance) * 100);
-                lastLogTime = currentTime;
-            }
-
-            // Check for completion of the current segment
-            if (traveled >= segment.distance - segment.tolerance) {
-                addLog("Segment %d completed for port 0x%02X: %.3f/%.3f",
-                    currentSegment, port, traveled, segment.distance);
-
-                int nextSegment = currentSegment + 1;
-                state.currentSegmentIndex.store(nextSegment);
-
-                if (nextSegment < state.activeProfile.size()) {
-                    // Reset the accumulator for the new segment
-                    state.segmentAccumulator.store(0.0);
-
-                    // Set a new speed
-                    const auto& nextSegmentData = state.activeProfile[nextSegment];
-                    setMotorSpeed(port, nextSegmentData.speed);
-
-                    addLog("Starting segment %d for port 0x%02X: target=%.3f, speed=%d",
-                        nextSegment, port, nextSegmentData.distance, nextSegmentData.speed);
-                }
-            }
-
-            // Checking the timeout
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                currentTime - startTime);
-
-            if (elapsed.count() > profile.timeoutMs) {
-                addLog("Profile timeout for port 0x%02X after %d ms",
-                    port, elapsed.count());
-                setMotorSpeed(port, 0);
-                state.profileActive = false;
-                return false;
-            }
-
-            std::this_thread::sleep_for(10ms);
-        }
-
-        return false;
-    }
-
-    bool waitForAllProfiles(int timeoutMs) {
+    void waitForAllProfiles(int timeoutMs) {
         auto startTime = std::chrono::steady_clock::now();
 
         while (true) {
@@ -2242,7 +1584,7 @@ private:
 
             if (allCompleted) {
                 addLog("All profiles completed");
-                return true;
+                break;
             }
 
             auto currentTime = std::chrono::steady_clock::now();
@@ -2251,7 +1593,7 @@ private:
             if (elapsed.count() > timeoutMs) {
                 addLog("Timeout waiting for profiles to complete");
                 stopAllProfiles();
-                return false;
+                break;
             }
 
             std::this_thread::sleep_for(5ms);
@@ -2330,90 +1672,6 @@ private:
             addLog("Stopped profile execution for port 0x%02X", port);
         }
     }
-
-private:
-    std::thread unifiedEncoderThread;
-    std::set<uint8_t> unifiedPollingPorts;
-    std::mutex unifiedPollingMutex;
-
-    void startUnifiedEncoderPolling(const std::set<uint8_t>& ports) {
-        std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-
-        if (unifiedEncoderThread.joinable()) {
-            unifiedEncoderThread.join();
-        }
-
-        unifiedPollingPorts = ports;
-
-        if (ports.empty()) {
-            addLog("No ports for unified encoder polling");
-            return;
-        }
-
-        addLog("Starting unified encoder polling for %zu ports", ports.size());
-
-        unifiedEncoderThread = std::thread([this]() {
-            std::set<uint8_t> localPorts;
-            {
-                std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-                localPorts = unifiedPollingPorts;
-            }
-
-            while (isValid && !stopRequested && !localPorts.empty()) {
-                for (uint8_t port : localPorts) {
-                    pollEncoderPosition(port);
-                }
-                std::this_thread::sleep_for(10ms);
-
-                {
-                    std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-                    localPorts = unifiedPollingPorts;
-                }
-            }
-            addLog("Unified encoder polling stopped");
-        });
-    }
-
-    void stopUnifiedEncoderPolling() {
-        std::lock_guard<std::mutex> lock(unifiedPollingMutex);
-        unifiedPollingPorts.clear();
-
-        if (unifiedEncoderThread.joinable()) {
-            for (int i = 0; i < 10; i++) {
-                if (unifiedEncoderThread.joinable()) {
-                    std::this_thread::sleep_for(10ms);
-                }
-            }
-            if (unifiedEncoderThread.joinable()) {
-                unifiedEncoderThread.detach();
-                addLog("WARNING: Unified encoder thread detached");
-            }
-        }
-    }
-
-    public:
-        void resetMotorPosition(uint8_t port) {
-            std::lock_guard<std::mutex> lock(motorStatesMutex);
-
-            if (motorStates.count(port)) {
-                auto& state = motorStates[port];
-
-                // Soft reset
-                state.absolutePosition.store(0.0);
-                state.segmentAccumulator.store(0.0);
-                state.relativePosition.store(0.0);
-                state.currentSegmentIndex.store(0);
-                state.profileActive.store(false);
-
-                addLog("Software reset for port 0x%02X: all positions set to 0", port);
-
-                // Hardware reset of the encoder
-                resetHardwareEncoderPosition(port);
-
-                // Additional delay for guarantee
-                std::this_thread::sleep_for(200ms);
-            }
-        }
 };
 
 // Main context and virtual table
@@ -2425,7 +1683,7 @@ namespace
     // Virtual table functions - a bridge between C++ and C-INTERFACE
     bool printer_connect(IPrinter* self) {
         if (!self || !self->vtable) return false;
-        
+
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
         return Implementation->connect();
     }
@@ -2449,11 +1707,11 @@ namespace
 
         try {
             PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-            
+
             Implementation->safeShutdown();
-            
+
             std::lock_guard<std::mutex> Lock(contextsMutex);
-            
+
             if (contexts.find(Implementation) != contexts.end()) {
                 contexts.erase(Implementation);
             }
@@ -2504,7 +1762,7 @@ namespace
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
         return Implementation->getMotorPosition(port);
     }
-    
+
     int printer_get_log_count(IPrinter* self) {
         if (!self || !self->vtable) return 0;
 
@@ -2552,12 +1810,6 @@ namespace
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
         return Implementation->executeSpeedProfiles(profiles, count);
     }
-
-    void printer_reset_motor_position(IPrinter* self, unsigned char port) {
-        if (!self || !self->vtable) return;
-        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->resetMotorPosition(port);
-    }
 }
 
 // Virtual Method Table - C-INTERFACE
@@ -2578,8 +1830,7 @@ static IPrinterVirtualTable PrinterVTable = {
     printer_get_last_error,
     printer_printer_connection_info,
     printer_test_encoder_functionality,
-    printer_execute_speed_profiles,
-    printer_reset_motor_position
+    printer_execute_speed_profiles
 };
 
 // Tested function - remove after deep testing
@@ -2714,11 +1965,6 @@ extern "C"
         else {
             return false;
         }
-    }
-
-    PRINTER_DRIVER_API void PrinterResetMotorPosition(IPrinter* printer, unsigned char port)
-    {
-        if (printer) printer->vtable->printer_reset_motor_position;
     }
 
     PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer) {
