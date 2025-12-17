@@ -1,4 +1,4 @@
-#define GCODEINTERPRETER_EXPORTS
+﻿#define GCODEINTERPRETER_EXPORTS
 
 #include "Interpreter.h"
 #include <map>
@@ -547,48 +547,68 @@ private:
 		arc.endY = absolutePositioning ? endY : currentY + endY;
 		arc.clockwise = clockwise;
 
+		// Check for movement
+		if (abs(arc.endX - arc.startX) < 0.001 && abs(arc.endY - arc.startY) < 0.001) {
+			addLogEntry("Warning: No arc movement - start and end points are the same");
+			return {};
+		}
+
 		if (r > 0) {
-			// Calculate arc with radius
+			// Calculation via radius
 			double dx = arc.endX - arc.startX;
 			double dy = arc.endY - arc.startY;
 			double chordLength = std::sqrt(dx * dx + dy * dy);
 
-			if (chordLength > 2 * r) {
-				addLogEntry("Warning: radius is too small for given endpoints");
+			if (chordLength == 0) {
+				addLogEntry("Error: Chord length is zero");
 				return {};
 			}
 
-			double middleX = (arc.startX + arc.endX) / 2.0;
-			double middleY = (arc.startY + arc.endY) / 2.0;
+			if (chordLength > 2 * r) {
+				addGCodeErrorInfo("Radius is too small for given endpoints. Radius: " +
+					std::to_string(r) + ", Chord: " + std::to_string(chordLength), MOVEMENT_ERROR);
+				return {};
+			}
 
-			double h = std::sqrt(r * r - chordLength * chordLength / 4.0);
+			double chordHalf = chordLength / 2.0;
+			double h = std::sqrt(r * r - chordHalf * chordHalf);
 
-			double dxPerl = -dy / chordLength;
-			double dyPerl = dx / chordLength;
+			// Perpendicular to the chord
+			double dxPerp = -dy / chordLength;
+			double dyPerp = dx / chordLength;
+
+			// Midpoint
+			double midX = (arc.startX + arc.endX) / 2.0;
+			double midY = (arc.startY + arc.endY) / 2.0;
 
 			if (clockwise) {
-				arc.centerX = middleX + h * dxPerl;
-				arc.centerY = middleY + h * dyPerl;
+				arc.centerX = midX + h * dxPerp;
+				arc.centerY = midY + h * dyPerp;
 			}
 			else {
-				arc.centerX = middleX - h * dxPerl;
-				arc.centerY = middleY - h * dyPerl;
+				arc.centerX = midX - h * dxPerp;
+				arc.centerY = midY - h * dyPerp;
 			}
 
 			arc.radius = r;
 		}
 		else {
-			// Calculate arc with I and J - center offset
+			// Calculation via offsets I, J
 			arc.centerX = arc.startX + i;
 			arc.centerY = arc.startY + j;
 			arc.radius = std::sqrt(i * i + j * j);
+
+			if (arc.radius < 0.001) {
+				addGCodeErrorInfo("Arc radius is too small or zero", MOVEMENT_ERROR);
+				return {};
+			}
 		}
 
 		// Calculate angles
 		arc.startAngle = std::atan2(arc.startY - arc.centerY, arc.startX - arc.centerX);
 		arc.endAngle = std::atan2(arc.endY - arc.centerY, arc.endX - arc.centerX);
 
-		// Adjust angles for clockwise direction
+		// Adjusting angles for direction
 		if (clockwise) {
 			if (arc.endAngle > arc.startAngle) {
 				arc.endAngle -= 2 * PI;
@@ -603,34 +623,76 @@ private:
 		return arc;
 	}
 
-	std::vector<SpeedProfilePoint> generateArcPointsForAxis(const StepperConfig& config, const ArcParameters& arc, int steps, bool isXAxis) {
+	// Helper function for generating arc points (slightly simplified)
+	std::vector<SpeedProfilePoint> generateArcPointsForAxis(const StepperConfig& config,
+		const ArcParameters& arc,
+		int steps,
+		bool isXAxis) {
 		std::vector<SpeedProfilePoint> points;
 		points.reserve(steps);
 
+		if (config.rotationDistance <= 0) {
+			addLogEntry("Error: rotationDistance is not set for axis");
+			return points;
+		}
+
+		// Calculate the angular step taking into account the direction
 		double angleStep = (arc.endAngle - arc.startAngle) / steps;
+		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
 
-		for (int i = 0; i < steps; i++) {
+		// Calculate time for the entire segment (same for both axes)
+		double totalTime = arcLength / speed;
+		if (totalTime <= 0) {
+			addLogEntry("Warning: Arc speed is zero or too small");
+			totalTime = 1.0;  // Default value
+		}
+
+		double timePerSegment = totalTime / steps;
+
+		double prevPos = isXAxis ? arc.startX : arc.startY;
+		double totalRevolutions = 0.0;
+
+		for (int i = 1; i <= steps; i++) {
 			double angle = arc.startAngle + i * angleStep;
-			double x = arc.centerX + arc.radius * std::cos(angle);
-			double y = arc.centerY + arc.radius * std::sin(angle);
+			double currentPos = isXAxis ?
+				(arc.centerX + arc.radius * std::cos(angle)) :
+				(arc.centerY + arc.radius * std::sin(angle));
 
-			double distance = isXAxis ? (x - arc.startX) : (y - arc.startY);
+			// Distance from the previous point (not from the start!)
+			double segmentDistance = currentPos - prevPos;
+			prevPos = currentPos;
 
-			double revolution = (std::abs(distance) * config.gearRatio) / config.rotationDistance;
-			double segmentLength = arc.radius * std::abs(angleStep);
-			double timePerSegment = segmentLength / speed;
+			// Calculate the revolutions for this segment
+			double segmentRevolutions = (std::abs(segmentDistance) * config.gearRatio) / config.rotationDistance;
 
-			double axisSpeed = (distance > 0 ? 1 : -1) * revolution / timePerSegment;
-
-			if (!config.direction) {
-				axisSpeed = -axisSpeed;
+			// Determine the direction
+			if (segmentDistance < 0) {
+				segmentRevolutions = -segmentRevolutions;
 			}
 
-			axisSpeed = std::max(std::min(axisSpeed, config.maximumFeedrate), -config.maximumFeedrate);
+			totalRevolutions += segmentRevolutions;
+
+			// Calculate the speed for this segment
+			double segmentSpeed = segmentRevolutions / timePerSegment;
+
+			// Taking into account the direction of motor rotation
+			if (!config.direction) {
+				segmentSpeed = -segmentSpeed;
+			}
+
+			// Speed ​​Limit
+			if (segmentSpeed > 0) {
+				segmentSpeed = std::min(segmentSpeed, config.maximumFeedrate);
+				segmentSpeed = std::max(segmentSpeed, config.minimumFeedrate);
+			}
+			else {
+				segmentSpeed = std::max(segmentSpeed, -config.maximumFeedrate);
+				segmentSpeed = std::min(segmentSpeed, -config.minimumFeedrate);
+			}
 
 			SpeedProfilePoint point;
-			point.distance = revolution;
-			point.speed = static_cast<signed char>(axisSpeed * 100);
+			point.distance = std::abs(segmentRevolutions);  // Relative distance for the segment
+			point.speed = static_cast<signed char>(segmentSpeed * 100);  // Scale
 			point.tolerance = 0.01;
 
 			points.push_back(point);
@@ -710,59 +772,113 @@ private:
 	}
 
 	void executeArcMovement(const ArcParameters& arc) {
-		if (!currentPrinter || !currentPrinter->vtable->printer_execute_speed_profiles) {
-			addLogEntry("printer is invalid");
+		if (!currentPrinter || !currentPrinter->vtable->printer_printer_execute_speed_profile) {
+			addLogEntry("Printer is invalid or doesn't support speed profile");
 			return;
 		}
+
+		if (!validateArc(arc)) {
+			return;
+		}
+
+		addLogEntry("Executing arc movement");
+		addLogEntry("Start: (" + std::to_string(arc.startX) + "," + std::to_string(arc.startY) + ")");
+		addLogEntry("End: (" + std::to_string(arc.endX) + "," + std::to_string(arc.endY) + ")");
+		addLogEntry("Center: (" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")");
+		addLogEntry("Radius: " + std::to_string(arc.radius));
+		addLogEntry("Clockwise: " + std::to_string(arc.clockwise));
+
+		// Calculate the number of segments
+		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
+		int steps = static_cast<int>(std::ceil(arcLength / 0.1));  // Segments ~0.1 mm
+		steps = std::max(steps, 10);
+		steps = std::min(steps, 1000);  // Maximum 1000 segments
+
+		addLogEntry("Arc length: " + std::to_string(arcLength) + "mm, Steps: " + std::to_string(steps));
+
+		// Generate points for the axes
+		std::vector<SpeedProfilePoint> pointsX = generateArcPointsForAxis(stepperX, arc, steps, true);
+		std::vector<SpeedProfilePoint> pointsY = generateArcPointsForAxis(stepperY, arc, steps, false);
+
+		debugArcPoints(pointsX, "X");
+		debugArcPoints(pointsY, "Y");
+
+		// Add a breakpoint
+		if (!pointsX.empty() && !pointsY.empty()) {
+			SpeedProfilePoint stopPoint;
+			stopPoint.distance = 0.0;
+			stopPoint.speed = 0;
+			stopPoint.tolerance = 1.0;  // Large tolerance for stopping
+
+			pointsX.push_back(stopPoint);
+			pointsY.push_back(stopPoint);
+		}
+
+		if (pointsX.size() != pointsY.size()) {
+			addGCodeErrorInfo("Mismatch in arc points count between axes", MOVEMENT_ERROR);
+			return;
+		}
+
+		std::vector<std::future<bool>> futures;
+		bool allSuccess = true;
+
+		auto createAndExecuteProfile = [this](uint8_t port, const std::vector<SpeedProfilePoint>& points) -> bool {
+			if (points.empty()) {
+				addLogEntry("Warning: No points for port " + std::to_string(port));
+				return true;
+			}
+
+			SpeedProfile* profile = new SpeedProfile();
+			profile->port = port;
+			profile->count = static_cast<int>(points.size());
+			profile->timeoutMs = 10000;
+			profile->points = new SpeedProfilePoint[points.size()];
+
+			std::copy(points.begin(), points.end(), profile->points);
+
+			addLogEntry("Executing profile on port " + std::to_string(port) +
+				" with " + std::to_string(points.size()) + " points");
+
+			bool result = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, profile);
+
+			delete[] profile->points;
+			delete profile;
+
+			return result;
+			};
+
+		for (uint8_t port : stepperX.ports) {
+			futures.push_back(std::async(std::launch::async, [=]() {
+				return createAndExecuteProfile(port, pointsX);
+				}));
+		}
+
+		for (uint8_t port : stepperY.ports) {
+			futures.push_back(std::async(std::launch::async, [=]() {
+				return createAndExecuteProfile(port, pointsY);
+				}));
+		}
+
+		for (auto& future : futures) {
+			try {
+				if (!future.get()) {
+					allSuccess = false;
+				}
+			}
+			catch (const std::exception& ex) {
+				addLogEntry("Error in arc execution: " + std::string(ex.what()));
+				allSuccess = false;
+			}
+		}
+
+		if (allSuccess) {
+			currentX = arc.endX;
+			currentY = arc.endY;
+			addLogEntry("Arc completed successfully. New position: X=" +
+				std::to_string(currentX) + " Y=" + std::to_string(currentY));
+		}
 		else {
-
-			if (!validateArc(arc)) {
-				return;
-			}
-
-			addLogEntry("Executing arc movement: R=" + std::to_string(arc.radius) +
-				" Center=(" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")" +
-				" Clockwise=" + std::to_string(arc.clockwise));
-
-			double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
-			int segments = static_cast<int>(std::ceil(arcLength / 0.1));
-			segments = std::max(segments, 10);				
-
-			addLogEntry("Arc length: " + std::to_string(arcLength) + ", Segments: " + std::to_string(segments));
-
-			std::vector<SpeedProfilePoint> pointsX = generateArcPointsForAxis(stepperX, arc, segments, true);
-			std::vector<SpeedProfilePoint> pointsY = generateArcPointsForAxis(stepperY, arc, segments, false);
-
-			std::vector<SpeedProfile> profilesX = createSpeedProfile(stepperX, pointsX, 1000000);
-			std::vector<SpeedProfile> profilesY = createSpeedProfile(stepperY, pointsY, 1000000);
-			
-
-			if (profilesX.empty() || profilesY.empty()) {
-				addGCodeErrorInfo("Failed to create speed profiles for arc movement", MOVEMENT_ERROR);
-				cleanupSpeedProfiles(profilesX);
-				cleanupSpeedProfiles(profilesY);
-				return;
-			}
-
-			std::vector<SpeedProfile> allProfiles;
-			allProfiles.reserve(profilesX.size() + profilesY.size());
-			allProfiles.insert(allProfiles.end(), profilesX.begin(), profilesX.end());
-			allProfiles.insert(allProfiles.end(), profilesY.begin(), profilesY.end());
-
-			addLogEntry("Created " + std::to_string(allProfiles.size()) + " profiles for arc movement");
-
-			bool success = executeProfiles(allProfiles);
-
-			if (success) {
-				currentX = arc.endX;
-				currentY = arc.endY;
-				addLogEntry("Arc movement completed successfully");
-			}
-			else {
-				addGCodeErrorInfo("Failed to execute speed profiles for arc", MOVEMENT_ERROR);
-			}
-
-			cleanupProfiles(allProfiles);
+			addGCodeErrorInfo("Arc execution failed", MOVEMENT_ERROR);
 		}
 	}
 
@@ -802,6 +918,24 @@ private:
 			}
 		}
 		profiles.clear();
+	}
+
+	void debugArcPoints(const std::vector<SpeedProfilePoint>& points, const std::string& axisName) {
+		double totalDistance = 0.0;
+		double totalTime = 0.0;
+
+		for (size_t i = 0; i < points.size(); i++) {
+			totalDistance += points[i].distance;
+			if (points[i].speed != 0) {
+				totalTime += points[i].distance / (std::abs(points[i].speed) / 100.0);
+			}
+			addLogEntry(axisName + " Point " + std::to_string(i) +
+				": dist=" + std::to_string(points[i].distance) +
+				", speed=" + std::to_string(static_cast<int>(points[i].speed)));
+		}
+
+		addLogEntry(axisName + " Summary: total dist=" + std::to_string(totalDistance) +
+			", est time=" + std::to_string(totalTime) + "s");
 	}
 
 public:	
@@ -1031,34 +1165,24 @@ public:
 			return false;
 		}
 
-		/*std::vector<MotorCommand> commands = {
-			{0x02, 50, 1.0},
-			{0x03, 50, 1.0}
-		};
-
-		addLogEntry("Sending test commands to printer");
-		currentPrinter->vtable->printer_rotate_motor(printer, commands.data(), commands.size());
-
-		// Reverse direction
-		for (auto& command : commands) {
-			command.speed = -50;
-		}
-		currentPrinter->vtable->printer_rotate_motor(printer, commands.data(), commands.size());
-		*/
-
 		SpeedProfilePoint points[] = {
 		{3.0, 20, 0.0005},
 		{3.0, 30, 0.0005},
 		{0.0, 0, 1.0}
 		};
 
-		std::vector<SpeedProfile> profile = {
-			{0x00, points, 3, 30000}
+		std::vector<SpeedProfile> profile1 = {
+			{0x01, points, 3, 30000},
 		};
 
-		currentPrinter->vtable->printer_printer_execute_speed_profile(printer, profile.data());
+		std::vector<SpeedProfile> profile2 = {
+			{0x01, points, 3, 30000}
+		};
 
-		addLogEntry("Test function completed successfully");
+		currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, profile1.data());
+		currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, profile2.data());
+
+		addLogEntry("Multi profile test completed");
 		return true;
 	}
 
@@ -1632,52 +1756,32 @@ private:
 			addLogEntry("Arc syntax check passed");
 		}
 		else {
-			// Execution
-			addGCodeErrorInfo("Execution arc command (G" + std::to_string(clockwise ? 2 : 3) + ")");
+			// Execution with the new implementation
+			addLogEntry("Executing arc command (G" + std::to_string(clockwise ? 2 : 3) + ") with single profile per port");
 
 			// Parse parameters
 			std::string token;
-			double x = 0;
-			double y = 0;
-			double i = 0;
-			double j = 0;
-			double r = -1;
+			double x = 0, y = 0, i = 0, j = 0, r = -1;
 
 			while (string >> token) {
 				char axis = token[0];
 				double value = std::stof(token.substr(1));
 
 				switch (axis) {
-				case 'X':
-				case 'x':
-					x = value;
-					break;
-				case 'Y':
-				case 'y':
-					y = value;
-					break;
-				case 'I':
-				case 'i':
-					i = value;
-					break;
-				case 'J':
-				case 'j':
-					j = value;
-					break;
-				case 'R':
-				case 'r':
-					r = value;
-					break;
+				case 'X': case 'x': x = value; break;
+				case 'Y': case 'y': y = value; break;
+				case 'I': case 'i': i = value; break;
+				case 'J': case 'j': j = value; break;
+				case 'R': case 'r': r = value; break;
 				}
 			}
 
 			try {
 				ArcParameters arc = calculateArcParameters(x, y, i, j, r, clockwise);
-
 				executeArcMovement(arc);
 
 				addLogEntry("Arc completed. New position: X=" + std::to_string(currentX) +
-					"Y=" + std::to_string(currentY));
+					" Y=" + std::to_string(currentY));
 			}
 			catch (const std::exception& ex) {
 				addGCodeErrorInfo("Arc error: " + std::string(ex.what()), MOVEMENT_ERROR);
