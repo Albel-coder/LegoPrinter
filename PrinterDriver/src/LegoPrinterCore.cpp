@@ -62,6 +62,9 @@ private:
         std::vector<SpeedProfilePoint> activeProfile;
         int profileTimeoutMs = 60000;
 
+        double lastAbsolutePosition{ 0.0 };
+        std::mutex positionUpdateMutex;
+
         // Default constructor
         MotorState() = default;
 
@@ -222,6 +225,11 @@ public:
 
 private:    
 
+    void setMotorCalibration(uint8_t port, double factor) {
+        motorCalibrationFactors[port] = factor;
+        addLog("Set calibration for port 0x%02X: %.3f", port, factor);
+    }
+
     // Set notification handler
     void setupNotificationHandler() {
         try {
@@ -270,12 +278,15 @@ private:
         if (data.size() < 5) return;
 
         initializeMotorState(port);
+        auto& state = motorStates[port];
 
         uint8_t positionByte = data[4];
         int8_t signedPosition = static_cast<int8_t>(positionByte);
         double positionDelta = static_cast<double>(signedPosition) * (1.0 / 360.0);
 
-        updateMotorPosition(port, positionDelta);
+        if (state.profileActive) {
+            updateMotorPosition(port, positionDelta);
+        }
 
         if (std::abs(positionDelta) > 0.001) {
             addLog("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
@@ -287,6 +298,7 @@ private:
         if (data.size() < 8) return;
 
         initializeMotorState(port);
+        auto& state = motorStates[port];
 
         int32_t PositionRaw = (static_cast<int32_t>(data[4])) |
             (static_cast<int32_t>(data[5]) << 8) |
@@ -299,18 +311,24 @@ private:
         double absolutePosition = static_cast<double>(SignedPosition) / 360.0;
 
         // For an absolute encoder, you need to calculate the delta from the previous value
-        static std::map<uint8_t, double> lastAbsolutePositions;
         double positionDelta = 0.0;
 
-        if (lastAbsolutePositions.count(port)) {
-            positionDelta = absolutePosition - lastAbsolutePositions[port];
-            // Adjustment for overflow
-            if (positionDelta > 180.0) positionDelta -= 360.0;
-            else if (positionDelta < -180.0) positionDelta += 360.0;
-        }
-        lastAbsolutePositions[port] = absolutePosition;
+        {
+            std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
 
-        updateMotorPosition(port, positionDelta);
+            if (state.profileActive) {
+                positionDelta = absolutePosition - state.lastAbsolutePosition;
+
+                if (positionDelta > 180.0) positionDelta -= 360.0;
+                else if (positionDelta < -180.0) positionDelta += 360.0;
+            }
+
+            state.lastAbsolutePosition = absolutePosition;
+        }
+
+        if (state.profileActive) {
+            updateMotorPosition(port, positionDelta);
+        }
 
         if (std::abs(positionDelta) > 0.001) {
             addLog("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
@@ -342,20 +360,39 @@ private:
     void updateMotorPosition(uint8_t port, double positionDelta) {
         auto& state = motorStates[port];
 
-        // We apply empirical calibration
-        double calibratedDelta = positionDelta * EMPIRICAL_CALIBRATION;
+        if (!state.profileActive.load(std::memory_order_relaxed)) {
+            if (std::abs(positionDelta) > 0.001) {
+                addLog("IGNORED POS_UPDATE (profile inactive): Port=0x%02X, Delta=%4.f", port, positionDelta);
+            }
 
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+
+        // Apply calibration
+        double calibration = motorCalibrationFactors.count(port)
+            ? motorCalibrationFactors[port]
+            : EMPIRICAL_CALIBRATION;
+
+        double calibratedDelta = positionDelta * calibration;
+
+        // Update the absolute position
         double currentAbs = state.absolutePosition.load(std::memory_order_relaxed);
         double newAbs = currentAbs + calibratedDelta;
         state.absolutePosition.store(newAbs, std::memory_order_relaxed);
 
-        double currentSeg = state.segmentAccumulator.load(std::memory_order_relaxed);
-        double newSeg = currentSeg + calibratedDelta;
-        state.segmentAccumulator.store(newSeg, std::memory_order_relaxed);
+        // Update segment accumulation ONLY if the profile is active
+        if (state.profileActive) {
+            double currentSeg = state.segmentAccumulator.load(std::memory_order_relaxed);
+            double newSeg = currentSeg + calibratedDelta;
+            state.segmentAccumulator.store(newSeg, std::memory_order_relaxed);
+        }
 
         if (std::abs(calibratedDelta) > 0.001) {
-            addLog("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalibratedDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
-                port, positionDelta, calibratedDelta, newAbs, newSeg);
+            addLog("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
+                port, positionDelta, calibratedDelta, newAbs,
+                state.profileActive ? state.segmentAccumulator.load() : 0.0);
         }
     }
 
@@ -1048,7 +1085,7 @@ private:
             std::this_thread::sleep_for(100ms);
         }
 
-        addLog("=== Speed profile executino completed for port 0x%02X ===", port);
+        addLog("=== Speed profile execution completed for port 0x%02X ===", port);
     }
 
     // Command queues for each port
@@ -1057,6 +1094,7 @@ private:
     std::map<uint8_t, std::atomic<bool>> portThreadRunning;
     std::map<uint8_t, std::mutex> portQueueMutexes;
     std::map<uint8_t, std::condition_variable> portQueueCVs;
+    std::map<uint8_t, double> motorCalibrationFactors;
 
     // Method to start the port handler thread
     void startPortThread(uint8_t port) {
@@ -1118,26 +1156,35 @@ private:
         initializeMotorState(port);
         auto& state = motorStates[port];
 
-        // Stop the previous profile
+        // Complete stop of the previous profile
         state.profileActive = false;
         std::this_thread::sleep_for(100ms);
 
-        // We reset the drive and set up a new profile
-        state.segmentAccumulator.store(0.0);
+        // Complete reset of all positions under the mutex
+        {
+            std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+            state.absolutePosition.store(0.0, std::memory_order_relaxed);
+            state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+            state.relativePosition.store(0.0, std::memory_order_relaxed);
+            state.lastAbsolutePosition = 0.0;  // Reset the last absolute position
+
+            addLog("Reset motor position: Port=0x%02X, all positions set to 0.0", port);
+        }
+
+        // Install a new profile
         state.activeProfile = profilePoints;
         state.profileTimeoutMs = timeoutMs;
         state.currentSegmentIndex.store(0);
+        state.profileActive.store(true);
 
         if (!profilePoints.empty()) {
             state.segmentTarget.store(profilePoints[0].distance);
         }
 
-        state.profileActive.store(true);
-
         addLog("Starting relative profile: Segments=%zu, Timeout=%dms",
             profilePoints.size(), timeoutMs);
 
-        // We launch the controller in a separate thread
+        // Start the controller
         std::thread controllerThread([this, port]() {
             this->relativeProfileController(port);
             });
@@ -1159,19 +1206,23 @@ private:
         auto& state = motorStates[port];
         addLog("=== STARTING PRECISE PROFILE CONTROLLER ===");
 
-        // Full state reset
-        state.absolutePosition.store(0.0);
-        state.currentSegmentIndex.store(0);
-        state.profileActive.store(true);
+        {
+            std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+            state.absolutePosition.store(0.0, std::memory_order_relaxed);
+            state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+            state.relativePosition.store(0.0, std::memory_order_relaxed);
+            state.lastAbsolutePosition = 0.0;
+        }
 
-        // We start polling the encoder
+        state.currentSegmentIndex.store(0, std::memory_order_relaxed);
+        state.profileActive.store(true, std::memory_order_relaxed);
+
         startContinuousEncoderPolling(port);
 
         auto profileStartTime = std::chrono::steady_clock::now();
         auto lastControlTime = profileStartTime;
         bool profileCompleted = false;
 
-        // Launching the first segment
         if (!state.activeProfile.empty()) {
             startSegment(port, 0);
         }
@@ -1181,12 +1232,10 @@ private:
             auto timeSinceLastControl = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastControlTime);
 
-            // Precise control with a fixed interval
             lastControlTime = currentTime;
 
             int currentSegment = state.currentSegmentIndex.load();
 
-            // We check the completion of all segments
             if (currentSegment >= state.activeProfile.size()) {
                 setMotorSpeed(port, 0);
                 addLog("PROFILE COMPLETED: All segments finished");
@@ -1195,46 +1244,50 @@ private:
             }
 
             const auto& segment = state.activeProfile[currentSegment];
-            double traveled = state.segmentAccumulator.load(std::memory_order_relaxed); // Use absolute position
 
-            // We log progress every 500ms
+            double traveled;
+            {
+                std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+                traveled = state.segmentAccumulator.load(std::memory_order_relaxed);
+            }
+
             static auto lastLogTime = profileStartTime;
             auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastLogTime);
             if (timeSinceLastLog.count() > 500) {
                 addLog("SEGMENT %d: Traveled=%.3f/%.3f rev (%.1f%%), Speed=%d",
-                    currentSegment, traveled, segment.distance, (traveled / segment.distance) * 100, segment.speed);
+                    currentSegment, traveled, segment.distance,
+                    segment.distance > 0 ? (traveled / segment.distance) * 100 : 0,
+                    segment.speed);
                 lastLogTime = currentTime;
             }
 
-            // Checking the completion of the current segment
             if (traveled >= segment.distance - segment.tolerance) {
                 addLog("=== SEGMENT %d COMPLETED ===", currentSegment);
                 addLog("Traveled %.3f of %.3f revolutions", traveled, segment.distance);
 
-                // Let's move on to the next segment
                 int nextSegment = currentSegment + 1;
                 state.currentSegmentIndex.store(nextSegment);
 
                 if (nextSegment < state.activeProfile.size()) {
-                    // RESET position for a new segment
-                    state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+
+                    {
+                        std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+                        state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+                    }
                     startSegment(port, nextSegment);
                 }
                 else {
-                    // All segments are complete
                     setMotorSpeed(port, 0);
                     addLog("=== PROFILE COMPLETED ===");
                     profileCompleted = true;
                 }
             }
 
-            // Timeout check
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - profileStartTime);
             if (elapsed.count() > state.profileTimeoutMs) {
                 addLog("PROFILE TIMEOUT: %d ms elapsed", elapsed.count());
-
                 addLog("Current segment: %d, Traveled: %.3f/%.3f",
                     currentSegment, traveled, segment.distance);
                 setMotorSpeed(port, 0);
@@ -1243,7 +1296,6 @@ private:
             }
         }
 
-        // Shutdown
         state.profileActive = false;
         stopEncoderPolling(port);
 
