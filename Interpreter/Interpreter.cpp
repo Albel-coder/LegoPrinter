@@ -539,6 +539,13 @@ private:
 		return commands;
 	}
 
+	struct ArcSegment {
+		double x;
+		double y;
+		double time;
+	};
+
+	// Исправленный метод calculateArcParameters
 	ArcParameters calculateArcParameters(double endX, double endY, double i, double j, double r, bool clockwise) {
 		ArcParameters arc;
 		arc.startX = currentX;
@@ -547,37 +554,40 @@ private:
 		arc.endY = absolutePositioning ? endY : currentY + endY;
 		arc.clockwise = clockwise;
 
-		// Check for movement
+		// Проверка движения
 		if (abs(arc.endX - arc.startX) < 0.001 && abs(arc.endY - arc.startY) < 0.001) {
 			addLogEntry("Warning: No arc movement - start and end points are the same");
-			return {};
+			arc.radius = 0;
+			return arc;
 		}
 
 		if (r > 0) {
-			// Calculation via radius
+			// Расчет через радиус
 			double dx = arc.endX - arc.startX;
 			double dy = arc.endY - arc.startY;
 			double chordLength = std::sqrt(dx * dx + dy * dy);
 
 			if (chordLength == 0) {
-				addLogEntry("Error: Chord length is zero");
-				return {};
+				addGCodeErrorInfo("Chord length is zero", MOVEMENT_ERROR);
+				arc.radius = 0;
+				return arc;
 			}
 
 			if (chordLength > 2 * r) {
-				addGCodeErrorInfo("Radius is too small for given endpoints. Radius: " +
+				addGCodeErrorInfo("Radius too small. Radius: " +
 					std::to_string(r) + ", Chord: " + std::to_string(chordLength), MOVEMENT_ERROR);
-				return {};
+				arc.radius = 0;
+				return arc;
 			}
 
 			double chordHalf = chordLength / 2.0;
 			double h = std::sqrt(r * r - chordHalf * chordHalf);
 
-			// Perpendicular to the chord
+			// Перпендикуляр к хорде
 			double dxPerp = -dy / chordLength;
 			double dyPerp = dx / chordLength;
 
-			// Midpoint
+			// Середина хорды
 			double midX = (arc.startX + arc.endX) / 2.0;
 			double midY = (arc.startY + arc.endY) / 2.0;
 
@@ -593,22 +603,22 @@ private:
 			arc.radius = r;
 		}
 		else {
-			// Calculation via offsets I, J
+			// Расчет через смещения I, J
 			arc.centerX = arc.startX + i;
 			arc.centerY = arc.startY + j;
 			arc.radius = std::sqrt(i * i + j * j);
 
 			if (arc.radius < 0.001) {
-				addGCodeErrorInfo("Arc radius is too small or zero", MOVEMENT_ERROR);
-				return {};
+				addGCodeErrorInfo("Arc radius too small", MOVEMENT_ERROR);
+				return arc;
 			}
 		}
 
-		// Calculate angles
+		// Расчет углов
 		arc.startAngle = std::atan2(arc.startY - arc.centerY, arc.startX - arc.centerX);
 		arc.endAngle = std::atan2(arc.endY - arc.centerY, arc.endX - arc.centerX);
 
-		// Adjusting angles for direction
+		// Коррекция углов для направления
 		if (clockwise) {
 			if (arc.endAngle > arc.startAngle) {
 				arc.endAngle -= 2 * PI;
@@ -620,80 +630,88 @@ private:
 			}
 		}
 
+		debugArcCalculation(arc, speed);
+
 		return arc;
 	}
 
 	// Helper function for generating arc points (slightly simplified)
-	std::vector<SpeedProfilePoint> generateArcPointsForAxis(const StepperConfig& config,
+	// Исправленный метод generateArcPointsForAxis
+	std::vector<SpeedProfilePoint> generateArcPointsForAxis(
+		const StepperConfig& config,
 		const ArcParameters& arc,
 		int steps,
-		bool isXAxis) {
-		std::vector<SpeedProfilePoint> points;
-		points.reserve(steps);
+		bool isXAxis,
+		double feedrate) {  // feedrate в мм/мин
 
-		if (config.rotationDistance <= 0) {
-			addLogEntry("Error: rotationDistance is not set for axis");
+		std::vector<SpeedProfilePoint> points;
+
+		if (steps <= 0 || feedrate <= 0) {
 			return points;
 		}
 
-		// Calculate the angular step taking into account the direction
-		double angleStep = (arc.endAngle - arc.startAngle) / steps;
-		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
+		double totalArcAngle = arc.endAngle - arc.startAngle;
+		double arcLength = arc.radius * std::abs(totalArcAngle);
 
-		// Calculate time for the entire segment (same for both axes)
-		double totalTime = arcLength / speed;
-		if (totalTime <= 0) {
-			addLogEntry("Warning: Arc speed is zero or too small");
-			totalTime = 1.0;  // Default value
-		}
+		// Время прохождения всей дуги (секунды)
+		double totalTime = arcLength / (feedrate / 60.0); // feedrate в мм/мин -> мм/сек
+		double angularSpeed = totalArcAngle / totalTime; // рад/сек
 
-		double timePerSegment = totalTime / steps;
+		// Конвертация maximumFeedrate из мм/мин в оборота/сек
+		double maxSpeedRevPerSec = (config.maximumFeedrate * config.gearRatio) /
+			(config.rotationDistance * 60.0);
 
-		double prevPos = isXAxis ? arc.startX : arc.startY;
-		double totalRevolutions = 0.0;
+		for (int i = 0; i <= steps; i++) {
+			double t = static_cast<double>(i) / steps;
+			double angle = arc.startAngle + t * totalArcAngle;
 
-		for (int i = 1; i <= steps; i++) {
-			double angle = arc.startAngle + i * angleStep;
-			double currentPos = isXAxis ?
-				(arc.centerX + arc.radius * std::cos(angle)) :
-				(arc.centerY + arc.radius * std::sin(angle));
+			// Координаты точки на дуге
+			double x = arc.centerX + arc.radius * std::cos(angle);
+			double y = arc.centerY + arc.radius * std::sin(angle);
 
-			// Distance from the previous point (not from the start!)
-			double segmentDistance = currentPos - prevPos;
-			prevPos = currentPos;
+			// Выбираем координату для текущей оси
+			double axisPos = isXAxis ? x : y;
+			double startPos = isXAxis ? arc.startX : arc.startY;
 
-			// Calculate the revolutions for this segment
-			double segmentRevolutions = (std::abs(segmentDistance) * config.gearRatio) / config.rotationDistance;
+			// Смещение от начальной точки (мм)
+			double linearDisplacement = axisPos - startPos;
 
-			// Determine the direction
-			if (segmentDistance < 0) {
-				segmentRevolutions = -segmentRevolutions;
-			}
+			// Конвертация в обороты шаговика
+			double revolutions = (linearDisplacement * config.gearRatio) / config.rotationDistance;
 
-			totalRevolutions += segmentRevolutions;
+			// Расчет мгновенной скорости для этой точки (мм/сек)
+			double axisSpeedMmPerSec = isXAxis ?
+				(-arc.radius * std::sin(angle) * angularSpeed) :
+				(arc.radius * std::cos(angle) * angularSpeed);
 
-			// Calculate the speed for this segment
-			double segmentSpeed = segmentRevolutions / timePerSegment;
+			// Конвертация в обороты/сек
+			double axisSpeedRevPerSec = (axisSpeedMmPerSec * config.gearRatio) / config.rotationDistance;
 
-			// Taking into account the direction of motor rotation
+			// Расчет скорости в процентах от максимальной
+			// !!! ВАЖНО: axisSpeedRevPerSec и maxSpeedRevPerSec теперь в одинаковых единицах !!!
+			double speedPercent = (axisSpeedRevPerSec / maxSpeedRevPerSec) * 100.0;
+
+			// Учет направления мотора
 			if (!config.direction) {
-				segmentSpeed = -segmentSpeed;
+				speedPercent = -speedPercent;
 			}
 
-			// Speed ​​Limit
-			if (segmentSpeed > 0) {
-				segmentSpeed = std::min(segmentSpeed, config.maximumFeedrate);
-				segmentSpeed = std::max(segmentSpeed, config.minimumFeedrate);
+			// Ограничение скоростей
+			double minSpeedPercent = (config.minimumFeedrate / config.maximumFeedrate) * 100.0;
+
+			if (speedPercent > 0) {
+				speedPercent = std::max(speedPercent, minSpeedPercent);
+				speedPercent = std::min(speedPercent, 100.0);
 			}
 			else {
-				segmentSpeed = std::max(segmentSpeed, -config.maximumFeedrate);
-				segmentSpeed = std::min(segmentSpeed, -config.minimumFeedrate);
+				speedPercent = std::min(speedPercent, -minSpeedPercent);
+				speedPercent = std::max(speedPercent, -100.0);
 			}
 
 			SpeedProfilePoint point;
-			point.distance = std::abs(segmentRevolutions);  // Relative distance for the segment
-			point.speed = static_cast<signed char>(segmentSpeed * 100);  // Scale
-			point.tolerance = 0.01;
+			point.distance = revolutions;
+			point.speed = static_cast<signed char>(std::round(speedPercent));
+			point.tolerance = 0.1;
 
 			points.push_back(point);
 		}
@@ -702,17 +720,27 @@ private:
 	}
 
 	bool validateArc(const ArcParameters& arc) {
-		if (arc.radius < 1) {
-			addGCodeErrorInfo("Invalid arc radius: " + std::to_string(arc.radius));
+		if (arc.radius < 0.1) {
+			addGCodeErrorInfo("Invalid arc radius: " + std::to_string(arc.radius), MOVEMENT_ERROR);
 			return false;
 		}
 
+		// Проверка полного круга
 		double dx = arc.endX - arc.startX;
 		double dy = arc.endY - arc.startY;
 		double chordLength = std::sqrt(dx * dx + dy * dy);
 
-		if (chordLength > 2 * arc.radius) {
-			addGCodeErrorInfo("Arc radius too small for given endpoints. Radius: " + std::to_string(arc.radius) + ", Chord: " + std::to_string(chordLength), MOVEMENT_ERROR);
+		if (chordLength < 0.001) {
+			// Полный круг - допустимо
+			return true;
+		}
+
+		// Проверка: хорда должна быть меньше диаметра
+		if (chordLength > 2.0 * arc.radius + 0.001) {
+			addGCodeErrorInfo("Arc radius too small. Radius: " +
+				std::to_string(arc.radius) +
+				", Chord: " + std::to_string(chordLength),
+				MOVEMENT_ERROR);
 			return false;
 		}
 
@@ -771,9 +799,8 @@ private:
 		return true;
 	}
 
-	void executeArcMovement(const ArcParameters& arc) {
-		if (!currentPrinter || !currentPrinter->vtable->printer_printer_execute_speed_profile) {
-			addLogEntry("Printer is invalid or doesn't support speed profile");
+	void executeArcMovement(const ArcParameters& arc, double feedrate) {
+		if (!currentPrinter || !currentPrinter->vtable) {
 			return;
 		}
 
@@ -781,104 +808,74 @@ private:
 			return;
 		}
 
-		addLogEntry("Executing arc movement");
-		addLogEntry("Start: (" + std::to_string(arc.startX) + "," + std::to_string(arc.startY) + ")");
-		addLogEntry("End: (" + std::to_string(arc.endX) + "," + std::to_string(arc.endY) + ")");
-		addLogEntry("Center: (" + std::to_string(arc.centerX) + "," + std::to_string(arc.centerY) + ")");
-		addLogEntry("Radius: " + std::to_string(arc.radius));
-		addLogEntry("Clockwise: " + std::to_string(arc.clockwise));
-
-		// Calculate the number of segments
+		// Рассчитываем оптимальное количество сегментов
 		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
-		int steps = static_cast<int>(std::ceil(arcLength / 0.1));  // Segments ~0.1 mm
-		steps = std::max(steps, 10);
-		steps = std::min(steps, 1000);  // Maximum 1000 segments
+		int steps = static_cast<int>(std::ceil(arcLength / 1.0)); // 1 мм на сегмент
 
-		addLogEntry("Arc length: " + std::to_string(arcLength) + "mm, Steps: " + std::to_string(steps));
+		// Ограничиваем количество сегментов
+		steps = std::max(10, std::min(steps, 200));
 
-		// Generate points for the axes
-		std::vector<SpeedProfilePoint> pointsX = generateArcPointsForAxis(stepperX, arc, steps, true);
-		std::vector<SpeedProfilePoint> pointsY = generateArcPointsForAxis(stepperY, arc, steps, false);
+		// Генерируем точки для осей
+		std::vector<SpeedProfilePoint> pointsX = generateArcPointsForAxis(
+			stepperX, arc, steps, true, feedrate);
+		std::vector<SpeedProfilePoint> pointsY = generateArcPointsForAxis(
+			stepperY, arc, steps, false, feedrate);
+
+		if (pointsX.size() != pointsY.size() || pointsX.empty()) {
+			addGCodeErrorInfo("Failed to generate arc points", MOVEMENT_ERROR);
+			return;
+		}
 
 		debugArcPoints(pointsX, "X");
 		debugArcPoints(pointsY, "Y");
 
-		// Add a breakpoint
-		if (!pointsX.empty() && !pointsY.empty()) {
-			SpeedProfilePoint stopPoint;
-			stopPoint.distance = 0.0;
-			stopPoint.speed = 0;
-			stopPoint.tolerance = 1.0;  // Large tolerance for stopping
+		// Создаем профили для всех портов
+		std::vector<SpeedProfile> allProfiles;
 
-			pointsX.push_back(stopPoint);
-			pointsY.push_back(stopPoint);
-		}
-
-		if (pointsX.size() != pointsY.size()) {
-			addGCodeErrorInfo("Mismatch in arc points count between axes", MOVEMENT_ERROR);
-			return;
-		}
-
-		std::vector<std::future<bool>> futures;
-		bool allSuccess = true;
-
-		auto createAndExecuteProfile = [this](uint8_t port, const std::vector<SpeedProfilePoint>& points) -> bool {
-			if (points.empty()) {
-				addLogEntry("Warning: No points for port " + std::to_string(port));
-				return true;
-			}
-
-			SpeedProfile* profile = new SpeedProfile();
-			profile->port = port;
-			profile->count = static_cast<int>(points.size());
-			profile->timeoutMs = 10000;
-			profile->points = new SpeedProfilePoint[points.size()];
-
-			std::copy(points.begin(), points.end(), profile->points);
-
-			addLogEntry("Executing profile on port " + std::to_string(port) +
-				" with " + std::to_string(points.size()) + " points");
-
-			bool result = currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, profile);
-
-			delete[] profile->points;
-			delete profile;
-
-			return result;
-			};
-
+		// Для оси X
 		for (uint8_t port : stepperX.ports) {
-			futures.push_back(std::async(std::launch::async, [=]() {
-				return createAndExecuteProfile(port, pointsX);
-				}));
+			SpeedProfile profile;
+			profile.port = port;
+			profile.count = static_cast<int>(pointsX.size());
+			profile.timeoutMs = static_cast<int>((arcLength / (feedrate / 60.0)) * 1000) + 1000;
+
+			profile.points = new SpeedProfilePoint[pointsX.size()];
+			std::copy(pointsX.begin(), pointsX.end(), profile.points);
+
+			allProfiles.push_back(profile);
 		}
 
+		// Для оси Y
 		for (uint8_t port : stepperY.ports) {
-			futures.push_back(std::async(std::launch::async, [=]() {
-				return createAndExecuteProfile(port, pointsY);
-				}));
+			SpeedProfile profile;
+			profile.port = port;
+			profile.count = static_cast<int>(pointsY.size());
+			profile.timeoutMs = static_cast<int>((arcLength / (feedrate / 60.0)) * 1000) + 1000;
+
+			profile.points = new SpeedProfilePoint[pointsY.size()];
+			std::copy(pointsY.begin(), pointsY.end(), profile.points);
+
+			allProfiles.push_back(profile);
 		}
 
-		for (auto& future : futures) {
-			try {
-				if (!future.get()) {
-					allSuccess = false;
-				}
-			}
-			catch (const std::exception& ex) {
-				addLogEntry("Error in arc execution: " + std::string(ex.what()));
-				allSuccess = false;
+		// Выполняем все профили
+		bool success = true;
+		for (const auto& profile : allProfiles) {
+			if (!currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, &profile)) {
+				success = false;
+				break;
 			}
 		}
 
-		if (allSuccess) {
+		// Очистка
+		for (auto& profile : allProfiles) {
+			delete[] profile.points;
+		}
+
+		if (success) {
+			// Обновляем текущую позицию
 			currentX = arc.endX;
 			currentY = arc.endY;
-			addLogEntry("Arc completed successfully. New position: X=" +
-				std::to_string(currentX) + " Y=" + std::to_string(currentY));
-		}
-		else {
-			addGCodeErrorInfo("Arc execution failed", MOVEMENT_ERROR);
 		}
 	}
 
@@ -891,33 +888,6 @@ private:
 			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
 			addLogEntry("Stopped motor on port " + std::to_string(static_cast<int>(port)));
 		}
-	}
-
-	bool executeProfiles(const std::vector<SpeedProfile>& profiles) {
-		if (profiles.empty() || !currentPrinter || !currentPrinter->vtable) {
-			return false;
-		}
-
-		if (currentPrinter->vtable->printer_execute_speed_profiles) {
-			return currentPrinter->vtable->printer_execute_speed_profiles(
-				currentPrinter, 
-				profiles.data(),
-				static_cast<int>(profiles.size())
-			);
-		}
-		else {
-			return false;
-		}
-	}
-
-	void cleanupProfiles(std::vector<SpeedProfile>& profiles) {
-		for (auto& profile : profiles) {
-			if (profile.points) {
-				delete[] profile.points;
-				profile.points = nullptr;
-			}
-		}
-		profiles.clear();
 	}
 
 	void debugArcPoints(const std::vector<SpeedProfilePoint>& points, const std::string& axisName) {
@@ -937,6 +907,24 @@ private:
 		addLogEntry(axisName + " Summary: total dist=" + std::to_string(totalDistance) +
 			", est time=" + std::to_string(totalTime) + "s");
 	}
+
+	void debugArcCalculation(const ArcParameters& arc, double feedrate) {
+		addLogEntry("=== DEBUG ARC CALCULATION ===");
+		addLogEntry("Start: (" + std::to_string(arc.startX) + ", " + std::to_string(arc.startY) + ")");
+		addLogEntry("End: (" + std::to_string(arc.endX) + ", " + std::to_string(arc.endY) + ")");
+		addLogEntry("Center: (" + std::to_string(arc.centerX) + ", " + std::to_string(arc.centerY) + ")");
+		addLogEntry("Radius: " + std::to_string(arc.radius));
+		addLogEntry("Start angle: " + std::to_string(arc.startAngle * 180.0 / PI) + " deg");
+		addLogEntry("End angle: " + std::to_string(arc.endAngle * 180.0 / PI) + " deg");
+		addLogEntry("Total angle: " + std::to_string((arc.endAngle - arc.startAngle) * 180.0 / PI) + " deg");
+		addLogEntry("Feedrate: " + std::to_string(feedrate) + " mm/min");
+
+		// Расчет примерной скорости
+		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
+		addLogEntry("Arc length: " + std::to_string(arcLength) + " mm");
+		addLogEntry("Estimated time: " + std::to_string(arcLength / (feedrate / 60.0)) + " sec");
+	}
+
 
 public:	
 	Interpreter() {
@@ -1678,110 +1666,87 @@ private:
 		}
 	}
 
-	void processArc(std::istringstream& string, int lineCount, bool isTryingInterpret, bool clockwise) {
+	// Improved processArc function for proper parsing
+	void processArc(std::istringstream& stream, int lineCount, bool isTryingInterpret, bool clockwise) {
 		if (isTryingInterpret) {
-			// Syntax checking
-			addLogEntry("Checking arc command syntax (G" + std::to_string(clockwise ? 2 : 3) + ")");
-
-			// Parse parameters
+			// Syntax check
 			std::string token;
+			bool hasX = false, hasY = false, hasI = false, hasJ = false, hasR = false;
 
-			double x = 0; // end x
-			double y = 0; // end y
-			double i = 0; // offset x
-			double j = 0; // offset y
-			double r = 0; // radius
+			while (stream >> token) {
+				char axis = std::toupper(token[0]);
+				try {
+					double value = std::stod(token.substr(1));
 
-			bool hasX = false;
-			bool hasY = false;
-			bool hasI = false;
-			bool hasJ = false;
-			bool hasR = false;
-
-			while (string >> token) {
-				char axis = token[0];
-				double value = std::stof(token.substr(1));
-
-				switch (axis) {
-				case 'X':
-				case 'x':
-					hasX = true;
-					x = value;
-					addLogEntry("Find X with value=" + std::to_string(value));
-					break;
-				case 'Y':
-				case 'y':
-					hasY = true;
-					y = value;
-					addLogEntry("Find Y with value=" + std::to_string(value));
-					break;
-				case 'I':
-				case 'i':
-					hasI = true;
-					i = value;
-					addLogEntry("Find I with value=" + std::to_string(value));
-					break;
-				case 'J':
-				case 'j':
-					hasJ = true;
-					j = value;
-					addLogEntry("Find J with value=" + std::to_string(value));
-					break;
-				case 'R':
-				case 'r':
-					hasR = true;
-					r = value;
-					addLogEntry("Find R with value=" + std::to_string(value));
-					break;
-				default:
-					addGCodeErrorInfo("Unknown axis in arc command: " + std::string(1, axis), SYNTAX_ERROR);
+					switch (axis) {
+					case 'X': hasX = true; break;
+					case 'Y': hasY = true; break;
+					case 'I': hasI = true; break;
+					case 'J': hasJ = true; break;
+					case 'R': hasR = true; break;
+					default:
+						addGCodeErrorInfo("Invalid axis: " + std::string(1, axis), SYNTAX_ERROR);
+						return;
+					}
+				}
+				catch (...) {
+					addGCodeErrorInfo("Invalid number format: " + token, SYNTAX_ERROR);
 					return;
 				}
 			}
 
+			// Minimum requirements: X,Y and (R or I,J)
 			if (!hasX || !hasY) {
-				addGCodeErrorInfo("Arc command requires X and Y parameters", SYNTAX_ERROR);
+				addGCodeErrorInfo("Arc requires X and Y coordinates", SYNTAX_ERROR);
 				return;
 			}
 
 			if (!hasR && (!hasI || !hasJ)) {
-				addGCodeErrorInfo("Arc command requires either R or I, J parameters", SYNTAX_ERROR);
+				addGCodeErrorInfo("Arc requires either R or I,J parameters", SYNTAX_ERROR);
 				return;
 			}
 
-			if (hasR && (hasI || hasJ)) {
-				addLogEntry("Warning: both R and I, J specified in arc command, using R");
-			}
-
-			addLogEntry("Arc syntax check passed");
+			addLogEntry("Arc syntax OK");
 		}
 		else {
-			// Execution with the new implementation
-			addLogEntry("Executing arc command (G" + std::to_string(clockwise ? 2 : 3) + ") with single profile per port");
+			// Execution
+			addLogEntry("Executing " + std::string(clockwise ? "G2" : "G3"));
 
-			// Parse parameters
 			std::string token;
 			double x = 0, y = 0, i = 0, j = 0, r = -1;
+			bool hasR = false;
 
-			while (string >> token) {
-				char axis = token[0];
-				double value = std::stof(token.substr(1));
+			while (stream >> token) {
+				char axis = std::toupper(token[0]);
+				double value = std::stod(token.substr(1));
 
 				switch (axis) {
-				case 'X': case 'x': x = value; break;
-				case 'Y': case 'y': y = value; break;
-				case 'I': case 'i': i = value; break;
-				case 'J': case 'j': j = value; break;
-				case 'R': case 'r': r = value; break;
+				case 'X': x = value; break;
+				case 'Y': y = value; break;
+				case 'I': i = value; break;
+				case 'J': j = value; break;
+				case 'R':
+					r = value;
+					hasR = true;
+					break;
 				}
+			}
+
+			// If R is not specified, use I,J
+			if (!hasR && (i == 0 && j == 0)) {
+				addGCodeErrorInfo("Arc radius not specified", MOVEMENT_ERROR);
+				return;
 			}
 
 			try {
 				ArcParameters arc = calculateArcParameters(x, y, i, j, r, clockwise);
-				executeArcMovement(arc);
 
-				addLogEntry("Arc completed. New position: X=" + std::to_string(currentX) +
-					" Y=" + std::to_string(currentY));
+				if (arc.radius <= 0) {
+					addGCodeErrorInfo("Invalid arc parameters", MOVEMENT_ERROR);
+					return;
+				}
+
+				executeArcMovement(arc, speed);
 			}
 			catch (const std::exception& ex) {
 				addGCodeErrorInfo("Arc error: " + std::string(ex.what()), MOVEMENT_ERROR);
