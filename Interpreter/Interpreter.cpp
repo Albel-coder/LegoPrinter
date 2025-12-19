@@ -461,6 +461,62 @@ private:
 		return result;
 	}	
 
+	struct LinearSegment {
+		double startX;
+		double startY;
+		double endX;
+		double endY;
+		double length;
+	};
+
+	// Алгоритм разбиения дуги на линейные сегменты (линейная аппроксимация)
+	std::vector<LinearSegment> approximateArcWithLines(
+		double centerX, double centerY, double radius,
+		double startAngle, double endAngle, bool clockwise,
+		int maxSegments = 100, double maxError = 0.01) {
+
+		std::vector<LinearSegment> segments;
+
+		// Корректировка углов для направления
+		double totalAngle = endAngle - startAngle;
+
+		// Для полуокружности (180°) totalAngle будет -π для G2 (по часовой)
+		// или +π для G3 (против часовой)
+
+		// Определяем количество сегментов на основе угла
+		int segmentsCount = static_cast<int>(std::ceil(std::abs(totalAngle) / (PI / 10))); // Каждые 18°
+		segmentsCount = std::max(4, std::min(segmentsCount, maxSegments));
+
+		double angleStep = totalAngle / segmentsCount;
+
+		// Начальная точка
+		double prevX = centerX + radius * std::cos(startAngle);
+		double prevY = centerY + radius * std::sin(startAngle);
+
+		for (int i = 1; i <= segmentsCount; i++) {
+			double currentAngle = startAngle + i * angleStep;
+			double currentX = centerX + radius * std::cos(currentAngle);
+			double currentY = centerY + radius * std::sin(currentAngle);
+
+			LinearSegment segment;
+			segment.startX = prevX;
+			segment.startY = prevY;
+			segment.endX = currentX;
+			segment.endY = currentY;
+
+			double dx = currentX - prevX;
+			double dy = currentY - prevY;
+			segment.length = std::sqrt(dx * dx + dy * dy);
+
+			segments.push_back(segment);
+
+			prevX = currentX;
+			prevY = currentY;
+		}
+
+		return segments;
+	}
+
 	std::vector<SpeedProfile> createSpeedProfile(const StepperConfig& config, const std::vector<SpeedProfilePoint>& movementPoints, int timeoutMs) {
 		std::vector<SpeedProfile> profiles;
 
@@ -636,62 +692,104 @@ private:
 	}
 
 	// Helper function for generating arc points (slightly simplified)
-	// Исправленный метод generateArcPointsForAxis
-	std::vector<SpeedProfilePoint> generateArcPointsForAxis(
+	std::vector<SpeedProfilePoint> generateArcPointsLinearApproximation(
 		const StepperConfig& config,
 		const ArcParameters& arc,
-		int steps,
-		bool isXAxis,
-		double feedrate) {  // feedrate в мм/мин
+		double feedrate) {
 
 		std::vector<SpeedProfilePoint> points;
 
-		if (steps <= 0 || feedrate <= 0) {
+		if (arc.radius <= 0.001) {
 			return points;
 		}
 
-		double totalArcAngle = arc.endAngle - arc.startAngle;
-		double arcLength = arc.radius * std::abs(totalArcAngle);
+		// Если feedrate не задан, используем максимальный из осей X/Y
+		if (feedrate <= 0) {
+			feedrate = std::max(stepperX.maximumFeedrate, stepperY.maximumFeedrate);
+			addLogEntry("Warning: Using default feedrate: " + std::to_string(feedrate) + " mm/min");
+		}
 
-		// Время прохождения всей дуги (секунды)
-		double totalTime = arcLength / (feedrate / 60.0); // feedrate в мм/мин -> мм/сек
-		double angularSpeed = totalArcAngle / totalTime; // рад/сек
+		// Определяем, какая это ось (X или Y)
+		bool isXAxis = (config.ports[0] == stepperX.ports[0]);
 
-		// Конвертация maximumFeedrate из мм/мин в оборота/сек
+		// Начальная позиция в миллиметрах для этой оси
+		double startPosMm = isXAxis ? arc.startX : arc.startY;
+
+		// Разбиваем дугу на сегменты (увеличим количество сегментов для гладкости)
+		std::vector<LinearSegment> segments = approximateArcWithLines(
+			arc.centerX, arc.centerY, arc.radius,
+			arc.startAngle, arc.endAngle, arc.clockwise,
+			50, 0.01); // 50 сегментов, погрешность 0.01 мм
+
+		if (segments.empty()) {
+			return points;
+		}
+
+		// Вычисляем общую длину пути
+		double totalPathLength = 0.0;
+		for (const auto& segment : segments) {
+			totalPathLength += segment.length;
+		}
+
+		// Общее время прохождения дуги (секунды)
+		double totalTime = totalPathLength / (feedrate / 60.0);
+
+		if (totalTime <= 0) {
+			return points;
+		}
+
+		// Конвертация максимальной скорости из мм/мин в оборота/сек
 		double maxSpeedRevPerSec = (config.maximumFeedrate * config.gearRatio) /
 			(config.rotationDistance * 60.0);
 
-		for (int i = 0; i <= steps; i++) {
-			double t = static_cast<double>(i) / steps;
-			double angle = arc.startAngle + t * totalArcAngle;
+		if (maxSpeedRevPerSec <= 0) {
+			addLogEntry("Error: maxSpeedRevPerSec is zero or negative");
+			return points;
+		}
 
-			// Координаты точки на дуге
-			double x = arc.centerX + arc.radius * std::cos(angle);
-			double y = arc.centerY + arc.radius * std::sin(angle);
+		// Начальная точка с нулевой скоростью
+		SpeedProfilePoint startPoint;
+		startPoint.distance = 0.0;
+		startPoint.speed = 0;
+		startPoint.tolerance = 0.1;
+		points.push_back(startPoint);
 
-			// Выбираем координату для текущей оси
-			double axisPos = isXAxis ? x : y;
-			double startPos = isXAxis ? arc.startX : arc.startY;
+		// Накопленное расстояние в оборотах
+		double accumulatedRevolutions = 0.0;
+
+		// Пропускаем первую точку (она уже добавлена)
+		for (size_t i = 0; i < segments.size(); i++) {
+			const auto& segment = segments[i];
+
+			// Определяем координату для текущей оси
+			double axisPos = isXAxis ? segment.endX : segment.endY;
 
 			// Смещение от начальной точки (мм)
-			double linearDisplacement = axisPos - startPos;
+			double linearDisplacement = axisPos - startPosMm;
 
-			// Конвертация в обороты шаговика
-			double revolutions = (linearDisplacement * config.gearRatio) / config.rotationDistance;
+			// Конвертация в обороты шаговика (АБСОЛЮТНОЕ значение, всегда положительное)
+			double revolutions = (std::abs(linearDisplacement) * config.gearRatio) / config.rotationDistance;
 
-			// Расчет мгновенной скорости для этой точки (мм/сек)
-			double axisSpeedMmPerSec = isXAxis ?
-				(-arc.radius * std::sin(angle) * angularSpeed) :
-				(arc.radius * std::cos(angle) * angularSpeed);
+			// Направление движения (знак смещения)
+			double direction = (linearDisplacement >= 0) ? 1.0 : -1.0;
+
+			// Время прохождения этого сегмента
+			double segmentTime = segment.length / (feedrate / 60.0);
+
+			if (segmentTime <= 0) {
+				continue; // Пропускаем нулевые сегменты
+			}
+
+			// Скорость для этого сегмента (мм/сек)
+			double segmentSpeedMmPerSec = (axisPos - (isXAxis ? segment.startX : segment.startY)) / segmentTime;
 
 			// Конвертация в обороты/сек
-			double axisSpeedRevPerSec = (axisSpeedMmPerSec * config.gearRatio) / config.rotationDistance;
+			double segmentSpeedRevPerSec = (std::abs(segmentSpeedMmPerSec) * config.gearRatio) / config.rotationDistance;
 
-			// Расчет скорости в процентах от максимальной
-			// !!! ВАЖНО: axisSpeedRevPerSec и maxSpeedRevPerSec теперь в одинаковых единицах !!!
-			double speedPercent = (axisSpeedRevPerSec / maxSpeedRevPerSec) * 100.0;
+			// Процент от максимальной скорости с учетом направления
+			double speedPercent = (segmentSpeedRevPerSec / maxSpeedRevPerSec) * 100.0 * direction;
 
-			// Учет направления мотора
+			// Учет направления мотора из конфигурации
 			if (!config.direction) {
 				speedPercent = -speedPercent;
 			}
@@ -708,12 +806,36 @@ private:
 				speedPercent = std::max(speedPercent, -100.0);
 			}
 
+			// Абсолютное расстояние в оборотах (никогда не отрицательное!)
+			accumulatedRevolutions = revolutions;
+
 			SpeedProfilePoint point;
-			point.distance = revolutions;
+			point.distance = accumulatedRevolutions; // АБСОЛЮТНОЕ расстояние от начала
 			point.speed = static_cast<signed char>(std::round(speedPercent));
 			point.tolerance = 0.1;
 
 			points.push_back(point);
+		}
+
+		// Добавляем финальную точку с нулевой скоростью
+		if (!points.empty()) {
+			SpeedProfilePoint stopPoint;
+			stopPoint.distance = points.back().distance;
+			stopPoint.speed = 0;
+			stopPoint.tolerance = 1.0;
+			points.push_back(stopPoint);
+		}
+
+		// Отладка
+		if (isXAxis) {
+			addLogEntry("Generated " + std::to_string(points.size()) +
+				" points for X axis, total revolutions: " +
+				std::to_string(points.back().distance));
+		}
+		else {
+			addLogEntry("Generated " + std::to_string(points.size()) +
+				" points for Y axis, total revolutions: " +
+				std::to_string(points.back().distance));
 		}
 
 		return points;
@@ -725,21 +847,16 @@ private:
 			return false;
 		}
 
-		// Проверка полного круга
-		double dx = arc.endX - arc.startX;
-		double dy = arc.endY - arc.startY;
-		double chordLength = std::sqrt(dx * dx + dy * dy);
+		// Проверка, что конечная точка лежит на окружности
+		double distanceToEnd = std::sqrt(
+			(arc.endX - arc.centerX) * (arc.endX - arc.centerX) +
+			(arc.endY - arc.centerY) * (arc.endY - arc.centerY)
+		);
 
-		if (chordLength < 0.001) {
-			// Полный круг - допустимо
-			return true;
-		}
-
-		// Проверка: хорда должна быть меньше диаметра
-		if (chordLength > 2.0 * arc.radius + 0.001) {
-			addGCodeErrorInfo("Arc radius too small. Radius: " +
+		if (std::abs(distanceToEnd - arc.radius) > 0.1) {
+			addGCodeErrorInfo("End point is not on the arc circle. Radius: " +
 				std::to_string(arc.radius) +
-				", Chord: " + std::to_string(chordLength),
+				", Distance to end: " + std::to_string(distanceToEnd),
 				MOVEMENT_ERROR);
 			return false;
 		}
@@ -799,6 +916,7 @@ private:
 		return true;
 	}
 
+	// Улучшенный метод executeArcMovement с линейной аппроксимацией
 	void executeArcMovement(const ArcParameters& arc, double feedrate) {
 		if (!currentPrinter || !currentPrinter->vtable) {
 			return;
@@ -808,26 +926,25 @@ private:
 			return;
 		}
 
-		// Рассчитываем оптимальное количество сегментов
+		// Автоматическое определение количества сегментов
 		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
-		int steps = static_cast<int>(std::ceil(arcLength / 1.0)); // 1 мм на сегмент
+		int segments = static_cast<int>(std::ceil(arcLength / 1.0)); // 1 мм на сегмент
+		segments = std::max(10, std::min(segments, 200));
 
-		// Ограничиваем количество сегментов
-		steps = std::max(10, std::min(steps, 200));
+		// Генерируем точки с помощью линейной аппроксимации
+		std::vector<SpeedProfilePoint> pointsX = generateArcPointsLinearApproximation(
+			stepperX, arc, feedrate);
+		std::vector<SpeedProfilePoint> pointsY = generateArcPointsLinearApproximation(
+			stepperY, arc, feedrate);
 
-		// Генерируем точки для осей
-		std::vector<SpeedProfilePoint> pointsX = generateArcPointsForAxis(
-			stepperX, arc, steps, true, feedrate);
-		std::vector<SpeedProfilePoint> pointsY = generateArcPointsForAxis(
-			stepperY, arc, steps, false, feedrate);
-
-		if (pointsX.size() != pointsY.size() || pointsX.empty()) {
-			addGCodeErrorInfo("Failed to generate arc points", MOVEMENT_ERROR);
+		if (pointsX.size() != pointsY.size() || pointsX.size() < 3) {
+			addGCodeErrorInfo("Failed to generate arc points with linear approximation", MOVEMENT_ERROR);
 			return;
 		}
 
-		debugArcPoints(pointsX, "X");
-		debugArcPoints(pointsY, "Y");
+		// Отладка
+		debugArcPoints(pointsX, "X (Linear)");
+		debugArcPoints(pointsY, "Y (Linear)");
 
 		// Создаем профили для всех портов
 		std::vector<SpeedProfile> allProfiles;
@@ -876,6 +993,7 @@ private:
 			// Обновляем текущую позицию
 			currentX = arc.endX;
 			currentY = arc.endY;
+			addLogEntry("Arc movement completed with linear approximation");
 		}
 	}
 
