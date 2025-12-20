@@ -1,4 +1,6 @@
-﻿namespace WindowsForms
+﻿using System.Drawing;
+
+namespace WindowsForms
 {
     partial class MainForm
     {
@@ -28,242 +30,136 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.components = new System.ComponentModel.Container();
-            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainForm));
-            this.MainTabControl = new System.Windows.Forms.TabControl();
-            this.Generate = new System.Windows.Forms.TabPage();
-            this.Device = new System.Windows.Forms.TabPage();
-            this.InterpreterTexBox = new System.Windows.Forms.TextBox();
-            this.StatusLabel = new System.Windows.Forms.Label();
-            this.ExecuteGcodeButton = new System.Windows.Forms.Button();
-            this.LogTextBox = new System.Windows.Forms.TextBox();
-            this.ReadConfigButton = new System.Windows.Forms.Button();
-            this.DisconnectButton = new System.Windows.Forms.Button();
-            this.ConnectButton = new System.Windows.Forms.Button();
-            this.ForceMoveLeft_Button = new System.Windows.Forms.Button();
-            this.ForceMoveUp_Button = new System.Windows.Forms.Button();
-            this.ForceMoveRight_Button = new System.Windows.Forms.Button();
-            this.ForceMoveDown_Button = new System.Windows.Forms.Button();
-            this.HomeButton = new System.Windows.Forms.Button();
-            this.MainImageList = new System.Windows.Forms.ImageList(this.components);
-            this.LogTimer = new System.Windows.Forms.Timer(this.components);
-            this.Test = new System.Windows.Forms.Button();
-            this.MainTabControl.SuspendLayout();
-            this.Device.SuspendLayout();
+            this.panelMenu = new System.Windows.Forms.Panel();
+            this.panelSelect = new System.Windows.Forms.Panel();
+            this.contentPanel = new System.Windows.Forms.Panel();
+            this.buttonDevice = new System.Windows.Forms.Button();
+            this.buttonPreview = new System.Windows.Forms.Button();
+            this.buttonPrepare = new System.Windows.Forms.Button();
+            this.buttonCalibration = new System.Windows.Forms.Button();
+            this.panelSelect.SuspendLayout();
             this.SuspendLayout();
             // 
-            // MainTabControl
+            // panelMenu
             // 
-            this.MainTabControl.Controls.Add(this.Generate);
-            this.MainTabControl.Controls.Add(this.Device);
-            this.MainTabControl.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.MainTabControl.Location = new System.Drawing.Point(0, 0);
-            this.MainTabControl.Name = "MainTabControl";
-            this.MainTabControl.SelectedIndex = 0;
-            this.MainTabControl.Size = new System.Drawing.Size(867, 572);
-            this.MainTabControl.TabIndex = 0;
+            this.panelMenu.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(30)))), ((int)(((byte)(33)))), ((int)(((byte)(48)))));
+            this.panelMenu.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panelMenu.Location = new System.Drawing.Point(0, 0);
+            this.panelMenu.Name = "panelMenu";
+            this.panelMenu.Size = new System.Drawing.Size(1176, 36);
+            this.panelMenu.TabIndex = 0;
             // 
-            // Generate
+            // panelSelect
             // 
-            this.Generate.AutoScroll = true;
-            this.Generate.Location = new System.Drawing.Point(4, 25);
-            this.Generate.Name = "Generate";
-            this.Generate.Padding = new System.Windows.Forms.Padding(3);
-            this.Generate.Size = new System.Drawing.Size(859, 543);
-            this.Generate.TabIndex = 0;
-            this.Generate.Text = "Generate";
-            this.Generate.UseVisualStyleBackColor = true;
+            this.panelSelect.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(36)))), ((int)(((byte)(40)))), ((int)(((byte)(59)))));
+            this.panelSelect.Controls.Add(this.buttonCalibration);
+            this.panelSelect.Controls.Add(this.buttonDevice);
+            this.panelSelect.Controls.Add(this.buttonPreview);
+            this.panelSelect.Controls.Add(this.buttonPrepare);
+            this.panelSelect.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panelSelect.Location = new System.Drawing.Point(0, 36);
+            this.panelSelect.Name = "panelSelect";
+            this.panelSelect.Size = new System.Drawing.Size(1176, 41);
+            this.panelSelect.TabIndex = 1;
             // 
-            // Device
+            // contentPanel
             // 
-            this.Device.AutoScroll = true;
-            this.Device.Controls.Add(this.Test);
-            this.Device.Controls.Add(this.InterpreterTexBox);
-            this.Device.Controls.Add(this.StatusLabel);
-            this.Device.Controls.Add(this.ExecuteGcodeButton);
-            this.Device.Controls.Add(this.LogTextBox);
-            this.Device.Controls.Add(this.ReadConfigButton);
-            this.Device.Controls.Add(this.DisconnectButton);
-            this.Device.Controls.Add(this.ConnectButton);
-            this.Device.Controls.Add(this.ForceMoveLeft_Button);
-            this.Device.Controls.Add(this.ForceMoveUp_Button);
-            this.Device.Controls.Add(this.ForceMoveRight_Button);
-            this.Device.Controls.Add(this.ForceMoveDown_Button);
-            this.Device.Controls.Add(this.HomeButton);
-            this.Device.Location = new System.Drawing.Point(4, 25);
-            this.Device.Name = "Device";
-            this.Device.Padding = new System.Windows.Forms.Padding(3);
-            this.Device.Size = new System.Drawing.Size(859, 543);
-            this.Device.TabIndex = 1;
-            this.Device.Text = "Device";
-            this.Device.UseVisualStyleBackColor = true;
+            this.contentPanel.Location = new System.Drawing.Point(299, 263);
+            this.contentPanel.Name = "contentPanel";
+            this.contentPanel.Size = new System.Drawing.Size(708, 312);
+            this.contentPanel.TabIndex = 2;
             // 
-            // InterpreterTexBox
+            // buttonDevice
             // 
-            this.InterpreterTexBox.Location = new System.Drawing.Point(298, 6);
-            this.InterpreterTexBox.Multiline = true;
-            this.InterpreterTexBox.Name = "InterpreterTexBox";
-            this.InterpreterTexBox.ReadOnly = true;
-            this.InterpreterTexBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.InterpreterTexBox.Size = new System.Drawing.Size(256, 497);
-            this.InterpreterTexBox.TabIndex = 11;
+            this.buttonDevice.Dock = System.Windows.Forms.DockStyle.Left;
+            this.buttonDevice.FlatAppearance.BorderSize = 0;
+            this.buttonDevice.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.buttonDevice.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.buttonDevice.Image = global::WindowsForms.Properties.Resources.deviceImage32x32;
+            this.buttonDevice.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.buttonDevice.Location = new System.Drawing.Point(320, 0);
+            this.buttonDevice.Name = "buttonDevice";
+            this.buttonDevice.Padding = new System.Windows.Forms.Padding(20, 0, 0, 0);
+            this.buttonDevice.Size = new System.Drawing.Size(160, 41);
+            this.buttonDevice.TabIndex = 5;
+            this.buttonDevice.Text = " Device";
+            this.buttonDevice.UseVisualStyleBackColor = true;
             // 
-            // StatusLabel
+            // buttonPreview
             // 
-            this.StatusLabel.AutoSize = true;
-            this.StatusLabel.Location = new System.Drawing.Point(177, 487);
-            this.StatusLabel.Name = "StatusLabel";
-            this.StatusLabel.Size = new System.Drawing.Size(44, 16);
-            this.StatusLabel.TabIndex = 10;
-            this.StatusLabel.Text = "label1";
+            this.buttonPreview.Dock = System.Windows.Forms.DockStyle.Left;
+            this.buttonPreview.FlatAppearance.BorderSize = 0;
+            this.buttonPreview.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.buttonPreview.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.buttonPreview.Image = global::WindowsForms.Properties.Resources.previewIcon;
+            this.buttonPreview.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.buttonPreview.Location = new System.Drawing.Point(160, 0);
+            this.buttonPreview.Name = "buttonPreview";
+            this.buttonPreview.Padding = new System.Windows.Forms.Padding(20, 0, 0, 0);
+            this.buttonPreview.Size = new System.Drawing.Size(160, 41);
+            this.buttonPreview.TabIndex = 4;
+            this.buttonPreview.Text = " Preview";
+            this.buttonPreview.UseVisualStyleBackColor = true;
             // 
-            // ExecuteGcodeButton
+            // buttonPrepare
             // 
-            this.ExecuteGcodeButton.Location = new System.Drawing.Point(9, 280);
-            this.ExecuteGcodeButton.Name = "ExecuteGcodeButton";
-            this.ExecuteGcodeButton.Size = new System.Drawing.Size(161, 61);
-            this.ExecuteGcodeButton.TabIndex = 9;
-            this.ExecuteGcodeButton.Text = "Run";
-            this.ExecuteGcodeButton.UseVisualStyleBackColor = true;
+            this.buttonPrepare.Dock = System.Windows.Forms.DockStyle.Left;
+            this.buttonPrepare.FlatAppearance.BorderSize = 0;
+            this.buttonPrepare.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.buttonPrepare.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.buttonPrepare.Image = global::WindowsForms.Properties.Resources.prepareImag32x32;
+            this.buttonPrepare.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.buttonPrepare.Location = new System.Drawing.Point(0, 0);
+            this.buttonPrepare.Name = "buttonPrepare";
+            this.buttonPrepare.Padding = new System.Windows.Forms.Padding(20, 0, 0, 0);
+            this.buttonPrepare.Size = new System.Drawing.Size(160, 41);
+            this.buttonPrepare.TabIndex = 3;
+            this.buttonPrepare.Text = " Prepare";
+            this.buttonPrepare.UseVisualStyleBackColor = true;
             // 
-            // LogTextBox
+            // buttonCalibration
             // 
-            this.LogTextBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
-            | System.Windows.Forms.AnchorStyles.Right)));
-            this.LogTextBox.Location = new System.Drawing.Point(569, 6);
-            this.LogTextBox.Multiline = true;
-            this.LogTextBox.Name = "LogTextBox";
-            this.LogTextBox.ReadOnly = true;
-            this.LogTextBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.LogTextBox.Size = new System.Drawing.Size(256, 497);
-            this.LogTextBox.TabIndex = 8;
-            // 
-            // ReadConfigButton
-            // 
-            this.ReadConfigButton.Location = new System.Drawing.Point(8, 199);
-            this.ReadConfigButton.Name = "ReadConfigButton";
-            this.ReadConfigButton.Size = new System.Drawing.Size(99, 38);
-            this.ReadConfigButton.TabIndex = 7;
-            this.ReadConfigButton.Text = "ReadConfig";
-            this.ReadConfigButton.UseVisualStyleBackColor = true;
-            // 
-            // DisconnectButton
-            // 
-            this.DisconnectButton.Location = new System.Drawing.Point(8, 148);
-            this.DisconnectButton.Name = "DisconnectButton";
-            this.DisconnectButton.Size = new System.Drawing.Size(98, 35);
-            this.DisconnectButton.TabIndex = 6;
-            this.DisconnectButton.Text = "Disconnect";
-            this.DisconnectButton.UseVisualStyleBackColor = true;
-            this.DisconnectButton.Click += new System.EventHandler(this.DisconnectButton_Click);
-            // 
-            // ConnectButton
-            // 
-            this.ConnectButton.Location = new System.Drawing.Point(8, 97);
-            this.ConnectButton.Name = "ConnectButton";
-            this.ConnectButton.Size = new System.Drawing.Size(98, 35);
-            this.ConnectButton.TabIndex = 5;
-            this.ConnectButton.Text = "Connect";
-            this.ConnectButton.UseVisualStyleBackColor = true;
-            this.ConnectButton.Click += new System.EventHandler(this.ConnectButton_Click);
-            // 
-            // ForceMoveLeft_Button
-            // 
-            this.ForceMoveLeft_Button.Location = new System.Drawing.Point(119, 153);
-            this.ForceMoveLeft_Button.Name = "ForceMoveLeft_Button";
-            this.ForceMoveLeft_Button.Size = new System.Drawing.Size(30, 30);
-            this.ForceMoveLeft_Button.TabIndex = 4;
-            this.ForceMoveLeft_Button.Text = "←";
-            this.ForceMoveLeft_Button.UseVisualStyleBackColor = true;
-            // 
-            // ForceMoveUp_Button
-            // 
-            this.ForceMoveUp_Button.Location = new System.Drawing.Point(155, 117);
-            this.ForceMoveUp_Button.Name = "ForceMoveUp_Button";
-            this.ForceMoveUp_Button.Size = new System.Drawing.Size(30, 30);
-            this.ForceMoveUp_Button.TabIndex = 3;
-            this.ForceMoveUp_Button.Text = "↑";
-            this.ForceMoveUp_Button.UseVisualStyleBackColor = true;
-            // 
-            // ForceMoveRight_Button
-            // 
-            this.ForceMoveRight_Button.Location = new System.Drawing.Point(191, 153);
-            this.ForceMoveRight_Button.Name = "ForceMoveRight_Button";
-            this.ForceMoveRight_Button.Size = new System.Drawing.Size(30, 30);
-            this.ForceMoveRight_Button.TabIndex = 2;
-            this.ForceMoveRight_Button.Text = "→";
-            this.ForceMoveRight_Button.UseVisualStyleBackColor = true;
-            // 
-            // ForceMoveDown_Button
-            // 
-            this.ForceMoveDown_Button.Location = new System.Drawing.Point(155, 189);
-            this.ForceMoveDown_Button.Name = "ForceMoveDown_Button";
-            this.ForceMoveDown_Button.Size = new System.Drawing.Size(30, 30);
-            this.ForceMoveDown_Button.TabIndex = 1;
-            this.ForceMoveDown_Button.Text = "↓";
-            this.ForceMoveDown_Button.UseVisualStyleBackColor = true;
-            // 
-            // HomeButton
-            // 
-            this.HomeButton.Location = new System.Drawing.Point(155, 153);
-            this.HomeButton.Name = "HomeButton";
-            this.HomeButton.Size = new System.Drawing.Size(30, 30);
-            this.HomeButton.TabIndex = 0;
-            this.HomeButton.Text = "H";
-            this.HomeButton.UseVisualStyleBackColor = true;
-            // 
-            // MainImageList
-            // 
-            this.MainImageList.ImageStream = ((System.Windows.Forms.ImageListStreamer)(resources.GetObject("MainImageList.ImageStream")));
-            this.MainImageList.TransparentColor = System.Drawing.Color.Transparent;
-            this.MainImageList.Images.SetKeyName(0, "Logo.jpg");
-            // 
-            // Test
-            // 
-            this.Test.Location = new System.Drawing.Point(9, 377);
-            this.Test.Name = "Test";
-            this.Test.Size = new System.Drawing.Size(161, 47);
-            this.Test.TabIndex = 12;
-            this.Test.Text = "Test";
-            this.Test.UseVisualStyleBackColor = true;
-            this.Test.Click += new System.EventHandler(this.Test_Click);
+            this.buttonCalibration.Dock = System.Windows.Forms.DockStyle.Left;
+            this.buttonCalibration.FlatAppearance.BorderSize = 0;
+            this.buttonCalibration.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.buttonCalibration.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.buttonCalibration.Image = global::WindowsForms.Properties.Resources.calibrationImage32x32;
+            this.buttonCalibration.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.buttonCalibration.Location = new System.Drawing.Point(480, 0);
+            this.buttonCalibration.Name = "buttonCalibration";
+            this.buttonCalibration.Padding = new System.Windows.Forms.Padding(20, 0, 0, 0);
+            this.buttonCalibration.Size = new System.Drawing.Size(160, 41);
+            this.buttonCalibration.TabIndex = 6;
+            this.buttonCalibration.Text = " Calibration";
+            this.buttonCalibration.UseVisualStyleBackColor = true;
             // 
             // MainForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(867, 572);
-            this.Controls.Add(this.MainTabControl);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.None;
+            this.AutoSize = true;
+            this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(46)))), ((int)(((byte)(51)))), ((int)(((byte)(73)))));
+            this.ClientSize = new System.Drawing.Size(1176, 723);
+            this.Controls.Add(this.contentPanel);
+            this.Controls.Add(this.panelSelect);
+            this.Controls.Add(this.panelMenu);
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
             this.Name = "MainForm";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "LP Studio 1.0";
-            this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
-            this.MainTabControl.ResumeLayout(false);
-            this.Device.ResumeLayout(false);
-            this.Device.PerformLayout();
+            this.panelSelect.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
 
         #endregion
 
-        private System.Windows.Forms.TabControl MainTabControl;
-        private System.Windows.Forms.TabPage Generate;
-        private System.Windows.Forms.ImageList MainImageList;
-        private System.Windows.Forms.TabPage Device;
-        private System.Windows.Forms.Button HomeButton;
-        private System.Windows.Forms.Button ForceMoveLeft_Button;
-        private System.Windows.Forms.Button ForceMoveUp_Button;
-        private System.Windows.Forms.Button ForceMoveRight_Button;
-        private System.Windows.Forms.Button ForceMoveDown_Button;
-        private System.Windows.Forms.Button ConnectButton;
-        private System.Windows.Forms.Button DisconnectButton;
-        private System.Windows.Forms.Button ReadConfigButton;
-        private System.Windows.Forms.TextBox LogTextBox;
-        private System.Windows.Forms.Button ExecuteGcodeButton;
-        private System.Windows.Forms.Timer LogTimer;
-        private System.Windows.Forms.Label StatusLabel;
-        private System.Windows.Forms.TextBox InterpreterTexBox;
-        private System.Windows.Forms.Button Test;
+        private System.Windows.Forms.Panel panelMenu;
+        private System.Windows.Forms.Panel panelSelect;
+        private System.Windows.Forms.Panel contentPanel;
+        private System.Windows.Forms.Button buttonPrepare;
+        private System.Windows.Forms.Button buttonPreview;
+        private System.Windows.Forms.Button buttonDevice;
+        private System.Windows.Forms.Button buttonCalibration;
     }
 }
 
