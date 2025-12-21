@@ -59,7 +59,10 @@ extern "C" {
 
         bool (*printer_test_encoder_functionality)(IPrinter* self);
         bool (*printer_execute_speed_profiles)(IPrinter* self, const SpeedProfile* profiles, int count);
-        void (*printer_reset_motor_position)(IPrinter* self, unsigned char port);
+
+        bool (*printer_request_battery_level)(IPrinter* self);
+        unsigned char (*printer_get_battery_level)(IPrinter* self);
+        bool (*printer_is_battery_fresh)(IPrinter* self, int maxAgeSeconds);
 
     } IPrinterVirtualTable;
 

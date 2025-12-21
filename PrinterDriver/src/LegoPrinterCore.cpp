@@ -154,12 +154,17 @@ private:
 
     std::mutex motorStatesMutex;
 
+    std::atomic<uint8_t> batteryLevel{ 0 };
+    std::chrono::steady_clock::time_point lastBatteryUpdate;
+
 public:
 
     PrinterImplementation() :
         operationInProgress(false),
         stopRequested(false),
         isValid(true),
+        batteryLevel(0),
+        lastBatteryUpdate(std::chrono::steady_clock::now()),
         status(0) {
 
         addLog("PrinterImplementation created");
@@ -254,15 +259,25 @@ private:
         if (!isValid || data.empty()) return;
 
         const uint8_t messageType = data[2];
+
+        if (messageType == 0x04) {
+            // Check if this is a response to a system command
+            if (data.size() > 5 && data[0] > 0x03) {
+                // In system commands, data[3] is a subcommand
+                handleSystemCommandReply(data);
+            }
+            else {
+                // Absolute encoder
+                const uint8_t port = data[3];
+                handleAbsoluteEncoder(port, data);
+            }
+        }
+
         const uint8_t port = data[3];
 
         switch (messageType) {
         case 0x45: // Incremental encoder is the most common
             handleIncrementalEncoder(port, data);
-            break;
-
-        case 0x04: // Absolute encoder
-            handleAbsoluteEncoder(port, data);
             break;
 
         case 0x82: // Operation completion command
@@ -394,36 +409,7 @@ private:
                 port, positionDelta, calibratedDelta, newAbs,
                 state.profileActive ? state.segmentAccumulator.load() : 0.0);
         }
-    }
-
-    void processEncoderUpdate(uint8_t port, int32_t rawValue, int bytes) {
-        auto& state = motorStates[port];
-
-        // Convert to revolutions depending on the data size
-        double positionDelta = 0.0;
-        if (bytes == 1) {
-            int8_t signedPosition = static_cast<int8_t>(rawValue & 0xFF);
-            positionDelta = static_cast<double>(signedPosition) / 360.0;
-        }
-        else if (bytes == 4) {
-            positionDelta = static_cast<double>(rawValue) / 360.0;
-        }
-
-        // Updating the segment drive
-        double currentAccumulator = state.segmentAccumulator.load();
-        double newAccumulator = currentAccumulator + positionDelta;
-        state.segmentAccumulator.store(newAccumulator);
-
-        // Updating the absolute position
-        double oldAbsolute = state.absolutePosition.load();
-        state.absolutePosition.store(oldAbsolute + positionDelta);
-
-        // We log only significant changes
-        if (std::abs(positionDelta) > 0.001) {
-            addLog("ENCODER: Port=0x%02X, Delta=%.3f, Accumulator=%.3f, Absolute=%.3f",
-                port, positionDelta, newAccumulator, oldAbsolute + positionDelta);
-        }
-    }
+    }   
 
     // Internal helper methods
     void addLog(const std::string& Message) {
@@ -1167,7 +1153,7 @@ private:
             state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
             state.relativePosition.store(0.0, std::memory_order_relaxed);
             state.lastAbsolutePosition = 0.0;  // Reset the last absolute position
-
+                      
             addLog("Reset motor position: Port=0x%02X, all positions set to 0.0", port);
         }
 
@@ -1205,14 +1191,6 @@ private:
     {
         auto& state = motorStates[port];
         addLog("=== STARTING PRECISE PROFILE CONTROLLER ===");
-
-        {
-            std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
-            state.absolutePosition.store(0.0, std::memory_order_relaxed);
-            state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
-            state.relativePosition.store(0.0, std::memory_order_relaxed);
-            state.lastAbsolutePosition = 0.0;
-        }
 
         state.currentSegmentIndex.store(0, std::memory_order_relaxed);
         state.profileActive.store(true, std::memory_order_relaxed);
@@ -1311,8 +1289,11 @@ private:
         auto& state = motorStates[port];
         const auto& segment = state.activeProfile[segmentIndex];
 
-        // Reset ONLY the segment drive
-        state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+            // Reset ONLY the segment drive
+            state.segmentAccumulator.store(0.0, std::memory_order_relaxed);
+        }
 
         // Logging initial values ​​for debugging
         double initialAbs = state.absolutePosition.load(std::memory_order_relaxed);
@@ -1354,14 +1335,19 @@ private:
         addLog("=== MANUAL POSITION RESET ===");
 
         auto& state = motorStates[port];
-        double currentAbsolute = state.absolutePosition.load();
 
-        // We reset ALL positions
-        state.absolutePosition.store(0.0);
-        state.segmentAccumulator.store(0.0);
-        state.relativePosition.store(0.0); // if this variable is still in use
+        {
+            std::lock_guard<std::mutex> lock(state.positionUpdateMutex);
+            double currentAbsolute = state.absolutePosition.load();
 
-        addLog("Reset: Port=0x%02X, Was=%.3f, Now=0.000", port, currentAbsolute);
+            // We reset ALL positions
+            state.absolutePosition.store(0.0);
+            state.segmentAccumulator.store(0.0);
+            state.relativePosition.store(0.0); // if this variable is still in use
+            state.lastAbsolutePosition = 0.0;
+
+            addLog("Reset: Port=0x%02X, Was=%.3f, Now=0.000", port, currentAbsolute);
+        }
     }
 
     void pollEncoderPosition(uint8_t port) {
@@ -1724,6 +1710,87 @@ private:
             addLog("Stopped profile execution for port 0x%02X", port);
         }
     }
+
+private:
+    void handleSystemCommandReply(const std::vector<uint8_t>& data) {
+        if (data.size() < 6) {
+            addLog("System command reply too short: %zu bytes", data.size());
+            return;
+        }
+
+        const uint8_t subcommand = data[3]; // data[3] is a subcommand of System Command Reply
+
+        if (subcommand == 0x1B) { // Response to charge level request
+            const uint8_t level = data[4]; // Charge level (0-100%)
+
+            // Check the checksum (XOR of all bytes except the last one)
+            uint8_t checksum = 0;
+            for (size_t i = 0; i < data.size() - 1; i++) {
+                checksum ^= data[i];
+            }
+
+            if (checksum == data[data.size() - 1]) {
+                batteryLevel.store(level);
+                lastBatteryUpdate = std::chrono::steady_clock::now();
+
+                addLog("Battery level received: %d%%", level);
+
+                if (level <= 20) {
+                    addLog("WARNING: Low battery! Consider charging the hub.");
+                }
+
+                if (level == 100) {
+                    addLog("INFO: Battery fully charged");
+                }
+            }
+            else {
+                addLog("ERROR: Invalid checksum in battery level response. Expected: 0x%02X, Got: 0x%02X",
+                    checksum, data[data.size() - 1]);
+            }
+        }
+        else {
+            addLog("System command reply with subcommand 0x%02X ignored", subcommand);
+        }
+    }
+
+public:
+    bool requestBatteryLevel() {
+        if (!isValid || !peripheral.is_connected()) {
+            addLog("Battery level request: printer not connected");
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(operationMutex);
+
+        try {
+            std::vector<uint8_t> batteryRequest = {
+                0x05,   // Length: 5 bytes (Message type + Subcommand + Checksum + title)
+                0x00,   // Hub ID
+                0x01,   // Message Type: System Command
+                0x1B,   // Subcommand: GET_BATTERY_LEVEL
+                0x5E    // Checksum: 0x05^0x00^0x01^0x1B = 0x5E
+            };
+
+            addLog("Requesting battery level from hub");
+            sendCommandVector(batteryRequest);
+
+            lastBatteryUpdate = std::chrono::steady_clock::now();
+            return true;
+        }
+        catch (const std::exception& ex) {
+            addLog("Error requesting battery level: %s", ex.what());
+        }
+    }
+
+    unsigned char getBatteryLevel() const {
+        return batteryLevel.load();
+    }
+
+    bool isBatteryLevelFresh(int maxAgeSeconds = 30) const {
+        auto now = std::chrono::steady_clock::now();
+        auto age = std::chrono::duration_cast<std::chrono::seconds>(now - lastBatteryUpdate);
+        return age.count() < maxAgeSeconds;
+    }
 };
 
 // Main context and virtual table
@@ -1859,8 +1926,30 @@ namespace
 
     bool printer_execute_speed_profiles(IPrinter* self, const SpeedProfile* profiles, int count) {
         if (!self || !self->vtable) return false;
+
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
         return Implementation->executeSpeedProfiles(profiles, count);
+    }
+
+    bool printer_request_battery_level(IPrinter* self) {
+        if (!self || !self->vtable) return false;
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->requestBatteryLevel();
+    }
+
+    unsigned char printer_get_battery_level(IPrinter* self) {
+        if (!self || !self->vtable) return 0;
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->getBatteryLevel();
+    }
+
+    bool printer_is_battery_fresh(IPrinter* self, int maxAgeSeconds) {
+        if (!self || !self->vtable) return false;
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->isBatteryLevelFresh(maxAgeSeconds);
     }
 }
 
@@ -1882,7 +1971,10 @@ static IPrinterVirtualTable PrinterVTable = {
     printer_get_last_error,
     printer_printer_connection_info,
     printer_test_encoder_functionality,
-    printer_execute_speed_profiles
+    printer_execute_speed_profiles,
+    printer_request_battery_level,
+    printer_get_battery_level,
+    printer_is_battery_fresh
 };
 
 // Tested function - remove after deep testing
@@ -2038,5 +2130,23 @@ extern "C"
         else {
             return false;
         }
+    }
+
+    PRINTER_DRIVER_API bool PrinterRequestBatteryLevel(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->printer_request_battery_level) return false;
+
+        return printer->vtable->printer_request_battery_level;
+    }
+
+    PRINTER_DRIVER_API unsigned char PrinterGetBatteryLevel(IPrinter* printer) {
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_battery_level) return 0;
+
+        return unsigned char(printer->vtable->printer_get_battery_level);
+    }
+
+    PRINTER_DRIVER_API bool PrinterIsBatteryLevelFresh(IPrinter* printer, int maxAgeSeconds) {
+        if (!printer || !printer->vtable || !printer->vtable->printer_is_battery_fresh) return false;
+
+        return printer->vtable->printer_is_battery_fresh;
     }
 }

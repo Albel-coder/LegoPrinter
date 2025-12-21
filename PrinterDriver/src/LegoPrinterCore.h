@@ -38,5 +38,8 @@ extern "C"
 
 	// Test functions
 	PRINTER_DRIVER_API bool RunPrinterTest(IPrinter* printer, const char* testName);
-	PRINTER_DRIVER_API void PrinterResetMotorPosition(IPrinter* printer, unsigned char port);
+
+	PRINTER_DRIVER_API bool PrinterRequestBatteryLevel(IPrinter* printer);
+	PRINTER_DRIVER_API unsigned char PrinterGetBatteryLevel(IPrinter* printer);
+	PRINTER_DRIVER_API bool PrinterIsBatteryLevelFresh(IPrinter* printer, int maxAgeSeconds);
 }
