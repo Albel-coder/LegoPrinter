@@ -128,6 +128,7 @@ namespace WindowsForms
             this.buttonCalibration.TabIndex = 7;
             this.buttonCalibration.Text = " Calibration";
             this.buttonCalibration.UseVisualStyleBackColor = true;
+            this.buttonCalibration.Click += new System.EventHandler(this.buttonCalibration_Click);
             // 
             // buttonDevice
             // 

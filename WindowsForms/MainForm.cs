@@ -49,6 +49,7 @@ namespace WindowsForms
             tabs.Add("DeviceUserControl", new DeviceUserControl());
             tabs.Add("PreviewUserControl", new PreviewUserControl());
             tabs.Add("PrepareUserControl", new PrepareUserControl());
+            tabs.Add("CalibrationUserControl", new CalibrationUserControl());
 
             foreach(KeyValuePair<string, UserControl> tab in tabs)
             {
@@ -138,6 +139,10 @@ namespace WindowsForms
         private void buttonDevice_Click(object sender, EventArgs e)
         {
             ShowTab("DeviceUserControl");
+        }
+        private void buttonCalibration_Click(object sender, EventArgs e)
+        {
+            ShowTab("CalibrationUserControl");
         }
     }
 }
