@@ -56,8 +56,15 @@ extern "C" {
         void (*printer_clear_log)(IPrinter* self);
         const char* (*printer_get_last_error)(IPrinter* self);
         void (*printer_printer_connection_info)(IPrinter* self);
+        void (*printer_set_log_categories)(IPrinter* self, unsigned int categories);
+        unsigned int (*printer_get_log_categories)(IPrinter* self);
 
         bool (*printer_test_encoder_functionality)(IPrinter* self);
+        bool (*printer_execute_speed_profiles)(IPrinter* self, const SpeedProfile* profiles, int count);
+
+        bool (*printer_request_battery_level)(IPrinter* self);
+        unsigned char (*printer_get_battery_level)(IPrinter* self);
+        bool (*printer_is_battery_fresh)(IPrinter* self, int maxAgeSeconds);
 
     } IPrinterVirtualTable;
 
