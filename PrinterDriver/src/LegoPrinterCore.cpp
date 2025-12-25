@@ -267,7 +267,7 @@ public:
         logBuffer = std::make_unique<LogEntry[]>(MAX_LOG_ENTRIES);
         enabledCategories.store(LOG_CATEGORY_RELEASE, std::memory_order_relaxed);
 
-        addLog("PrinterImplementation created");
+        LOG_INFO("PrinterImplementation created");
     }
 
     ~PrinterImplementation() {
@@ -430,14 +430,14 @@ private:
 
     void setMotorCalibration(uint8_t port, double factor) {
         motorCalibrationFactors[port] = factor;
-        addLog("Set calibration for port 0x%02X: %.3f", port, factor);
+        LOG_DEBUG("Set calibration for port 0x%02X: %.3f", port, factor);
     }
 
     // Set notification handler
     void setupNotificationHandler() {
         try {
             if (!peripheral.is_connected()) {
-                addLog("ERROR: Peripheral not connected for encoder notifications");
+                LOG_ERROR("ERROR: Peripheral not connected for encoder notifications");
                 return;
             }
 
@@ -446,10 +446,10 @@ private:
                     this->handleHubNotification(Data);
                 });
 
-            addLog("Encoder notifications setup completed - SUBSCRIBED");
+            LOG_INFO("Encoder notifications setup completed - SUBSCRIBED");
         }
         catch (const std::exception& ex) {
-            addLog("Error setting up encoder notifications: %s", ex.what());
+            LOG_INFO("Error setting up encoder notifications: %s", ex.what());
         }
     }
 
@@ -502,7 +502,7 @@ private:
         }
 
         if (std::abs(positionDelta) > 0.001) {
-            addLog("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
+            LOG_ENCODER("ENCODER 0x45: Port=0x%02X, Raw=%d, Delta=%.4f rev",
                 port, signedPosition, positionDelta);
         }
     }
@@ -544,7 +544,7 @@ private:
         }
 
         if (std::abs(positionDelta) > 0.001) {
-            addLog("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
+            LOG_ENCODER("ENCODER 0x04: Port=0x%02X, Raw=%d, Abs=%.3f, Delta=%.4f rev",
                 port, SignedPosition, absolutePosition, positionDelta);
         }
     }
@@ -575,7 +575,7 @@ private:
 
         if (!state.profileActive.load(std::memory_order_relaxed)) {
             if (std::abs(positionDelta) > 0.001) {
-                addLog("IGNORED POS_UPDATE (profile inactive): Port=0x%02X, Delta=%4.f", port, positionDelta);
+                LOG_ENCODER("IGNORED POS_UPDATE (profile inactive): Port=0x%02X, Delta=%4.f", port, positionDelta);
             }
 
             return;
@@ -603,7 +603,7 @@ private:
         }
 
         if (std::abs(calibratedDelta) > 0.001) {
-            addLog("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
+            LOG_ENCODER("POS_UPDATE: Port=0x%02X, RawDelta=%.4f, CalDelta=%.4f, NewAbs=%.3f, NewSeg=%.3f",
                 port, positionDelta, calibratedDelta, newAbs,
                 state.profileActive ? state.segmentAccumulator.load() : 0.0);
         }
@@ -613,18 +613,18 @@ private:
         std::lock_guard<std::mutex> Lock(sendCommandMutex);
 
         if (!isValid) {
-            addLog("SendCommandVector: Printer implementation is not valid");
+            LOG_ERROR("SendCommandVector: Printer implementation is not valid");
             return;
         }
         if (!peripheral.is_connected()) {
-            addLog("SendCommandVector: Printer is not connect");
+            LOG_ERROR("SendCommandVector: Printer is not connect");
             return;
         }
 
         try {
             // Check connection
             if (!peripheral.is_connected()) {
-                addLog("SendCommandVector: Peripheral not connected");
+                LOG_ERROR("SendCommandVector: Peripheral not connected");
                 return;
             }
 
@@ -635,14 +635,14 @@ private:
                 snprintf(hex, sizeof(hex), "%02X", byte);
                 hexCommand += hex;
             }
-            //addLog("%s", hexCommand.c_str());
+            LOG_COMMAND("%s", hexCommand.c_str());
 
             // Sending a command via Bluetooth LE
             peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, command);
-            //addLog("Command sent successfully!");
+            LOG_COMMAND("Command sent successfully!");
         }
         catch (const std::exception& e) {
-            addLog("Error sending command: %s", e.what());
+            LOG_ERROR("Error sending command: %s", e.what());
             lastError = e.what();
         }
     }
@@ -728,37 +728,37 @@ public:
 
         try {
             // Checking Bluetooth Status
-            addLog("Checking Bluetooth status:");
+            LOG_BLUETOOTH("Checking Bluetooth status:");
 
             bool bleEnabled = SimpleBLE::Adapter::bluetooth_enabled();
-            addLog("  - SimpleBLE::Adapter::bluetooth_enabled(): %s" + bleEnabled ? "true" : "false");
+            LOG_BLUETOOTH("  - SimpleBLE::Adapter::bluetooth_enabled(): %s" + bleEnabled ? "true" : "false");
 
             // Getting a list of adapters
             auto adapters = SimpleBLE::Adapter::get_adapters();
-            addLog("  - Adapters found: %zu" + adapters.size());
+            LOG_BLUETOOTH("  - Adapters found: %zu" + adapters.size());
 
             if (adapters.empty()) {
-                addLog("Bluetooth adapters not found! Possible reasons:");
-                addLog("1. The Bluetooth adapter is disabled or not working");
-                addLog("2. Drivers not installed");
-                addLog("3. Hardware problem");
+                LOG_ERROR("Bluetooth adapters not found! Possible reasons:");
+                LOG_ERROR("1. The Bluetooth adapter is disabled or not working");
+                LOG_ERROR("2. Drivers not installed");
+                LOG_ERROR("3. Hardware problem");
                 return false;
             }
 
             // We use the first adapter
             SimpleBLE::Adapter& adapter = adapters[0];
-            addLog("Adapter used: %s [%s]",
+            LOG_BLUETOOTH("Adapter used: %s [%s]",
                 adapter.identifier().c_str(),
                 adapter.address().c_str());
 
             // Setting up callbacks
             adapter.set_callback_on_scan_start([]() {});
 
-            addLog("Scanning started...");
+            LOG_BLUETOOTH("Scanning started...");
 
             adapter.set_callback_on_scan_stop([]() {});
 
-            addLog("Scanning stopped");
+            LOG_BLUETOOTH("Scanning stopped");
 
             adapter.set_callback_on_scan_found([&](SimpleBLE::Peripheral peripheral) {
                 std::string name = peripheral.identifier();
@@ -779,25 +779,24 @@ public:
                     // LEGO Company ID: 0x0397 (little-endian: 97 03)
                     if (data.first == 0x0397) {
                         isLego = true;
-                        addLog("[LEGO Manufacturer Data Found]");
+                        LOG_BLUETOOTH("[LEGO Manufacturer Data Found]");
                     }
                 }
 
                 if (isLego) {
-                    addLog("LEGO HUB DISCOVERED!");
+                    LOG_BLUETOOTH("LEGO HUB DISCOVERED!");
                 }
                 });
 
             // Start scanning
             adapter.scan_start();
-            addLog("Starting Bluetooth scan for 10 seconds...");
+            LOG_BLUETOOTH("Starting Bluetooth scan for 10 seconds...");
             std::this_thread::sleep_for(10s);
             adapter.scan_stop();
 
             // We get a list of found devices
             auto peripherals = adapter.scan_get_results();
-            addLog("Scan completed. Found %d devices", peripherals.size());
-            std::cout << "\n\nDevices found: " << peripherals.size() << "\n";
+            LOG_BLUETOOTH("Scan completed. Found %d devices", peripherals.size());
 
             // Search LEGO Hub
             for (auto& scannedPeripheral : peripherals) {
@@ -808,7 +807,7 @@ public:
                     name.find("HUB") != std::string::npos ||
                     name.find("CONTROL") != std::string::npos) {
 
-                    addLog("Attempting to connect to LEGO Hub: %s", name.c_str());
+                    LOG_BLUETOOTH("Attempting to connect to LEGO Hub: %s", name.c_str());
 
                     // Connection attempt
                     try {
@@ -816,7 +815,7 @@ public:
 
                         // In the main function, after connection:               
                         if (scannedPeripheral.is_connected()) {
-                            addLog("Successfully connected to LEGO Hub");
+                            LOG_BLUETOOTH("Successfully connected to LEGO Hub");
 
                             peripheral = std::move(scannedPeripheral);
 
@@ -846,17 +845,17 @@ public:
                         }
                     }
                     catch (const std::exception& e) {
-                        addLog("Connection error: %s", e.what());
+                        LOG_ERROR("Connection error: %s", e.what());
                         lastError = e.what();
                     }
                 }
             }
 
-            addLog("No LEGO Hub found or connection failed");
+            LOG_ERROR("No LEGO Hub found or connection failed");
             return false;
         }
         catch (const std::exception& e) {
-            addLog("Exception in Connect: %s", e.what());
+            LOG_ERROR("Exception in Connect: %s", e.what());
             lastError = e.what();
             return false;
         }
@@ -887,50 +886,50 @@ public:
     void printConnectionInfo() {
         std::lock_guard<std::mutex> lock(operationMutex);
 
-        addLog("=== CONNECTION INFORMATION ===");
+        LOG_INFO("=== CONNECTION INFORMATION ===");
 
         if (!peripheral.is_connected()) {
-            addLog("NOT CONNECTED to any device");
+            LOG_ERROR("NOT CONNECTED to any device");
             return;
         }
 
-        addLog("Device: %s", peripheral.identifier().c_str());
-        addLog("Address: %s", peripheral.address().c_str());
-        addLog("RSSI: %d", peripheral.rssi());
-        addLog("Connected: %s", peripheral.is_connected() ? "true" : "false");
+        LOG_INFO("Device: %s", peripheral.identifier().c_str());
+        LOG_INFO("Address: %s", peripheral.address().c_str());
+        LOG_INFO("RSSI: %d", peripheral.rssi());
+        LOG_INFO("Connected: %s", peripheral.is_connected() ? "true" : "false");
 
         auto Services = peripheral.services();
-        addLog("Services count: %zu", Services.size());
+        LOG_INFO("Services count: %zu", Services.size());
 
         for (auto Service : Services) {
-            addLog("Service UUID: %s", Service.uuid().c_str());
+            LOG_INFO("Service UUID: %s", Service.uuid().c_str());
 
             if (Service.uuid() == LEGO_HUB_SERVICE_UUID) {
-                addLog(" >>> LEGO SERVICE FOUND!");
+                LOG_INFO(" >>> LEGO SERVICE FOUND!");
                 for (auto Characteristic : Service.characteristics()) {
-                    addLog("    Characteristic: %s", Characteristic.uuid().c_str());
+                    LOG_INFO("    Characteristic: %s", Characteristic.uuid().c_str());
                     if (Characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
-                        addLog("    >>> LEGO CHARACTERISTIC FOUND!");
+                        LOG_INFO("    >>> LEGO CHARACTERISTIC FOUND!");
                     }
                 }
             }
         }
 
-        addLog("========================================");
+        LOG_INFO("========================================");
     }
 
     void rotateMotor(const MotorCommand* commands, int count) {
         // Check parameters
         if (!isValid || count <= 0 || !commands) {
-            addLog("RotateMotor: Invalid parameters");
+            LOG_ERROR("RotateMotor: Invalid parameters");
             return;
         }
 
-        addLog("RotateMotor called with %d commands", count);
+        LOG_INFO("RotateMotor called with %d commands", count);
 
         // Check connection
         if (!peripheral.is_connected()) {
-            addLog("Printer is not connected!");
+            LOG_ERROR("Printer is not connected!");
             return;
         }
 
@@ -948,7 +947,7 @@ public:
         }
 
         waitForCommandsCompletion(commands, count);
-        addLog("RotateMotor completed");
+        LOG_INFO("RotateMotor completed");
     }
 
     // Monitoring
@@ -971,7 +970,7 @@ public:
     {
         if (!isValid || !peripheral.is_connected()) return;
 
-        addLog("Setting motor speed: Port=0x%02X, Speed=%d", port, speed);
+        LOG_MOTOR("Setting motor speed: Port=0x%02X, Speed=%d", port, speed);
 
         // First command: Activate mode
         std::vector<uint8_t> setupCommand = {
@@ -1005,12 +1004,12 @@ public:
 private:
 
     void sendSingleMotorCommand(const MotorCommand& command) {
-        addLog("Motor command - Port: 0x%02X, Speed: %d, Revolutions: %.2f",
+        LOG_MOTOR("Motor command - Port: 0x%02X, Speed: %d, Revolutions: %.2f",
             command.port, command.speed, command.revolutions);
 
         // Convert revolutions to absolute degrees (1 revolution = 360 degrees)
         int32_t degrees = static_cast<int32_t>(std::round(command.revolutions * 360.0));
-        addLog("Calculated degrees: %d", degrees);
+        LOG_MOTOR("Calculated degrees: %d", degrees);
 
         // Command 1: Activate the rotation mode by angle
         std::vector<uint8_t> setupCommand = {
@@ -1050,7 +1049,7 @@ private:
             0x00
         };
 
-        addLog("Sending motor command to port 0x%02X", command.port);
+        LOG_MOTOR("Sending motor command to port 0x%02X", command.port);
         sendCommandVector(payload);
     }
 
@@ -1104,10 +1103,10 @@ private:
         }
 
         if (!success) {
-            addLog("WaitForCommandCompletion timeout for port 0x%02X", port);
+            LOG_WARNING("WaitForCommandCompletion timeout for port 0x%02X", port);
         }
         else {
-            addLog("WaitForCommandCompletion success for port 0x%02X", port);
+            LOG_WARNING("WaitForCommandCompletion success for port 0x%02X", port);
         }
 
         return success;
@@ -1125,7 +1124,7 @@ public:
 
             // Check connection
             if (!peripheral.is_connected()) {
-                addLog("Peripheral is not connected");
+                LOG_ERROR("Peripheral is not connected");
                 return;
             }
 
@@ -1136,14 +1135,14 @@ public:
                 snprintf(hex, sizeof(hex), "%02X", byte);
                 hexCommand += hex;
             }
-            addLog(hexCommand.c_str());
+            LOG_COMMAND(hexCommand.c_str());
 
             // Sending a command via Bluetooth LE
             peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, command);
-            addLog("Command sent successfully!");
+            LOG_COMMAND("Command sent successfully!");
         }
         catch (const std::exception& e) {
-            addLog("Error sending command: %s", e.what());
+            LOG_ERROR("Error sending command: %s", e.what());
             lastError = e.what();
         }
     }
@@ -1169,12 +1168,12 @@ public:
     bool executeSpeedProfile(const SpeedProfile* profile)
     {
         if (!isValid || !profile || profile->count < 1) {
-            addLog("Error: Invalid profile parameters");
+            LOG_ERROR("Error: Invalid profile parameters");
             return false;
         }
 
-        addLog("=== EXECUTE SPEED PROFILE ===");
-        addLog("Port: 0x%02X, Segments: %d, Timeout: %d ms",
+        LOG_PROFILE("=== EXECUTE SPEED PROFILE ===");
+        LOG_PROFILE("Port: 0x%02X, Segments: %d, Timeout: %d ms",
             profile->port, profile->count, profile->timeoutMs);
 
         uint8_t port = profile->port;
@@ -1196,22 +1195,22 @@ public:
 
     bool executeSpeedProfiles(const SpeedProfile* profiles, int count) {
         if (!isValid || !profiles || count < 1) {
-            addLog("Error: Invalid parameters for executeSpeedProfiles");
+            LOG_ERROR("Error: Invalid parameters for executeSpeedProfiles");
             return false;
         }
 
-        addLog("=== Execution multiple speed profiles ===");
-        addLog("Number of profiles: %d", count);
+        LOG_PROFILE("=== Execution multiple speed profiles ===");
+        LOG_PROFILE("Number of profiles: %d", count);
 
         std::set<uint8_t> usedPorts;
         for (int i = 0; i < count; i++) {
             if (usedPorts.count(profiles[i].port)) {
-                addLog("Error: duplicate port 0x%02X in profiles", profiles[i].port);
+                LOG_ERROR("Error: duplicate port 0x%02X in profiles", profiles[i].port);
                 return false;
             }
             usedPorts.insert(profiles[i].port);
 
-            addLog("Profile %d: Port=0x%02X, Segments=%d, Timeout=%dms", i, profiles[i].port, profiles[i].count, profiles[i].timeoutMs);
+            LOG_PROFILE("Profile %d: Port=0x%02X, Segments=%d, Timeout=%dms", i, profiles[i].port, profiles[i].count, profiles[i].timeoutMs);
         }
 
         stopAllProfiles();
@@ -1237,7 +1236,7 @@ public:
             for (auto& [port, execution] : profileExecutions) {
                 if (!execution.completed) {
                     allSuccessful = false;
-                    addLog("Profile for port 0x%02X did not complete ", port);
+                    LOG_PROFILE("Profile for port 0x%02X did not complete ", port);
                 }
             }
         }
@@ -1246,17 +1245,17 @@ public:
             setMotorSpeed(profiles[i].port, 0);
         }
 
-        addLog("Multiple profiles execution %s", allSuccessful ? "success" : "failed");
+        LOG_PROFILE("Multiple profiles execution %s", allSuccessful ? "success" : "failed");
         return allSuccessful;
     }
 
 private:
 
     void executeSpeedProfileInternal(uint8_t port, const std::vector<SpeedProfilePoint>& profilePoints, int timeoutMs) {
-        addLog("=== Starting speed profile execution for port 0x%02X ===", port);
+        LOG_PROFILE("=== Starting speed profile execution for port 0x%02X ===", port);
 
         // Activate the encoder
-        ActivateEncoderMode(port);
+        activateEncoderMode(port);
         std::this_thread::sleep_for(200ms);
 
         // Setting up notifications
@@ -1265,7 +1264,7 @@ private:
 
         // Launching the profile controller
         if (!startRelativeProfileController(port, profilePoints, timeoutMs)) {
-            addLog("Failed to start profile controller for port 0x%02X", port);
+            LOG_ERROR("Failed to start profile controller for port 0x%02X", port);
         }
 
         // We are waiting for the profile to be completed
@@ -1277,14 +1276,14 @@ private:
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
 
             if (elapsed.count() > timeoutMs) {
-                addLog("Profile execution timeout for port 0x%02X", port);
+                LOG_WARNING("Profile execution timeout for port 0x%02X", port);
                 break;
             }
 
             std::this_thread::sleep_for(100ms);
         }
 
-        addLog("=== Speed profile execution completed for port 0x%02X ===", port);
+        LOG_PROFILE("=== Speed profile execution completed for port 0x%02X ===", port);
     }
 
     // Command queues for each port
@@ -1331,11 +1330,11 @@ private:
                 task();
             }
             catch (const std::exception& ex) {
-                addLog("Error executing task for port 0x%02X: %s", port, ex.what());
+                LOG_ERROR("Error executing task for port 0x%02X: %s", port, ex.what());
             }
         }
 
-        addLog("Command processor stopped for port 0x%02X", port);
+        LOG_PROFILE("Command processor stopped for port 0x%02X", port);
     }
 
     // Method for adding a command to a port queue
@@ -1367,7 +1366,7 @@ private:
             state.relativePosition.store(0.0, std::memory_order_relaxed);
             state.lastAbsolutePosition = 0.0;  // Reset the last absolute position
                       
-            addLog("Reset motor position: Port=0x%02X, all positions set to 0.0", port);
+            LOG_MOTOR("Reset motor position: Port=0x%02X, all positions set to 0.0", port);
         }
 
         // Install a new profile
@@ -1380,7 +1379,7 @@ private:
             state.segmentTarget.store(profilePoints[0].distance);
         }
 
-        addLog("Starting relative profile: Segments=%zu, Timeout=%dms",
+        LOG_PROFILE("Starting relative profile: Segments=%zu, Timeout=%dms",
             profilePoints.size(), timeoutMs);
 
         // Start the controller
@@ -1396,14 +1395,14 @@ private:
         if (!motorStates.count(port)) {
             // The correct way to initialize
             motorStates[port] = MotorState();
-            addLog("Initialized motor state for port 0x%02X", port);
+            LOG_DEBUG("Initialized motor state for port 0x%02X", port);
         }
     }
 
     void relativeProfileController(uint8_t port)
     {
         auto& state = motorStates[port];
-        addLog("=== STARTING PRECISE PROFILE CONTROLLER ===");
+        LOG_ENCODER("=== STARTING PRECISE PROFILE CONTROLLER ===");
 
         state.currentSegmentIndex.store(0, std::memory_order_relaxed);
         state.profileActive.store(true, std::memory_order_relaxed);
@@ -1429,7 +1428,7 @@ private:
 
             if (currentSegment >= state.activeProfile.size()) {
                 setMotorSpeed(port, 0);
-                addLog("PROFILE COMPLETED: All segments finished");
+                LOG_PROFILE("PROFILE COMPLETED: All segments finished");
                 profileCompleted = true;
                 break;
             }
@@ -1446,7 +1445,7 @@ private:
             auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - lastLogTime);
             if (timeSinceLastLog.count() > 500) {
-                addLog("SEGMENT %d: Traveled=%.3f/%.3f rev (%.1f%%), Speed=%d",
+                LOG_PROFILE("SEGMENT %d: Traveled=%.3f/%.3f rev (%.1f%%), Speed=%d",
                     currentSegment, traveled, segment.distance,
                     segment.distance > 0 ? (traveled / segment.distance) * 100 : 0,
                     segment.speed);
@@ -1454,8 +1453,8 @@ private:
             }
 
             if (traveled >= segment.distance - segment.tolerance) {
-                addLog("=== SEGMENT %d COMPLETED ===", currentSegment);
-                addLog("Traveled %.3f of %.3f revolutions", traveled, segment.distance);
+                LOG_PROFILE("=== SEGMENT %d COMPLETED ===", currentSegment);
+                LOG_PROFILE("Traveled %.3f of %.3f revolutions", traveled, segment.distance);
 
                 int nextSegment = currentSegment + 1;
                 state.currentSegmentIndex.store(nextSegment);
@@ -1470,7 +1469,7 @@ private:
                 }
                 else {
                     setMotorSpeed(port, 0);
-                    addLog("=== PROFILE COMPLETED ===");
+                    LOG_PROFILE("=== PROFILE COMPLETED ===");
                     profileCompleted = true;
                 }
             }
@@ -1478,8 +1477,8 @@ private:
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 currentTime - profileStartTime);
             if (elapsed.count() > state.profileTimeoutMs) {
-                addLog("PROFILE TIMEOUT: %d ms elapsed", elapsed.count());
-                addLog("Current segment: %d, Traveled: %.3f/%.3f",
+                LOG_WARNING("PROFILE TIMEOUT: %d ms elapsed", elapsed.count());
+                LOG_PROFILE("Current segment: %d, Traveled: %.3f/%.3f",
                     currentSegment, traveled, segment.distance);
                 setMotorSpeed(port, 0);
                 state.profileActive = false;
@@ -1495,7 +1494,7 @@ private:
             motorThreads.erase(port);
         }
 
-        addLog("Profile controller stopped for port 0x%02X", port);
+        LOG_PROFILE("Profile controller stopped for port 0x%02X", port);
     }
 
     void startSegment(uint8_t port, int segmentIndex) {
@@ -1515,16 +1514,16 @@ private:
         // Setting the motor speed
         setMotorSpeed(port, segment.speed);
 
-        addLog(">>> STARTING SEGMENT %d: Target=%.3f rev, Speed=%d",
+        LOG_PROFILE(">>> STARTING SEGMENT %d: Target=%.3f rev, Speed=%d",
             segmentIndex, segment.distance, segment.speed);
-        addLog(">>> INITIAL VALUES: AbsPos=%.3f, SegAcc=%.3f", initialAbs, initialSeg);
+        LOG_PROFILE(">>> INITIAL VALUES: AbsPos=%.3f, SegAcc=%.3f", initialAbs, initialSeg);
     }
 
     void startContinuousEncoderPolling(uint8_t port)
     {
         stopEncoderPolling(port);
 
-        addLog("Starting optimized encoder polling for port 0x%02X", port);
+        LOG_ENCODER("Starting optimized encoder polling for port 0x%02X", port);
 
         motorThreads[port] = std::thread([this, port]() {
             auto& state = motorStates[port];
@@ -1540,12 +1539,12 @@ private:
                     lastRequestTime = currentTime;
                 }
             }
-            addLog("Encoder polling thread finished for port 0x%02X", port);
+            LOG_ENCODER("Encoder polling thread finished for port 0x%02X", port);
             });
     }
 
     void resetEncoderPosition(uint8_t port) {
-        addLog("=== MANUAL POSITION RESET ===");
+        LOG_ENCODER("=== MANUAL POSITION RESET ===");
 
         auto& state = motorStates[port];
 
@@ -1559,7 +1558,7 @@ private:
             state.relativePosition.store(0.0); // if this variable is still in use
             state.lastAbsolutePosition = 0.0;
 
-            addLog("Reset: Port=0x%02X, Was=%.3f, Now=0.000", port, currentAbsolute);
+            LOG_ENCODER("Reset: Port=0x%02X, Was=%.3f, Now=0.000", port, currentAbsolute);
         }
     }
 
@@ -1585,7 +1584,7 @@ public:
     bool testEncoderFunctionality(IPrinter* printer) {
         if (!printer) return false;
 
-        addLog("FUNCTION do not do everything");
+        LOG_DEBUG("FUNCTION do not do everything");
     }
 
 private:
@@ -1595,7 +1594,7 @@ private:
         // We stop the previous survey if there was one
         stopEncoderPolling(port);
 
-        addLog("Encoder polling started for port 0x%02X", port);
+        LOG_ENCODER("Encoder polling started for port 0x%02X", port);
 
         // Launching a new survey stream
         motorThreads[port] = std::thread([this, port]() {
@@ -1603,20 +1602,20 @@ private:
                 pollEncoderPosition(port);
                 std::this_thread::sleep_for(50ms); // Request every 50ms
             }
-            addLog("Encoder polling stopped for port 0x%02X after %d requests", port);
+            LOG_ENCODER("Encoder polling stopped for port 0x%02X after %d requests", port);
             });
     }
 
     bool quickEncoderTest(uint8_t port)
     {
-        addLog("=== QUICK ENCODER TEST (REAL-TIME) ===");
+        LOG_ENCODER("=== QUICK ENCODER TEST (REAL-TIME) ===");
 
         // Resetting the position
         resetEncoderPosition(port);
 
         // We get the initial position
         double startPos = getMotorPosition(port);
-        addLog("Start position: %.3f", startPos);
+        LOG_ENCODER("Start position: %.3f", startPos);
 
         // We start polling the encoder to activate updates
         startEncoderPolling(port);
@@ -1626,11 +1625,11 @@ private:
 
         // We receive a position after activating the survey
         startPos = getMotorPosition(port);
-        addLog("Position after polling start: %.3f", startPos);
+        LOG_ENCODER("Position after polling start: %.3f", startPos);
 
         // We start the engine for a short time
         setMotorSpeed(port, 40);
-        addLog("Rotating motor at speed 40...");
+        LOG_MOTOR("Rotating motor at speed 40...");
 
         // We wait and measure the change in position
         auto startTime = std::chrono::steady_clock::now();
@@ -1647,7 +1646,7 @@ private:
 
             // Logging progress
             if (measurements % 5 == 0) { // Every 5 measurements
-                addLog("Test loop %d: position=%.3f", measurements, currentPos);
+                LOG_PROFILE("Test loop %d: position=%.3f", measurements, currentPos);
             }
 
             measurements++;
@@ -1656,7 +1655,7 @@ private:
 
         // We stop the engine
         setMotorSpeed(port, 0);
-        addLog("Setting motor speed: Port=0x%02X, Speed=0", port);
+        LOG_MOTOR("Setting motor speed: Port=0x%02X, Speed=0", port);
 
         // Let the engine stop
         std::this_thread::sleep_for(100ms);
@@ -1665,11 +1664,11 @@ private:
         double finalPos = getMotorPosition(port);
         double positionChange = finalPos - startPos;
 
-        addLog("Position after 300ms: %.3f (change: %.3f), measurements: %d",
+        LOG_PROFILE("Position after 300ms: %.3f (change: %.3f), measurements: %d",
             finalPos, positionChange, measurements);
 
         bool success = (positionChange > 0.05); // Minimum expected change
-        addLog(success ? "SUCCESS: Encoder working! Position changed from %.3f to %.3f" :
+        LOG_ENCODER(success ? "SUCCESS: Encoder working! Position changed from %.3f to %.3f" :
             "FAILED: Encoder not responding to motor movement",
             startPos, finalPos);
 
@@ -1677,10 +1676,10 @@ private:
         stopEncoderPolling(port);
 
         if (!success) {
-            addLog("Final position: %.3f", finalPos);
-            addLog("Last received encoder data analysis:");
-            addLog("  - Check if 0x45 notifications are being received");
-            addLog("  - Check if position bytes are changing in 0x45 messages");
+            LOG_ENCODER("Final position: %.3f", finalPos);
+            LOG_ENCODER("Last received encoder data analysis:");
+            LOG_ENCODER("  - Check if 0x45 notifications are being received");
+            LOG_ENCODER("  - Check if position bytes are changing in 0x45 messages");
         }
 
         return success;
@@ -1703,13 +1702,13 @@ private:
                     }
                     if (thread.joinable()) {
                         thread.detach(); // Forced detachment as a last resort
-                        addLog("WARNING: Encoder polling thread for port 0x%02X had to be detached", port);
+                        LOG_WARNING("WARNING: Encoder polling thread for port 0x%02X had to be detached", port);
                     }
                 }
             }
 
             motorThreads.erase(port);
-            addLog("Encoder polling stopped for port 0x%02X", port);
+            LOG_ENCODER("Encoder polling stopped for port 0x%02X", port);
         }
     }
 
@@ -1717,7 +1716,7 @@ private:
     {
         if (!isValid || !peripheral.is_connected()) return;
 
-        addLog("Activating encoder mode for port 0x%02X", port);
+        LOG_ENCODER("Activating encoder mode for port 0x%02X", port);
 
         // Basic encoder activation command
         std::vector<uint8_t> setupCommand = {
@@ -1749,7 +1748,7 @@ private:
         sendCommandVector(subscribeCommand);
 
         std::this_thread::sleep_for(200ms);
-        addLog("Encoder mode activated for port 0x%02X", port);
+        LOG_ENCODER("Encoder mode activated for port 0x%02X", port);
     }
 
 private:
@@ -1800,14 +1799,14 @@ private:
             bool success = executeSpeedProfile(&execution.profile);
 
             if (success) {
-                addLog("Profile completed successfully for port 0x%02X", port);
+                LOG_PROFILE("Profile completed successfully for port 0x%02X", port);
             }
             else {
-                addLog("Profile failed for port 0x%02X", port);
+                LOG_ERROR("Profile failed for port 0x%02X", port);
             }
         }
         catch (const std::exception& ex) {
-            addLog("Exception in profile execution for port 0x%02X: %s", port, ex.what());
+            LOG_ERROR("Exception in profile execution for port 0x%02X: %s", port, ex.what());
         }
 
         delete[] execution.profile.points;
@@ -1834,7 +1833,7 @@ private:
             }
 
             if (allCompleted) {
-                addLog("All profiles completed");
+                LOG_PROFILE("All profiles completed");
                 break;
             }
 
@@ -1842,7 +1841,7 @@ private:
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime);
 
             if (elapsed.count() > timeoutMs) {
-                addLog("Timeout waiting for profiles to complete");
+                LOG_WARNING("Timeout waiting for profiles to complete");
                 stopAllProfiles();
                 break;
             }
@@ -1854,7 +1853,7 @@ private:
     void stopAllProfiles() {
         std::lock_guard<std::mutex> lock(profileExecutionsMutex);
 
-        addLog("Stopping all profiles");
+        LOG_INFO("Stopping all profiles");
 
         std::vector<uint8_t> portsToStop;
         for (auto& [port, execution] : profileExecutions) {
@@ -1867,7 +1866,7 @@ private:
             stopProfileExecution(port);
         }
 
-        addLog("All profiles stopped");
+        LOG_INFO("All profiles stopped");
     }
 
     void startProfileExecution(uint8_t port, const SpeedProfile& profile) {
@@ -1898,7 +1897,7 @@ private:
             });
 
         profileExecutions[port] = std::move(execution);
-        addLog("Started profile execution for port 0x%02X", port);
+        LOG_PROFILE("Started profile execution for port 0x%02X", port);
     }
 
     void stopProfileExecution(uint8_t port) {
@@ -1920,14 +1919,14 @@ private:
             }
 
             profileExecutions.erase(port);
-            addLog("Stopped profile execution for port 0x%02X", port);
+            LOG_PROFILE("Stopped profile execution for port 0x%02X", port);
         }
     }
 
 private:
     void handleSystemCommandReply(const std::vector<uint8_t>& data) {
         if (data.size() < 6) {
-            addLog("System command reply too short: %zu bytes", data.size());
+            LOG_ERROR("System command reply too short: %zu bytes", data.size());
             return;
         }
 
@@ -1946,30 +1945,30 @@ private:
                 batteryLevel.store(level);
                 lastBatteryUpdate = std::chrono::steady_clock::now();
 
-                addLog("Battery level received: %d%%", level);
+                LOG_INFO("Battery level received: %d%%", level);
 
                 if (level <= 20) {
-                    addLog("WARNING: Low battery! Consider charging the hub.");
+                    LOG_WARNING("WARNING: Low battery! Consider charging the hub.");
                 }
 
                 if (level == 100) {
-                    addLog("INFO: Battery fully charged");
+                    LOG_INFO("INFO: Battery fully charged");
                 }
             }
             else {
-                addLog("ERROR: Invalid checksum in battery level response. Expected: 0x%02X, Got: 0x%02X",
+                LOG_ERROR("ERROR: Invalid checksum in battery level response. Expected: 0x%02X, Got: 0x%02X",
                     checksum, data[data.size() - 1]);
             }
         }
         else {
-            addLog("System command reply with subcommand 0x%02X ignored", subcommand);
+            LOG_INFO("System command reply with subcommand 0x%02X ignored", subcommand);
         }
     }
 
 public:
     bool requestBatteryLevel() {
         if (!isValid || !peripheral.is_connected()) {
-            addLog("Battery level request: printer not connected");
+            LOG_ERROR("Battery level request: printer not connected");
             return false;
         }
 
@@ -1984,14 +1983,14 @@ public:
                 0x5E    // Checksum: 0x05^0x00^0x01^0x1B = 0x5E
             };
 
-            addLog("Requesting battery level from hub");
+            LOG_INFO("Requesting battery level from hub");
             sendCommandVector(batteryRequest);
 
             lastBatteryUpdate = std::chrono::steady_clock::now();
             return true;
         }
         catch (const std::exception& ex) {
-            addLog("Error requesting battery level: %s", ex.what());
+            LOG_INFO("Error requesting battery level: %s", ex.what());
         }
     }
 
@@ -2197,6 +2196,8 @@ static IPrinterVirtualTable PrinterVTable = {
     printer_clear_log,
     printer_get_last_error,
     printer_printer_connection_info,
+    printer_set_log_categories,
+    printer_get_log_categories,
     printer_test_encoder_functionality,
     printer_execute_speed_profiles,
     printer_request_battery_level,
