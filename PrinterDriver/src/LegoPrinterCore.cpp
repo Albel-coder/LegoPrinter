@@ -17,11 +17,97 @@
 #include <sstream>
 #include <cmath>
 
+#ifdef _DEBUG
+    #define LOG_ENABLED 1
+    #define LOG_DEBUG_ENABLED 1
+#else
+    #define LOG_ENABLED 1
+    #define LOG_DEBUG_ENABLED 0
+#endif
+
+#define LOG_ERROR(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_ERROR)) \
+        addLogInternal(LOG_CATEGORY_ERROR, format, ##__VA_ARGS__)
+
+#define LOG_WARNING(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_WARNING)) \
+        addLogInternal(LOG_CATEGORY_WARNING, format, ##__VA_ARGS__)
+
+#define LOG_INFO(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_INFO)) \
+        addLogInternal(LOG_CATEGORY_INFO, format, ##__VA_ARGS__)
+
+#define LOG_DEBUG(format, ...) \
+    if (LOG_DEBUG_ENABLED && isCategoryEnabled(LOG_CATEGORY_DEBUG)) \
+        addLogInternal(LOG_CATEGORY_DEBUG, format, ##__VA_ARGS__)
+
+#define LOG_MOTOR(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_MOTOR)) \
+        addLogInternal(LOG_CATEGORY_MOTOR, format, ##__VA_ARGS__)
+
+#define LOG_ENCODER(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_ENCODER)) \
+        addLogInternal(LOG_CATEGORY_ENCODER, format, ##__VA_ARGS__)
+
+#define LOG_BLUETOOTH(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_BLUETOOTH)) \
+        addLogInternal(LOG_CATEGORY_BLUETOOTH, format, ##__VA_ARGS__)
+
+#define LOG_PROFILE(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_PROFILE)) \
+        addLogInternal(LOG_CATEGORY_PROFILE, format, ##__VA_ARGS__)
+
+#define LOG_PERFORMANCE(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_PERFORMANCE)) \
+        addLogInternal(LOG_CATEGORY_PERFORMANCE, format, ##__VA_ARGS__)
+
+#define LOG_COMMAND(format, ...) \
+    if (isCategoryEnabled(LOG_CATEGORY_COMMAND)) \
+        addLogInternal(LOG_CATEGORY_COMMAND, format, ##__VA_ARGS__)
+
+#ifdef _DEBUG
+#define LOG_PERFORMANCE_START() auto performanceStartTime = std::chrono::high_resolution_clock::now()
+#define LOG_PERFORMANCE_END(category, operation) \
+        auto performanceEndTime = std::chrono::high_resolution_clock::now(); \
+        auto performanceDuration = std::chrono::duration_cast<std::chrono::microseconds>(performanceEndTime - performanceStartTime); \
+        if (isCategoryEnabled(LOG_CATEGORY_PERFORMANCE)) \
+            addLogInternal(LOG_CATEGORY_PERFORMANCE, "%s took %lld µs", operation, performanceDuration.count())
+#else
+#define LOG_PERFORMANCE_START() 
+#define LOG_PERFORMANCE_END(category, operation)
+#endif
+
 using namespace std::chrono_literals;
 
 // Constants for working with LEGO HUB
 const std::string LEGO_HUB_SERVICE_UUID = "00001623-1212-efde-1623-785feabcd123";
 const std::string LEGO_HUB_CHARACTERISTIC_UUID = "00001624-1212-efde-1623-785feabcd123";
+
+enum LogCategory {
+    LOG_CATEGORY_NONE        = 0,
+    LOG_CATEGORY_ERROR       = 1 << 0,
+    LOG_CATEGORY_WARNING     = 1 << 1,
+    LOG_CATEGORY_INFO        = 1 << 2,
+    LOG_CATEGORY_DEBUG       = 1 << 3,
+    LOG_CATEGORY_MOTOR       = 1 << 4,
+    LOG_CATEGORY_ENCODER     = 1 << 5,
+    LOG_CATEGORY_BLUETOOTH   = 1 << 6,
+    LOG_CATEGORY_PROFILE     = 1 << 7,
+    LOG_CATEGORY_PERFORMANCE = 1 << 8,
+    LOG_CATEGORY_COMMAND     = 1 << 9,
+
+    LOG_CATEGORY_ALL        = 0xFFFFFFFF,
+    LOG_CATEGORY_DEFAULT    = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING |
+                              LOG_CATEGORY_INFO | LOG_CATEGORY_MOTOR |
+                              LOG_CATEGORY_ENCODER,
+
+#ifdef _DEBUG
+    LOG_CATEGORY_RELEASE = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING |
+                           LOG_CATEGORY_INFO | LOG_CATEGORY_MOTOR,
+#else
+    LOG_CATEGORY_RELEASE = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING | LOG_CATEGORY_INFO,
+#endif
+};
 
 // --Printer implementation class--
 // Internal driver implementation, hidden from the outside world
@@ -111,11 +197,6 @@ private:
     std::map<uint8_t, std::thread> motorThreads;
     std::condition_variable motorStatesCV;
 
-    // Logging system
-    std::vector<std::string> logEntries;
-    std::mutex logMutex;
-    const size_t MAX_LOG_ENTRIES = 10000;
-
     // Simple synchronization system
     std::mutex operationMutex;
     std::mutex completionMutex;
@@ -157,6 +238,22 @@ private:
     std::atomic<uint8_t> batteryLevel{ 0 };
     std::chrono::steady_clock::time_point lastBatteryUpdate;
 
+    std::atomic<uint32_t> enabledCategories;
+
+    struct LogEntry {
+        char message[1024];
+        LogCategory category;
+        std::chrono::system_clock::time_point timestamp;
+    };
+
+    static constexpr size_t MAX_LOG_ENTRIES = 10000;
+    static constexpr size_t MAX_MESSAGE_LENGTH = 1023;
+
+    std::unique_ptr<LogEntry[]> logBuffer;
+    std::atomic<size_t> logWriteIndex{ 0 };
+    std::atomic<size_t> logReadIndex{ 0 };
+    std::mutex logBufferMutex;
+
 public:
 
     PrinterImplementation() :
@@ -166,6 +263,9 @@ public:
         batteryLevel(0),
         lastBatteryUpdate(std::chrono::steady_clock::now()),
         status(0) {
+
+        logBuffer = std::make_unique<LogEntry[]>(MAX_LOG_ENTRIES);
+        enabledCategories.store(LOG_CATEGORY_RELEASE, std::memory_order_relaxed);
 
         addLog("PrinterImplementation created");
     }
@@ -228,7 +328,105 @@ public:
         }
     }
 
+    void setLogCategories(uint32_t categories) {
+        enabledCategories.store(categories, std::memory_order_relaxed);
+        addLogInternal(LOG_CATEGORY_INFO, "Log categories updated: 0x%08X", categories);
+    }
+
+    uint32_t getLogCategories() const {
+        return enabledCategories.load(std::memory_order_relaxed);
+    }
+
 private:    
+
+    __forceinline bool isCategoryEnabled(LogCategory category) const {
+        return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
+    }
+
+    template<size_t N>
+    __forceinline void formatToBuffer(char(&buffer)[N], const char* format, va_list args) {
+        vsnprintf(buffer, N, format, args);
+    }
+
+    void addLogInternal(LogCategory category, const char* format, ...) {
+        if (!isCategoryEnabled(category)) {
+            return;
+        }
+
+        char formatted[1024];
+        va_list args;
+        va_start(args, format);
+        vsnprintf(formatted, sizeof(formatted), format, args);
+        formatted[sizeof(formatted) - 1] = '\0';
+        va_end(args);
+
+        auto now = std::chrono::system_clock::now();
+        auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
+        tm time_info;
+        localtime_s(&time_info, &time_t_now);
+
+        const char* categoryName = "UNKNOWN";
+        switch (category) {
+        case LOG_CATEGORY_ERROR:
+            categoryName = "ERROR";
+            break;
+        case LOG_CATEGORY_WARNING:
+            categoryName = "WARNING";
+            break;
+        case LOG_CATEGORY_INFO:
+            categoryName = "INFO";
+            break;
+        case LOG_CATEGORY_DEBUG:
+            categoryName = "DEBUG";
+            break;
+        case LOG_CATEGORY_MOTOR:
+            categoryName = "MOTOR";
+            break;
+        case LOG_CATEGORY_ENCODER:
+            categoryName = "ENCODER";
+            break;
+        case LOG_CATEGORY_BLUETOOTH:
+            categoryName = "BLUETOOTH";
+            break;
+        case LOG_CATEGORY_PROFILE:
+            categoryName = "PROFILE";
+            break;
+        case LOG_CATEGORY_PERFORMANCE:
+            categoryName = "PERFORMANCE";
+            break;
+        case LOG_CATEGORY_COMMAND:
+            categoryName = "COMMAND";
+            break;
+        }
+
+        char finalBuffer[1024];
+        snprintf(finalBuffer, sizeof(finalBuffer),
+            "[%s][%02d:%02d:%02d.%03d] %s",
+            categoryName,
+            time_info.tm_hour, time_info.tm_min, time_info.tm_sec,
+            (int)milliseconds.count(),
+            formatted);
+
+        size_t write_idx = logWriteIndex.load(std::memory_order_relaxed);
+        size_t read_idx = logReadIndex.load(std::memory_order_relaxed);
+
+        size_t next_write = (write_idx + 1) % MAX_LOG_ENTRIES;
+
+        if (next_write == read_idx % MAX_LOG_ENTRIES) {
+            logReadIndex.store((read_idx + 1) % MAX_LOG_ENTRIES,
+                std::memory_order_relaxed);
+        }
+
+        size_t buffer_idx = write_idx % MAX_LOG_ENTRIES;
+        strncpy_s(logBuffer[buffer_idx].message, finalBuffer, MAX_MESSAGE_LENGTH);
+        logBuffer[buffer_idx].category = category;
+        logBuffer[buffer_idx].timestamp = now;
+
+        logWriteIndex.store(next_write, std::memory_order_release);
+    }
 
     void setMotorCalibration(uint8_t port, double factor) {
         motorCalibrationFactors[port] = factor;
@@ -411,37 +609,6 @@ private:
         }
     }   
 
-    // Internal helper methods
-    void addLog(const std::string& Message) {
-        std::lock_guard<std::mutex> lock(logMutex);
-
-        // Get current time
-        auto Now = std::chrono::system_clock::now();
-        auto Time = std::chrono::system_clock::to_time_t(Now);
-        auto Milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(Now.time_since_epoch()) % 1000;
-
-        std::stringstream String;
-        String << "[" << std::put_time(std::localtime(&Time), "%H:%M:%S");
-        String << "." << std::setfill('0') << std::setw(3) << Milliseconds.count() << "] " << Message;
-
-        // Adding message to log
-        logEntries.push_back(String.str());
-
-        if (logEntries.size() > MAX_LOG_ENTRIES) {
-            logEntries.erase(logEntries.begin());
-        }
-    }
-
-    void addLog(const char* Format, ...) {
-        char buffer[1024 * 16];
-        va_list args;
-        va_start(args, Format);
-        vsnprintf(buffer, sizeof(buffer), Format, args);
-        va_end(args);
-
-        addLog(std::string(buffer));
-    }
-
     void sendCommandVector(std::vector<uint8_t> command) {
         std::lock_guard<std::mutex> Lock(sendCommandMutex);
 
@@ -483,27 +650,73 @@ private:
 public:
 
     // Access to log from C-interface
-    int GetLogCount() {
-        std::lock_guard<std::mutex> lock(logMutex);
-        return static_cast<int>(logEntries.size());
+    int getLogCount() {
+        size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+        size_t readIndex = logReadIndex.load(std::memory_order_acquire);
+
+        if (writeIndex >= readIndex) {
+            size_t count = writeIndex - readIndex;
+            return static_cast<int>(std::min(count, MAX_LOG_ENTRIES));
+        }
+        else {
+            size_t count = (writeIndex + MAX_LOG_ENTRIES) - readIndex;
+            return static_cast<int>(std::min(count, MAX_LOG_ENTRIES));
+        }
     }
 
-    const char* GetLogEntry(int index) {
-        std::lock_guard<std::mutex> lock(logMutex);
-        if (index < 0 || index >= static_cast<int>(logEntries.size())) {
+    const char* getLogEntry(int index, LogCategory* outCategory = nullptr) {
+        size_t readIndex = logReadIndex.load(std::memory_order_acquire);
+        size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+
+        size_t available;
+        if (writeIndex >= readIndex) {
+            available = writeIndex - readIndex;
+        }
+        else {
+            available = (writeIndex + MAX_LOG_ENTRIES) - readIndex;
+        }
+
+        available = std::min(available, MAX_LOG_ENTRIES);
+
+        if (index < 0 || static_cast<size_t>(index) >= available) {
             return "";
         }
 
-        return logEntries[index].c_str();
+        size_t bufferIndex = (readIndex + index) % MAX_LOG_ENTRIES;
+
+        if (outCategory) {
+            *outCategory = logBuffer[bufferIndex].category;
+        }
+
+        return logBuffer[bufferIndex].message;
     }
 
-    void ClearLog() {
-        std::lock_guard<std::mutex> lock(logMutex);
-        logEntries.clear();
-        addLog("Log cleared");
+    int getFilterLogCount(uint32_t categoryMask) {
+        size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+        size_t readIndex = logReadIndex.load(std::memory_order_relaxed);
+
+        int count = 0;
+
+        std::lock_guard<std::mutex> lock(logBufferMutex);        
+
+        for (size_t i = readIndex; i < writeIndex; i++) {
+            size_t index = i % MAX_LOG_ENTRIES;
+            if (logBuffer[index].category & categoryMask) {
+                count++;
+            }
+        }
+
+        return count;
     }
 
-    const char* GetLastErrorMessage() {
+    void clearLog() {
+        logWriteIndex.store(0, std::memory_order_release);
+        logReadIndex.store(0, std::memory_order_relaxed);
+
+        addLogInternal(LOG_CATEGORY_INFO, "Log buffer cleared");
+    }
+
+    const char* getLastErrorMessage() {
         return lastError.empty() ? "" : lastError.c_str();
     }
 
@@ -1500,7 +1713,7 @@ private:
         }
     }
 
-    void ActivateEncoderMode(uint8_t port)
+    void activateEncoderMode(uint8_t port)
     {
         if (!isValid || !peripheral.is_connected()) return;
 
@@ -1886,14 +2099,14 @@ namespace
         if (!self || !self->vtable) return 0;
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->GetLogCount();
+        return Implementation->getLogCount();
     }
 
     const char* printer_get_log_entry(IPrinter* self, int index) {
-        if (!self || !self->vtable) return nullptr;
+        if (!self || !self->vtable) return "";
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->GetLogEntry(index);
+        return Implementation->getLogEntry(index);
     }
 
     void printer_printer_connection_info(IPrinter* self) {
@@ -1907,14 +2120,14 @@ namespace
         if (!self || !self->vtable) return;
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->ClearLog();
+        return Implementation->clearLog();
     }
 
     const char* printer_get_last_error(IPrinter* self) {
-        if (!self || !self->vtable) return nullptr;
+        if (!self || !self->vtable) return "";
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
-        return Implementation->GetLastErrorMessage();
+        return Implementation->getLastErrorMessage();
     }
 
     bool printer_test_encoder_functionality(IPrinter* self) {
@@ -1950,6 +2163,20 @@ namespace
 
         PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
         return Implementation->isBatteryLevelFresh(maxAgeSeconds);
+    }
+
+    void printer_set_log_categories(IPrinter* self, uint32_t categories) {
+        if (!self || !self->vtable) return;
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->setLogCategories(categories);
+    }
+
+    unsigned int printer_get_log_categories(IPrinter* self) {
+        if (!self || !self->vtable) return 0;
+
+        PrinterImplementation* Implementation = reinterpret_cast<PrinterImplementation*>(self);
+        return Implementation->getLogCategories();
     }
 }
 
@@ -2068,7 +2295,7 @@ extern "C"
     }
 
     PRINTER_DRIVER_API const char* GetLogEntry(IPrinter* printer, int index) {
-        if (!printer || !printer->vtable || !printer->vtable->printer_get_log_entry) return nullptr;
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_log_entry) return "";
 
         return printer->vtable->printer_get_log_entry(printer, index);
     }
@@ -2080,7 +2307,7 @@ extern "C"
     }
 
     PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* printer) {
-        if (!printer || !printer->vtable || !printer->vtable->printer_get_last_error) return nullptr;
+        if (!printer || !printer->vtable || !printer->vtable->printer_get_last_error) return "";
 
         return printer->vtable->printer_get_last_error(printer);
     }
@@ -2113,6 +2340,18 @@ extern "C"
 
     PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer) {
         if (printer) printer->vtable->printer_printer_connection_info(printer);
+    }
+
+    PRINTER_DRIVER_API void PrinterSetLogCategories(IPrinter* printer, unsigned int categories)
+    {
+        if (printer && categories > 0) printer->vtable->printer_set_log_categories(printer, categories);
+    }
+
+    PRINTER_DRIVER_API unsigned int PrinterGetLogCategories(IPrinter* printer)
+    {
+        if (!printer || !printer->vtable) return 0;
+
+        return printer->vtable->printer_get_log_categories(printer);
     }
 
     PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile) {

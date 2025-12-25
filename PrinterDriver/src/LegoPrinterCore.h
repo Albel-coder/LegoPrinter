@@ -30,6 +30,9 @@ extern "C"
 	PRINTER_DRIVER_API const char* GetLastErrorMessage(IPrinter* printer);
 	PRINTER_DRIVER_API void PrinterConnectionInfo(IPrinter* printer);
 
+	PRINTER_DRIVER_API void PrinterSetLogCategories(IPrinter* printer, unsigned int categories);
+	PRINTER_DRIVER_API unsigned int PrinterGetLogCategories(IPrinter* printer);
+
 	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(IPrinter* printer, const SpeedProfile* profile);
 	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfiles(IPrinter* printer, const SpeedProfile* profiles, int count);
 
