@@ -107,7 +107,7 @@
             this.connectButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
             this.connectButton.Location = new System.Drawing.Point(13, 56);
             this.connectButton.Name = "connectButton";
-            this.connectButton.Size = new System.Drawing.Size(93, 32);
+            this.connectButton.Size = new System.Drawing.Size(126, 32);
             this.connectButton.TabIndex = 0;
             this.connectButton.Text = "connect";
             this.connectButton.UseVisualStyleBackColor = false;
@@ -128,13 +128,14 @@
             // 
             this.textBoxConsole.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
             this.textBoxConsole.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.textBoxConsole.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(150)))), ((int)(((byte)(150)))), ((int)(((byte)(150)))));
             this.textBoxConsole.Location = new System.Drawing.Point(0, 38);
             this.textBoxConsole.Multiline = true;
             this.textBoxConsole.Name = "textBoxConsole";
+            this.textBoxConsole.ReadOnly = true;
             this.textBoxConsole.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.textBoxConsole.Size = new System.Drawing.Size(721, 306);
             this.textBoxConsole.TabIndex = 2;
-            this.textBoxConsole.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
             // 
             // panel2
             // 
