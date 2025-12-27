@@ -14,12 +14,6 @@ namespace WindowsForms
 {
     public partial class MainForm : Form
     {
-        private PrinterController printerController;
-        private GCodeInterpreter Interpreter;
-        private int LastLogCount = 0;
-        private int LastInterpreterLogCount = 0;
-        private bool AutoScrollEnabled = true;
-                
         private readonly Dictionary<string, UserControl> tabs = new Dictionary<string, UserControl>();
         private List<Panel> panels = new List<Panel>();
         private UserControl currentTab;
@@ -107,7 +101,7 @@ namespace WindowsForms
 
         private void buttonPreview_Click(object sender, EventArgs e)
         {
-            ShowTab("PreviewUserControl");
+            ShowTab("PreviewUserControl");            
         }
 
         private void restoreWindowButton_Click(object sender, EventArgs e)

@@ -93,14 +93,12 @@ public class PrinterController : IDisposable
         POSITION = 2,
         PROFILE = 3
     }
-
     public enum EncoderEventType
     {
         ENCODER_POSITION_REACHED = 0,
         ENCODER_SEGMENT_COMPLETED = 1,
         ENCODER_MOVEMENT_FINISHED = 2
     }
-
     // Delegates for callbacks
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate void EncoderCallback(byte Port, EncoderEventType EventType, double Position, IntPtr UserData);
@@ -204,7 +202,6 @@ public class PrinterController : IDisposable
             }, false);
         }
     }
-
     public bool UnsubscribeFromEncoderEvents(byte port)
     {
         lock (SyncRoot)
@@ -337,7 +334,6 @@ public class PrinterController : IDisposable
             }
         }
     }
-
     public IPrinter GetPrinterHandle()
     {
         if (Disposed)

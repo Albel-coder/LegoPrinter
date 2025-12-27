@@ -28,20 +28,22 @@
         /// </summary>
         private void InitializeComponent()
         {
+            this.components = new System.ComponentModel.Container();
             this.panelConnection = new System.Windows.Forms.Panel();
-            this.connectButton = new System.Windows.Forms.Button();
+            this.labelBattery = new System.Windows.Forms.Label();
             this.panelConnectionHead = new System.Windows.Forms.Panel();
+            this.labelConnectionHead = new System.Windows.Forms.Label();
+            this.connectButton = new System.Windows.Forms.Button();
             this.panelConsole = new System.Windows.Forms.Panel();
-            this.panel2 = new System.Windows.Forms.Panel();
             this.textBoxConsole = new System.Windows.Forms.TextBox();
+            this.panel2 = new System.Windows.Forms.Panel();
+            this.labelConsoleHead = new System.Windows.Forms.Label();
             this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
             this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
             this.panelTool = new System.Windows.Forms.Panel();
             this.panelToolHead = new System.Windows.Forms.Panel();
-            this.labelConsoleHead = new System.Windows.Forms.Label();
             this.labelTool = new System.Windows.Forms.Label();
-            this.labelBattery = new System.Windows.Forms.Label();
-            this.labelConnectionHead = new System.Windows.Forms.Label();
+            this.logTimer = new System.Windows.Forms.Timer(this.components);
             this.panelConnection.SuspendLayout();
             this.panelConnectionHead.SuspendLayout();
             this.panelConsole.SuspendLayout();
@@ -64,6 +66,39 @@
             this.panelConnection.Size = new System.Drawing.Size(427, 132);
             this.panelConnection.TabIndex = 0;
             // 
+            // labelBattery
+            // 
+            this.labelBattery.Image = global::WindowsForms.Properties.Resources.batteryImage32x32;
+            this.labelBattery.Location = new System.Drawing.Point(158, 56);
+            this.labelBattery.Name = "labelBattery";
+            this.labelBattery.Size = new System.Drawing.Size(53, 32);
+            this.labelBattery.TabIndex = 2;
+            this.labelBattery.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
+            // panelConnectionHead
+            // 
+            this.panelConnectionHead.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.panelConnectionHead.Controls.Add(this.labelConnectionHead);
+            this.panelConnectionHead.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panelConnectionHead.ForeColor = System.Drawing.SystemColors.Info;
+            this.panelConnectionHead.Location = new System.Drawing.Point(0, 0);
+            this.panelConnectionHead.Name = "panelConnectionHead";
+            this.panelConnectionHead.Size = new System.Drawing.Size(427, 38);
+            this.panelConnectionHead.TabIndex = 1;
+            // 
+            // labelConnectionHead
+            // 
+            this.labelConnectionHead.Dock = System.Windows.Forms.DockStyle.Left;
+            this.labelConnectionHead.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.labelConnectionHead.Image = global::WindowsForms.Properties.Resources.connectionPanelImage32x32;
+            this.labelConnectionHead.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.labelConnectionHead.Location = new System.Drawing.Point(0, 0);
+            this.labelConnectionHead.Name = "labelConnectionHead";
+            this.labelConnectionHead.Size = new System.Drawing.Size(139, 38);
+            this.labelConnectionHead.TabIndex = 2;
+            this.labelConnectionHead.Text = " Connection";
+            this.labelConnectionHead.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
             // connectButton
             // 
             this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(29)))), ((int)(((byte)(175)))), ((int)(((byte)(30)))));
@@ -78,17 +113,6 @@
             this.connectButton.UseVisualStyleBackColor = false;
             this.connectButton.Click += new System.EventHandler(this.connectButton_Click);
             // 
-            // panelConnectionHead
-            // 
-            this.panelConnectionHead.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
-            this.panelConnectionHead.Controls.Add(this.labelConnectionHead);
-            this.panelConnectionHead.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelConnectionHead.ForeColor = System.Drawing.SystemColors.Info;
-            this.panelConnectionHead.Location = new System.Drawing.Point(0, 0);
-            this.panelConnectionHead.Name = "panelConnectionHead";
-            this.panelConnectionHead.Size = new System.Drawing.Size(427, 38);
-            this.panelConnectionHead.TabIndex = 1;
-            // 
             // panelConsole
             // 
             this.panelConsole.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
@@ -97,8 +121,20 @@
             this.panelConsole.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelConsole.Location = new System.Drawing.Point(442, 3);
             this.panelConsole.Name = "panelConsole";
-            this.panelConsole.Size = new System.Drawing.Size(721, 345);
+            this.panelConsole.Size = new System.Drawing.Size(721, 344);
             this.panelConsole.TabIndex = 2;
+            // 
+            // textBoxConsole
+            // 
+            this.textBoxConsole.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
+            this.textBoxConsole.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.textBoxConsole.Location = new System.Drawing.Point(0, 38);
+            this.textBoxConsole.Multiline = true;
+            this.textBoxConsole.Name = "textBoxConsole";
+            this.textBoxConsole.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.textBoxConsole.Size = new System.Drawing.Size(721, 306);
+            this.textBoxConsole.TabIndex = 2;
+            this.textBoxConsole.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
             // 
             // panel2
             // 
@@ -111,16 +147,17 @@
             this.panel2.Size = new System.Drawing.Size(721, 38);
             this.panel2.TabIndex = 1;
             // 
-            // textBoxConsole
+            // labelConsoleHead
             // 
-            this.textBoxConsole.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
-            this.textBoxConsole.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.textBoxConsole.Location = new System.Drawing.Point(0, 38);
-            this.textBoxConsole.Multiline = true;
-            this.textBoxConsole.Name = "textBoxConsole";
-            this.textBoxConsole.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.textBoxConsole.Size = new System.Drawing.Size(721, 307);
-            this.textBoxConsole.TabIndex = 2;
+            this.labelConsoleHead.Dock = System.Windows.Forms.DockStyle.Left;
+            this.labelConsoleHead.Image = global::WindowsForms.Properties.Resources.consoleImage32x32;
+            this.labelConsoleHead.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.labelConsoleHead.Location = new System.Drawing.Point(0, 0);
+            this.labelConsoleHead.Name = "labelConsoleHead";
+            this.labelConsoleHead.Size = new System.Drawing.Size(135, 38);
+            this.labelConsoleHead.TabIndex = 3;
+            this.labelConsoleHead.Text = " Console";
+            this.labelConsoleHead.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // tableLayoutPanel1
             // 
@@ -151,7 +188,7 @@
             this.tableLayoutPanel2.RowCount = 2;
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 40.86956F));
             this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 59.13044F));
-            this.tableLayoutPanel2.Size = new System.Drawing.Size(433, 345);
+            this.tableLayoutPanel2.Size = new System.Drawing.Size(433, 344);
             this.tableLayoutPanel2.TabIndex = 3;
             // 
             // panelTool
@@ -159,7 +196,7 @@
             this.panelTool.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
             this.panelTool.Controls.Add(this.panelToolHead);
             this.panelTool.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelTool.Location = new System.Drawing.Point(3, 144);
+            this.panelTool.Location = new System.Drawing.Point(3, 143);
             this.panelTool.Name = "panelTool";
             this.panelTool.Size = new System.Drawing.Size(427, 132);
             this.panelTool.TabIndex = 4;
@@ -175,18 +212,6 @@
             this.panelToolHead.Size = new System.Drawing.Size(427, 38);
             this.panelToolHead.TabIndex = 1;
             // 
-            // labelConsoleHead
-            // 
-            this.labelConsoleHead.Dock = System.Windows.Forms.DockStyle.Left;
-            this.labelConsoleHead.Image = global::WindowsForms.Properties.Resources.consoleImage32x32;
-            this.labelConsoleHead.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.labelConsoleHead.Location = new System.Drawing.Point(0, 0);
-            this.labelConsoleHead.Name = "labelConsoleHead";
-            this.labelConsoleHead.Size = new System.Drawing.Size(135, 38);
-            this.labelConsoleHead.TabIndex = 3;
-            this.labelConsoleHead.Text = " Console";
-            this.labelConsoleHead.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
             // labelTool
             // 
             this.labelTool.Dock = System.Windows.Forms.DockStyle.Left;
@@ -200,27 +225,9 @@
             this.labelTool.Text = " Tool";
             this.labelTool.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
-            // labelBattery
+            // logTimer
             // 
-            this.labelBattery.Image = global::WindowsForms.Properties.Resources.batteryImage32x32;
-            this.labelBattery.Location = new System.Drawing.Point(158, 56);
-            this.labelBattery.Name = "labelBattery";
-            this.labelBattery.Size = new System.Drawing.Size(53, 32);
-            this.labelBattery.TabIndex = 2;
-            this.labelBattery.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // labelConnectionHead
-            // 
-            this.labelConnectionHead.Dock = System.Windows.Forms.DockStyle.Left;
-            this.labelConnectionHead.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.labelConnectionHead.Image = global::WindowsForms.Properties.Resources.connectionPanelImage32x32;
-            this.labelConnectionHead.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.labelConnectionHead.Location = new System.Drawing.Point(0, 0);
-            this.labelConnectionHead.Name = "labelConnectionHead";
-            this.labelConnectionHead.Size = new System.Drawing.Size(139, 38);
-            this.labelConnectionHead.TabIndex = 2;
-            this.labelConnectionHead.Text = " Connection";
-            this.labelConnectionHead.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.logTimer.Tick += new System.EventHandler(this.logTimer_Tick);
             // 
             // DeviceUserControl
             // 
@@ -259,5 +266,6 @@
         private System.Windows.Forms.Panel panelToolHead;
         private System.Windows.Forms.Label labelTool;
         private System.Windows.Forms.Label labelBattery;
+        private System.Windows.Forms.Timer logTimer;
     }
 }
