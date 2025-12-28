@@ -408,13 +408,10 @@ public class PrinterController : IDisposable
         lock (SyncRoot)
         {
             if (Disposed) throw new ObjectDisposedException("PrinterController");
-            Console.WriteLine($"[C#] RequestBatteryLevel called. PrinterHandle.VirtualTable: 0x{PrinterHandle.VirtualTable.ToInt64():X}");
-
+            
             return SafeCall(() =>
             {
-                Console.WriteLine($"[C#] Calling native PrinterRequestBatteryLevel...");
                 bool result = PrinterRequestBatteryLevel(PrinterHandle);
-                Console.WriteLine($"[C#] PrinterRequestBatteryLevel returned: {result}");
                 return result;
             }, false);
         }
@@ -424,14 +421,11 @@ public class PrinterController : IDisposable
     {
         lock (SyncRoot)
         {
-            if (Disposed) throw new ObjectDisposedException("PrinterController");
-            Console.WriteLine($"[C#] GetBatteryLevel called. PrinterHandle.VirtualTable: 0x{PrinterHandle.VirtualTable.ToInt64():X}");
+            if (Disposed) throw new ObjectDisposedException("PrinterController");            
 
             return SafeCall(() =>
             {
-                Console.WriteLine($"[C#] Calling native PrinterGetBatteryLevel...");
                 byte level = PrinterGetBatteryLevel(PrinterHandle);
-                Console.WriteLine($"[C#] PrinterGetBatteryLevel returned: {level}");
                 return level;
             }, (byte)0);
         }
@@ -442,13 +436,10 @@ public class PrinterController : IDisposable
         lock (SyncRoot)
         {
             if (Disposed) throw new ObjectDisposedException("PrinterController");
-            Console.WriteLine($"[C#] IsBatteryLevelFresh called with maxAgeSeconds={maxAgeSeconds}");
 
             return SafeCall(() =>
             {
-                Console.WriteLine($"[C#] Calling native PrinterIsBatteryLevelFresh...");
                 bool isFresh = PrinterIsBatteryLevelFresh(PrinterHandle, maxAgeSeconds);
-                Console.WriteLine($"[C#] PrinterIsBatteryLevelFresh returned: {isFresh}");
                 return isFresh;
             }, false);
         }

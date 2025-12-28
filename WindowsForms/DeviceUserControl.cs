@@ -411,11 +411,8 @@ namespace WindowsForms
         }
         private void UpdateBatteryInfo()
         {
-            Debug.WriteLine($"=== UpdateBatteryInfo called at {DateTime.Now:HH:mm:ss.fff} ===");
-
             if (printer == null)
             {
-                Debug.WriteLine("Printer is null");
                 batteryLevel = 0;
                 isConnected = false;
                 this.Invalidate();
@@ -424,96 +421,47 @@ namespace WindowsForms
 
             try
             {
-                Debug.WriteLine("Calling UpdateConnectionState...");
                 UpdateConnectionState();
-                Debug.WriteLine($"isConnected = {isConnected}");
 
                 if (!isConnected)
                 {
-                    Debug.WriteLine("Not connected - showing disconnected state");
                     batteryLevel = 0;
                     this.Invalidate();
                     return;
                 }
-
-                Debug.WriteLine("Connected, trying to get battery level...");
-
-                // Пробуем несколько раз с разными интервалами
                 byte newLevel = 0;
-                int maxAttempts = 3;
+                try
+                {                    
+                    // Получаем уровень
+                    newLevel = printer.GetBatteryLevel();
 
-                for (int attempt = 1; attempt <= maxAttempts; attempt++)
-                {
-                    Debug.WriteLine($"Attempt {attempt} of {maxAttempts}");
-
-                    try
+                    System.Threading.Thread.Sleep(50);
+                    // Проверяем корректность
+                    if (newLevel > 100)
                     {
-                        // Запрашиваем обновление
-                        Debug.WriteLine("Requesting battery level...");
-                        bool requestResult = printer.RequestBatteryLevel();
-                        Debug.WriteLine($"RequestBatteryLevel result: {requestResult}");
-
-                        // Ждем разное время в зависимости от попытки
-                        int waitTime = attempt * 1000; // 1s, 2s, 3s
-                        Debug.WriteLine($"Waiting {waitTime}ms...");
-                        System.Threading.Thread.Sleep(waitTime);
-
-                        // Получаем уровень
-                        Debug.WriteLine("Getting battery level...");
-                        newLevel = printer.GetBatteryLevel();
-                        Debug.WriteLine($"GetBatteryLevel returned: {newLevel}%");
-
-                        // Проверяем корректность
-                        if (newLevel > 0 && newLevel <= 100)
-                        {
-                            Debug.WriteLine($"Valid battery level: {newLevel}%");
-                            break;
-                        }
-                        else if (newLevel > 100)
-                        {
-                            Debug.WriteLine($"WARNING: Invalid battery level: {newLevel}% (capping to 100)");
-                            newLevel = 100;
-                            break;
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"WARNING: Battery level is 0%");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"Exception in attempt {attempt}: {ex.Message}");
+                        newLevel = 100;
                     }
                 }
-
-                Debug.WriteLine($"Final battery level: {newLevel}%");
+                catch
+                {
+                }
 
                 if (newLevel != batteryLevel)
                 {
                     batteryLevel = newLevel;
                     lastUpdateTime = DateTime.Now;
-                    Debug.WriteLine($"Battery level changed to {batteryLevel}%");
 
                     UpdateColors();
                     this.Invalidate();
                     UpdateToolTip();
                 }
-                else
-                {
-                    Debug.WriteLine("Battery level unchanged");
-                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"FATAL EXCEPTION in UpdateBatteryInfo: {ex.Message}");
-                Debug.WriteLine($"Stack trace: {ex.StackTrace}");
-
                 batteryLevel = 0;
                 isConnected = false;
                 this.Invalidate();
             }
-
-            Debug.WriteLine("=== UpdateBatteryInfo finished ===");
         }
         private void UpdateColors()
         {
@@ -545,19 +493,7 @@ namespace WindowsForms
         }
         private void UpdateToolTip()
         {
-            string status = isConnected ? "Подключено" : "Не подключено";
-            string time = lastUpdateTime > DateTime.MinValue ?
-                lastUpdateTime.ToString("HH:mm:ss") : "никогда";
-
-            string tooltipText = $"Уровень: {batteryLevel}%\n" +
-                                $"Статус: {status}\n" +
-                                $"Обновлено: {time}";
-
-            // Обновляем ToolTip напрямую
-            if (batteryToolTip != null)
-            {
-                batteryToolTip.SetToolTip(this, tooltipText);
-            }
+            string tooltipText = $"{batteryLevel}%\n";
         }
         protected override void OnPaint(PaintEventArgs e)
         {
