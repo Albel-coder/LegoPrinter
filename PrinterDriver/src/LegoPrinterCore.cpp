@@ -102,8 +102,7 @@ enum LogCategory {
                               LOG_CATEGORY_ENCODER,
 
 #ifdef _DEBUG
-    LOG_CATEGORY_RELEASE = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING |
-                           LOG_CATEGORY_INFO | LOG_CATEGORY_MOTOR,
+    LOG_CATEGORY_RELEASE = LOG_CATEGORY_ALL,
 #else
     LOG_CATEGORY_RELEASE = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING | LOG_CATEGORY_INFO,
 #endif
@@ -1933,31 +1932,61 @@ private:
         const uint8_t subcommand = data[3]; // data[3] is a subcommand of System Command Reply
 
         if (subcommand == 0x1B) { // Response to charge level request
-            const uint8_t level = data[4]; // Charge level (0-100%)
+            // Проверяем структуру пакета
+            // Индексы согласно документации LWP:
+            // [0] = Length (including this byte)
+            // [1] = Hub ID (0x00)
+            // [2] = Message Type (0x04 = System Command Reply)
+            // [3] = Subcommand (0x1B = GET_BATTERY_LEVEL)
+            // [4] = Battery Level (0-100%)
+            // [5] = Checksum
 
-            // Check the checksum (XOR of all bytes except the last one)
-            uint8_t checksum = 0;
-            for (size_t i = 0; i < data.size() - 1; i++) {
-                checksum ^= data[i];
+            LOG_DEBUG("Battery response packet:");
+            for (size_t i = 0; i < data.size(); i++) {
+                LOG_DEBUG("  [%zu] = 0x%02X (%u)", i, data[i], data[i]);
             }
 
-            if (checksum == data[data.size() - 1]) {
-                batteryLevel.store(level);
-                lastBatteryUpdate = std::chrono::steady_clock::now();
+            const uint8_t reportedLength = data[0];
+            if (reportedLength != 6) {
+                LOG_ERROR("Invalid battery response length: %u, expected 6", reportedLength);
+                return;
+            }
 
-                LOG_INFO("Battery level received: %d%%", level);
+            // Проверяем checksum
+            uint8_t calculatedChecksum = 0;
+            for (size_t i = 0; i < data.size() - 1; i++) {
+                calculatedChecksum ^= data[i];
+            }
 
-                if (level <= 20) {
-                    LOG_WARNING("WARNING: Low battery! Consider charging the hub.");
-                }
+            uint8_t receivedChecksum = data[data.size() - 1];
 
-                if (level == 100) {
-                    LOG_INFO("INFO: Battery fully charged");
-                }
+            if (calculatedChecksum != receivedChecksum) {
+                LOG_ERROR("Invalid checksum in battery response. Calculated: 0x%02X, Received: 0x%02X",
+                    calculatedChecksum, receivedChecksum);
+                return;
+            }
+
+            const uint8_t level = data[4]; // Battery level (0-100%)
+
+            // Проверяем, что уровень в допустимом диапазоне
+            if (level > 100) {
+                LOG_WARNING("Received invalid battery level: %u%%. Clamping to 100%%", level);
+                batteryLevel.store(100);
             }
             else {
-                LOG_ERROR("ERROR: Invalid checksum in battery level response. Expected: 0x%02X, Got: 0x%02X",
-                    checksum, data[data.size() - 1]);
+                batteryLevel.store(level);
+            }
+
+            lastBatteryUpdate = std::chrono::steady_clock::now();
+
+            LOG_INFO("Battery level updated: %u%%", batteryLevel.load());
+
+            if (batteryLevel.load() < 21) {
+                LOG_WARNING("WARNING: Low battery! Consider charging the hub.");
+            }
+
+            if (batteryLevel.load() == 100) {
+                LOG_INFO("INFO: Battery fully charged");
             }
         }
         else {
@@ -1975,27 +2004,40 @@ public:
         std::lock_guard<std::mutex> lock(operationMutex);
 
         try {
+            // Generate a Hub Property message to request the battery level
             std::vector<uint8_t> batteryRequest = {
-                0x05,   // Length: 5 bytes (Message type + Subcommand + Checksum + title)
-                0x00,   // Hub ID
-                0x01,   // Message Type: System Command
-                0x1B,   // Subcommand: GET_BATTERY_LEVEL
-                0x5E    // Checksum: 0x05^0x00^0x01^0x1B = 0x5E
+                0x05,   // Length: 5 bytes
+                0x00,   // Hub ID (0x00)
+                0x01,   // Message Type: Hub Properties (0x01)
+                0x06,   // Property: Battery Voltage (0x06)
+                0x05    // Operation: Request Update (0x05)
             };
 
-            LOG_INFO("Requesting battery level from hub");
+            // Log the command being sent
+            std::string hexCmd;
+            for (auto b : batteryRequest) {
+                char buf[4];
+                snprintf(buf, sizeof(buf), "%02X ", b);
+                hexCmd += buf;
+            }
+            LOG_INFO("Requesting battery level via Hub Property: %s", hexCmd.c_str());
+
             sendCommandVector(batteryRequest);
 
+            // Update the request time (even if the response hasn't arrived yet)
             lastBatteryUpdate = std::chrono::steady_clock::now();
             return true;
         }
         catch (const std::exception& ex) {
-            LOG_INFO("Error requesting battery level: %s", ex.what());
+            LOG_ERROR("Error requesting battery level: %s", ex.what());
+            return false;
         }
     }
 
     unsigned char getBatteryLevel() const {
-        return batteryLevel.load();
+        // Возвращаем текущее значение, но ограничиваем максимум 100
+        uint8_t level = batteryLevel.load();
+        return (level > 100) ? 100 : level;
     }
 
     bool isBatteryLevelFresh(int maxAgeSeconds = 30) const {
@@ -2375,18 +2417,18 @@ extern "C"
     PRINTER_DRIVER_API bool PrinterRequestBatteryLevel(IPrinter* printer) {
         if (!printer || !printer->vtable || !printer->vtable->printer_request_battery_level) return false;
 
-        return printer->vtable->printer_request_battery_level;
+        return printer->vtable->printer_request_battery_level(printer);
     }
 
     PRINTER_DRIVER_API unsigned char PrinterGetBatteryLevel(IPrinter* printer) {
         if (!printer || !printer->vtable || !printer->vtable->printer_get_battery_level) return 0;
 
-        return unsigned char(printer->vtable->printer_get_battery_level);
+        return printer->vtable->printer_get_battery_level(printer);
     }
 
     PRINTER_DRIVER_API bool PrinterIsBatteryLevelFresh(IPrinter* printer, int maxAgeSeconds) {
         if (!printer || !printer->vtable || !printer->vtable->printer_is_battery_fresh) return false;
 
-        return printer->vtable->printer_is_battery_fresh;
+        return printer->vtable->printer_is_battery_fresh(printer, maxAgeSeconds);
     }
 }
