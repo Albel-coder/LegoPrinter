@@ -457,33 +457,121 @@ private:
 
         const uint8_t messageType = data[2];
 
-        if (messageType == 0x04) {
-            // Check if this is a response to a system command
+        // Детальное логирование ВСЕХ сообщений
+        if (isCategoryEnabled(LOG_CATEGORY_DEBUG)) {
+            std::string hex;
+            for (size_t i = 0; i < std::min(data.size(), (size_t)10); i++) {
+                char buf[4];
+                snprintf(buf, sizeof(buf), "%02X ", data[i]);
+                hex += buf;
+            }
+            LOG_DEBUG("NOTIFICATION: Type=0x%02X, Data: %s", messageType, hex.c_str());
+        }
+
+        switch (messageType) {
+        case 0x01: // Hub Properties - БАТАРЕЯ!
+            handleHubProperties(data);
+            break;
+
+        case 0x04: // System Command Reply
             if (data.size() > 5 && data[0] > 0x03) {
-                // In system commands, data[3] is a subcommand
                 handleSystemCommandReply(data);
             }
             else {
-                // Absolute encoder
                 const uint8_t port = data[3];
                 handleAbsoluteEncoder(port, data);
             }
-        }
+            break;
 
-        const uint8_t port = data[3];
+        case 0x05: // Port Information
+            handlePortInformation(data);
+            break;
 
-        switch (messageType) {
-        case 0x45: // Incremental encoder is the most common
-            handleIncrementalEncoder(port, data);
+        case 0x45: // Incremental encoder
+            if (data.size() >= 5) {
+                const uint8_t port = data[3];
+                handleIncrementalEncoder(port, data);
+            }
             break;
 
         case 0x82: // Operation completion command
-            handleCommandCompletion(port, data);
+            if (data.size() >= 5) {
+                const uint8_t port = data[3];
+                handleCommandCompletion(port, data);
+            }
             break;
 
         default:
+            LOG_DEBUG("Unhandled notification type: 0x%02X", messageType);
             break;
         }
+    }
+
+    void handleHubProperties(const std::vector<uint8_t>& data) {
+        if (data.size() < 6) {
+            LOG_ERROR("Hub Properties message too short: %zu bytes", data.size());
+            return;
+        }
+
+        const uint8_t property = data[3];
+        const uint8_t operation = data[4];
+
+        LOG_DEBUG("Hub Property: property=0x%02X, operation=0x%02X", property, operation);
+
+        if (property == 0x06) { // Battery Level Property
+            if (operation == 0x06) { // Update operation
+                if (data.size() >= 6) {
+                    const uint8_t batteryValue = data[5];
+
+                    // Проверяем корректность значения
+                    if (batteryValue <= 100) {
+                        batteryLevel.store(batteryValue);
+                        lastBatteryUpdate = std::chrono::steady_clock::now();
+
+                        LOG_INFO("Battery level updated from Hub Property: %u%%", batteryValue);
+
+                        // Логируем предупреждения
+                        if (batteryValue < 21) {
+                            LOG_WARNING("WARNING: Low battery! %u%%", batteryValue);
+                        }
+                        else if (batteryValue == 100) {
+                            LOG_INFO("Battery fully charged");
+                        }
+                    }
+                    else {
+                        LOG_WARNING("Invalid battery value received: %u%% (capping to 100)", batteryValue);
+                        batteryLevel.store(100);
+                        lastBatteryUpdate = std::chrono::steady_clock::now();
+                    }
+                }
+                else {
+                    LOG_ERROR("Battery property message too short");
+                }
+            }
+            else {
+                LOG_DEBUG("Other battery operation: 0x%02X", operation);
+            }
+        }
+        else {
+            // Другие свойства хаба
+            LOG_DEBUG("Other hub property: 0x%02X", property);
+        }
+    }
+
+    void handlePortInformation(const std::vector<uint8_t>& data) {
+        if (data.size() < 5) {
+            LOG_ERROR("Port Information message too short: %zu bytes", data.size());
+            return;
+        }
+
+        const uint8_t port = data[3];
+        const uint8_t infoType = data[4];
+
+        LOG_DEBUG("Port Information: port=0x%02X, infoType=0x%02X", port, infoType);
+
+        // Возможно, здесь тоже есть информация о батарее или состоянии портов
+        // Но в логах мы видим только 05 00 05 02 05
+        // 02 - это порт, 05 - тип информации
     }
 
     void handleIncrementalEncoder(uint8_t port, const std::vector<uint8_t> data) {
@@ -1929,68 +2017,92 @@ private:
             return;
         }
 
-        const uint8_t subcommand = data[3]; // data[3] is a subcommand of System Command Reply
+        const uint8_t subcommand = data[3];
 
-        if (subcommand == 0x1B) { // Response to charge level request
-            // Проверяем структуру пакета
-            // Индексы согласно документации LWP:
-            // [0] = Length (including this byte)
-            // [1] = Hub ID (0x00)
-            // [2] = Message Type (0x04 = System Command Reply)
-            // [3] = Subcommand (0x1B = GET_BATTERY_LEVEL)
-            // [4] = Battery Level (0-100%)
-            // [5] = Checksum
+        LOG_DEBUG("System command reply - Subcommand: 0x%02X, Size: %zu", subcommand, data.size());
 
-            LOG_DEBUG("Battery response packet:");
-            for (size_t i = 0; i < data.size(); i++) {
-                LOG_DEBUG("  [%zu] = 0x%02X (%u)", i, data[i], data[i]);
-            }
+        std::string packetHex;
+        for (size_t i = 0; i < std::min(data.size(), (size_t)10); i++) {
+            char hex[4];
+            snprintf(hex, sizeof(hex), "%02X ", data[i]);
+            packetHex += hex;
+        }
+        LOG_DEBUG("Packet data: %s", packetHex.c_str());
 
-            const uint8_t reportedLength = data[0];
-            if (reportedLength != 6) {
-                LOG_ERROR("Invalid battery response length: %u, expected 6", reportedLength);
-                return;
-            }
+        bool isBatteryResponse = false;
 
-            // Проверяем checksum
-            uint8_t calculatedChecksum = 0;
-            for (size_t i = 0; i < data.size() - 1; i++) {
-                calculatedChecksum ^= data[i];
-            }
+        // Вариант 1: 0x0B - GET_BATTERY_LEVEL (старый протокол)
+        if (subcommand == 0x0B) {
+            isBatteryResponse = true;
+            LOG_INFO("Detected battery response with subcommand 0x0B (GET_BATTERY_LEVEL)");
+        }
+        // Вариант 2: 0x1B - GET_BATTERY_LEVEL (новый протокол)
+        else if (subcommand == 0x1B) {
+            isBatteryResponse = true;
+            LOG_INFO("Detected battery response with subcommand 0x1B (GET_BATTERY_LEVEL_V2)");
+        }
+        // Вариант 3: 0x06 - Battery Voltage Property
+        else if (subcommand == 0x06) {
+            isBatteryResponse = true;
+            LOG_INFO("Detected battery response with subcommand 0x06 (Battery Voltage)");
+        }
+        // Проверяем другие возможные subcommand
+        else if (subcommand == 0x62 || subcommand == 0x63 || subcommand == 0x64) {
+            LOG_DEBUG("Checking if subcommand 0x%02X is battery-related", subcommand);
+            // Возможно, это тоже ответ о батарее
+        }
 
-            uint8_t receivedChecksum = data[data.size() - 1];
+        if (isBatteryResponse) {
+            // Проверяем длину пакета
+            if (data.size() >= 6) {
+                // Пытаемся извлечь уровень батареи из разных позиций
+                uint8_t batteryLevelFromData = 0;
 
-            if (calculatedChecksum != receivedChecksum) {
-                LOG_ERROR("Invalid checksum in battery response. Calculated: 0x%02X, Received: 0x%02X",
-                    calculatedChecksum, receivedChecksum);
-                return;
-            }
+                // Пробуем разные форматы:
+                if (data.size() >= 5) {
+                    batteryLevelFromData = data[4]; // Наиболее вероятная позиция
+                    LOG_DEBUG("Battery level from data[4]: %u", batteryLevelFromData);
+                }
 
-            const uint8_t level = data[4]; // Battery level (0-100%)
+                if (data.size() >= 6) {
+                    LOG_DEBUG("Battery level from data[5]: %u", data[5]);
+                }
 
-            // Проверяем, что уровень в допустимом диапазоне
-            if (level > 100) {
-                LOG_WARNING("Received invalid battery level: %u%%. Clamping to 100%%", level);
-                batteryLevel.store(100);
-            }
-            else {
-                batteryLevel.store(level);
-            }
+                // Если значение кажется корректным (0-100)
+                if (batteryLevelFromData <= 100) {
+                    batteryLevel.store(batteryLevelFromData);
+                    lastBatteryUpdate = std::chrono::steady_clock::now();
 
-            lastBatteryUpdate = std::chrono::steady_clock::now();
+                    LOG_INFO("Battery level updated: %u%% (from subcommand 0x%02X)",
+                        batteryLevelFromData, subcommand);
+                }
+                else if (batteryLevelFromData > 0) {
+                    // Возможно, это напряжение в милливольтах или другой формат
+                    LOG_WARNING("Received battery value %u (not 0-100), checking format",
+                        batteryLevelFromData);
 
-            LOG_INFO("Battery level updated: %u%%", batteryLevel.load());
+                    // Попробуем преобразовать если это милливольты (например, 7.4V = 7400mV)
+                    if (batteryLevelFromData > 1000 && batteryLevelFromData < 10000) {
+                        // Преобразуем милливольты в проценты (очень приблизительно)
+                        // 6.0V (6000) = 0%, 8.4V (8400) = 100%
+                        uint8_t percent = static_cast<uint8_t>(
+                            ((batteryLevelFromData - 6000) * 100) / (8400 - 6000)
+                            );
 
-            if (batteryLevel.load() < 21) {
-                LOG_WARNING("WARNING: Low battery! Consider charging the hub.");
-            }
+                        if (percent > 100) percent = 100;
+                        if (percent < 0) percent = 0;
 
-            if (batteryLevel.load() == 100) {
-                LOG_INFO("INFO: Battery fully charged");
+                        batteryLevel.store(percent);
+                        lastBatteryUpdate = std::chrono::steady_clock::now();
+
+                        LOG_INFO("Battery voltage: %umV -> %u%% (approximate)",
+                            batteryLevelFromData, percent);
+                    }
+                }
             }
         }
         else {
-            LOG_INFO("System command reply with subcommand 0x%02X ignored", subcommand);
+            LOG_DEBUG("Unknown system command reply with subcommand 0x%02X (not battery)", subcommand);
         }
     }
 
@@ -2004,27 +2116,31 @@ public:
         std::lock_guard<std::mutex> lock(operationMutex);
 
         try {
-            // Generate a Hub Property message to request the battery level
-            std::vector<uint8_t> batteryRequest = {
-                0x05,   // Length: 5 bytes
-                0x00,   // Hub ID (0x00)
-                0x01,   // Message Type: Hub Properties (0x01)
-                0x06,   // Property: Battery Voltage (0x06)
-                0x05    // Operation: Request Update (0x05)
+            // Technic Hub автоматически отправляет батарею при подключении
+            // Но отправим запрос на подписку на всякий случай
+            std::vector<uint8_t> subscribeRequest = {
+                0x05,   // Length
+                0x00,   // Hub ID
+                0x01,   // Hub Properties
+                0x06,   // Battery Level Property
+                0x02    // Operation: SUBSCRIBE
             };
 
-            // Log the command being sent
-            std::string hexCmd;
-            for (auto b : batteryRequest) {
-                char buf[4];
-                snprintf(buf, sizeof(buf), "%02X ", b);
-                hexCmd += buf;
-            }
-            LOG_INFO("Requesting battery level via Hub Property: %s", hexCmd.c_str());
+            LOG_INFO("Subscribing to battery updates: 05 00 01 06 02");
+            sendCommandVector(subscribeRequest);
 
-            sendCommandVector(batteryRequest);
+            // Также отправим запрос на получение текущего значения
+            std::vector<uint8_t> getRequest = {
+                0x05,   // Length
+                0x00,   // Hub ID
+                0x01,   // Hub Properties
+                0x06,   // Battery Level Property
+                0x01    // Operation: GET
+            };
 
-            // Update the request time (even if the response hasn't arrived yet)
+            LOG_INFO("Requesting battery level: 05 00 01 06 01");
+            sendCommandVector(getRequest);
+
             lastBatteryUpdate = std::chrono::steady_clock::now();
             return true;
         }
