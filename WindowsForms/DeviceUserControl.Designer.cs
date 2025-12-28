@@ -40,18 +40,34 @@
             this.labelConsoleHead = new System.Windows.Forms.Label();
             this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
             this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
-            this.panelTool = new System.Windows.Forms.Panel();
-            this.panelToolHead = new System.Windows.Forms.Panel();
-            this.labelTool = new System.Windows.Forms.Label();
+            this.panel4 = new System.Windows.Forms.Panel();
+            this.panel5 = new System.Windows.Forms.Panel();
+            this.label4 = new System.Windows.Forms.Label();
+            this.panel1 = new System.Windows.Forms.Panel();
+            this.homeALLButton = new System.Windows.Forms.Button();
+            this.homeXButton = new System.Windows.Forms.Button();
+            this.homeYButton = new System.Windows.Forms.Button();
+            this.homeXYButton = new System.Windows.Forms.Button();
+            this.moveYUpButton = new System.Windows.Forms.Button();
+            this.moveXLeftButton = new System.Windows.Forms.Button();
+            this.moveYDownButton = new System.Windows.Forms.Button();
+            this.moveXRightButton = new System.Windows.Forms.Button();
+            this.panel3 = new System.Windows.Forms.Panel();
+            this.label2 = new System.Windows.Forms.Label();
             this.logTimer = new System.Windows.Forms.Timer(this.components);
+            this.moveZDownButton = new System.Windows.Forms.Button();
+            this.moveZUpButton = new System.Windows.Forms.Button();
+            this.homeZButton = new System.Windows.Forms.Button();
             this.panelConnection.SuspendLayout();
             this.panelConnectionHead.SuspendLayout();
             this.panelConsole.SuspendLayout();
             this.panel2.SuspendLayout();
             this.tableLayoutPanel1.SuspendLayout();
             this.tableLayoutPanel2.SuspendLayout();
-            this.panelTool.SuspendLayout();
-            this.panelToolHead.SuspendLayout();
+            this.panel4.SuspendLayout();
+            this.panel5.SuspendLayout();
+            this.panel1.SuspendLayout();
+            this.panel3.SuspendLayout();
             this.SuspendLayout();
             // 
             // panelConnection
@@ -60,10 +76,10 @@
             this.panelConnection.Controls.Add(this.labelBattery);
             this.panelConnection.Controls.Add(this.panelConnectionHead);
             this.panelConnection.Controls.Add(this.connectButton);
-            this.panelConnection.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panelConnection.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelConnection.Location = new System.Drawing.Point(3, 3);
             this.panelConnection.Name = "panelConnection";
-            this.panelConnection.Size = new System.Drawing.Size(427, 132);
+            this.panelConnection.Size = new System.Drawing.Size(427, 146);
             this.panelConnection.TabIndex = 0;
             // 
             // labelBattery
@@ -120,7 +136,7 @@
             this.panelConsole.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panelConsole.Location = new System.Drawing.Point(442, 3);
             this.panelConsole.Name = "panelConsole";
-            this.panelConsole.Size = new System.Drawing.Size(721, 344);
+            this.panelConsole.Size = new System.Drawing.Size(721, 732);
             this.panelConsole.TabIndex = 2;
             // 
             // textBoxConsole
@@ -133,7 +149,7 @@
             this.textBoxConsole.Name = "textBoxConsole";
             this.textBoxConsole.ReadOnly = true;
             this.textBoxConsole.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.textBoxConsole.Size = new System.Drawing.Size(721, 306);
+            this.textBoxConsole.Size = new System.Drawing.Size(721, 694);
             this.textBoxConsole.TabIndex = 2;
             // 
             // panel2
@@ -169,9 +185,9 @@
             this.tableLayoutPanel1.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel1.Location = new System.Drawing.Point(0, 0);
             this.tableLayoutPanel1.Name = "tableLayoutPanel1";
-            this.tableLayoutPanel1.RowCount = 2;
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 47.56097F));
-            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 52.43903F));
+            this.tableLayoutPanel1.RowCount = 1;
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 89.83739F));
+            this.tableLayoutPanel1.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 10.1626F));
             this.tableLayoutPanel1.Size = new System.Drawing.Size(1166, 738);
             this.tableLayoutPanel1.TabIndex = 3;
             // 
@@ -180,54 +196,253 @@
             this.tableLayoutPanel2.ColumnCount = 1;
             this.tableLayoutPanel2.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.tableLayoutPanel2.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.tableLayoutPanel2.Controls.Add(this.panelTool, 0, 1);
+            this.tableLayoutPanel2.Controls.Add(this.panel4, 0, 2);
+            this.tableLayoutPanel2.Controls.Add(this.panel1, 0, 1);
             this.tableLayoutPanel2.Controls.Add(this.panelConnection, 0, 0);
             this.tableLayoutPanel2.Dock = System.Windows.Forms.DockStyle.Fill;
             this.tableLayoutPanel2.Location = new System.Drawing.Point(3, 3);
             this.tableLayoutPanel2.Name = "tableLayoutPanel2";
-            this.tableLayoutPanel2.RowCount = 2;
-            this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 40.86956F));
-            this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 59.13044F));
-            this.tableLayoutPanel2.Size = new System.Drawing.Size(433, 344);
+            this.tableLayoutPanel2.RowCount = 3;
+            this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 38.98305F));
+            this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 61.01695F));
+            this.tableLayoutPanel2.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 341F));
+            this.tableLayoutPanel2.Size = new System.Drawing.Size(433, 732);
             this.tableLayoutPanel2.TabIndex = 3;
             // 
-            // panelTool
+            // panel4
             // 
-            this.panelTool.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
-            this.panelTool.Controls.Add(this.panelToolHead);
-            this.panelTool.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelTool.Location = new System.Drawing.Point(3, 143);
-            this.panelTool.Name = "panelTool";
-            this.panelTool.Size = new System.Drawing.Size(427, 132);
-            this.panelTool.TabIndex = 4;
+            this.panel4.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
+            this.panel4.Controls.Add(this.panel5);
+            this.panel4.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.panel4.Location = new System.Drawing.Point(3, 393);
+            this.panel4.Name = "panel4";
+            this.panel4.Size = new System.Drawing.Size(427, 336);
+            this.panel4.TabIndex = 2;
             // 
-            // panelToolHead
+            // panel5
             // 
-            this.panelToolHead.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
-            this.panelToolHead.Controls.Add(this.labelTool);
-            this.panelToolHead.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelToolHead.ForeColor = System.Drawing.SystemColors.Info;
-            this.panelToolHead.Location = new System.Drawing.Point(0, 0);
-            this.panelToolHead.Name = "panelToolHead";
-            this.panelToolHead.Size = new System.Drawing.Size(427, 38);
-            this.panelToolHead.TabIndex = 1;
+            this.panel5.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.panel5.Controls.Add(this.label4);
+            this.panel5.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panel5.ForeColor = System.Drawing.SystemColors.Info;
+            this.panel5.Location = new System.Drawing.Point(0, 0);
+            this.panel5.Name = "panel5";
+            this.panel5.Size = new System.Drawing.Size(427, 38);
+            this.panel5.TabIndex = 1;
             // 
-            // labelTool
+            // label4
             // 
-            this.labelTool.Dock = System.Windows.Forms.DockStyle.Left;
-            this.labelTool.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.labelTool.Image = global::WindowsForms.Properties.Resources.toolImage32x32;
-            this.labelTool.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.labelTool.Location = new System.Drawing.Point(0, 0);
-            this.labelTool.Name = "labelTool";
-            this.labelTool.Size = new System.Drawing.Size(106, 38);
-            this.labelTool.TabIndex = 2;
-            this.labelTool.Text = " Tool";
-            this.labelTool.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            this.label4.Dock = System.Windows.Forms.DockStyle.Left;
+            this.label4.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.label4.Image = global::WindowsForms.Properties.Resources.cubeG_codeImage32x32;
+            this.label4.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.label4.Location = new System.Drawing.Point(0, 0);
+            this.label4.Name = "label4";
+            this.label4.Size = new System.Drawing.Size(139, 38);
+            this.label4.TabIndex = 2;
+            this.label4.Text = " G-code";
+            this.label4.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
+            // panel1
+            // 
+            this.panel1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
+            this.panel1.Controls.Add(this.homeZButton);
+            this.panel1.Controls.Add(this.moveZUpButton);
+            this.panel1.Controls.Add(this.moveZDownButton);
+            this.panel1.Controls.Add(this.homeALLButton);
+            this.panel1.Controls.Add(this.homeXButton);
+            this.panel1.Controls.Add(this.homeYButton);
+            this.panel1.Controls.Add(this.homeXYButton);
+            this.panel1.Controls.Add(this.moveYUpButton);
+            this.panel1.Controls.Add(this.moveXLeftButton);
+            this.panel1.Controls.Add(this.moveYDownButton);
+            this.panel1.Controls.Add(this.moveXRightButton);
+            this.panel1.Controls.Add(this.panel3);
+            this.panel1.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.panel1.Location = new System.Drawing.Point(3, 155);
+            this.panel1.Name = "panel1";
+            this.panel1.Size = new System.Drawing.Size(427, 232);
+            this.panel1.TabIndex = 1;
+            // 
+            // homeALLButton
+            // 
+            this.homeALLButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.homeALLButton.FlatAppearance.BorderSize = 0;
+            this.homeALLButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.homeALLButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.homeALLButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeALLButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.homeALLButton.Location = new System.Drawing.Point(204, 44);
+            this.homeALLButton.Name = "homeALLButton";
+            this.homeALLButton.Size = new System.Drawing.Size(58, 36);
+            this.homeALLButton.TabIndex = 9;
+            this.homeALLButton.Text = " ALL";
+            this.homeALLButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.homeALLButton.UseVisualStyleBackColor = false;
+            // 
+            // homeXButton
+            // 
+            this.homeXButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.homeXButton.FlatAppearance.BorderSize = 0;
+            this.homeXButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.homeXButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.homeXButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeXButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.homeXButton.Location = new System.Drawing.Point(204, 85);
+            this.homeXButton.Name = "homeXButton";
+            this.homeXButton.Size = new System.Drawing.Size(43, 36);
+            this.homeXButton.TabIndex = 8;
+            this.homeXButton.Text = " X";
+            this.homeXButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.homeXButton.UseVisualStyleBackColor = false;
+            // 
+            // homeYButton
+            // 
+            this.homeYButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.homeYButton.FlatAppearance.BorderSize = 0;
+            this.homeYButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.homeYButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.homeYButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeYButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.homeYButton.Location = new System.Drawing.Point(204, 127);
+            this.homeYButton.Name = "homeYButton";
+            this.homeYButton.Size = new System.Drawing.Size(43, 36);
+            this.homeYButton.TabIndex = 7;
+            this.homeYButton.Text = " Y";
+            this.homeYButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.homeYButton.UseVisualStyleBackColor = false;
+            // 
+            // homeXYButton
+            // 
+            this.homeXYButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.homeXYButton.FlatAppearance.BorderSize = 0;
+            this.homeXYButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.homeXYButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.homeXYButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeXYButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.homeXYButton.Location = new System.Drawing.Point(54, 86);
+            this.homeXYButton.Name = "homeXYButton";
+            this.homeXYButton.Size = new System.Drawing.Size(49, 36);
+            this.homeXYButton.TabIndex = 6;
+            this.homeXYButton.Text = " XY";
+            this.homeXYButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.homeXYButton.UseVisualStyleBackColor = false;
+            // 
+            // moveYUpButton
+            // 
+            this.moveYUpButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveYUpButton.FlatAppearance.BorderSize = 0;
+            this.moveYUpButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveYUpButton.Image = global::WindowsForms.Properties.Resources.upArrowImage32x32;
+            this.moveYUpButton.Location = new System.Drawing.Point(60, 44);
+            this.moveYUpButton.Name = "moveYUpButton";
+            this.moveYUpButton.Size = new System.Drawing.Size(35, 35);
+            this.moveYUpButton.TabIndex = 5;
+            this.moveYUpButton.UseVisualStyleBackColor = false;
+            // 
+            // moveXLeftButton
+            // 
+            this.moveXLeftButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveXLeftButton.FlatAppearance.BorderSize = 0;
+            this.moveXLeftButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveXLeftButton.Image = global::WindowsForms.Properties.Resources.leftArrowImage32x32;
+            this.moveXLeftButton.Location = new System.Drawing.Point(13, 86);
+            this.moveXLeftButton.Name = "moveXLeftButton";
+            this.moveXLeftButton.Size = new System.Drawing.Size(35, 35);
+            this.moveXLeftButton.TabIndex = 4;
+            this.moveXLeftButton.UseVisualStyleBackColor = false;
+            // 
+            // moveYDownButton
+            // 
+            this.moveYDownButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveYDownButton.FlatAppearance.BorderSize = 0;
+            this.moveYDownButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveYDownButton.Image = global::WindowsForms.Properties.Resources.downArrowImage32x32;
+            this.moveYDownButton.Location = new System.Drawing.Point(60, 128);
+            this.moveYDownButton.Name = "moveYDownButton";
+            this.moveYDownButton.Size = new System.Drawing.Size(35, 35);
+            this.moveYDownButton.TabIndex = 3;
+            this.moveYDownButton.UseVisualStyleBackColor = false;
+            // 
+            // moveXRightButton
+            // 
+            this.moveXRightButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveXRightButton.FlatAppearance.BorderSize = 0;
+            this.moveXRightButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveXRightButton.Image = global::WindowsForms.Properties.Resources.rigthArrowImage32x32;
+            this.moveXRightButton.Location = new System.Drawing.Point(109, 86);
+            this.moveXRightButton.Name = "moveXRightButton";
+            this.moveXRightButton.Size = new System.Drawing.Size(35, 35);
+            this.moveXRightButton.TabIndex = 2;
+            this.moveXRightButton.UseVisualStyleBackColor = false;
+            // 
+            // panel3
+            // 
+            this.panel3.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.panel3.Controls.Add(this.label2);
+            this.panel3.Dock = System.Windows.Forms.DockStyle.Top;
+            this.panel3.ForeColor = System.Drawing.SystemColors.Info;
+            this.panel3.Location = new System.Drawing.Point(0, 0);
+            this.panel3.Name = "panel3";
+            this.panel3.Size = new System.Drawing.Size(427, 38);
+            this.panel3.TabIndex = 1;
+            // 
+            // label2
+            // 
+            this.label2.Dock = System.Windows.Forms.DockStyle.Left;
+            this.label2.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.label2.Image = global::WindowsForms.Properties.Resources.toolImage32x32;
+            this.label2.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.label2.Location = new System.Drawing.Point(0, 0);
+            this.label2.Name = "label2";
+            this.label2.Size = new System.Drawing.Size(139, 38);
+            this.label2.TabIndex = 2;
+            this.label2.Text = " Tool";
+            this.label2.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // logTimer
             // 
             this.logTimer.Tick += new System.EventHandler(this.logTimer_Tick);
+            // 
+            // moveZDownButton
+            // 
+            this.moveZDownButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveZDownButton.FlatAppearance.BorderSize = 0;
+            this.moveZDownButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveZDownButton.Image = global::WindowsForms.Properties.Resources.downArrowImage32x32;
+            this.moveZDownButton.Location = new System.Drawing.Point(154, 128);
+            this.moveZDownButton.Name = "moveZDownButton";
+            this.moveZDownButton.Size = new System.Drawing.Size(35, 35);
+            this.moveZDownButton.TabIndex = 10;
+            this.moveZDownButton.UseVisualStyleBackColor = false;
+            // 
+            // moveZUpButton
+            // 
+            this.moveZUpButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveZUpButton.FlatAppearance.BorderSize = 0;
+            this.moveZUpButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveZUpButton.Image = global::WindowsForms.Properties.Resources.upArrowImage32x32;
+            this.moveZUpButton.Location = new System.Drawing.Point(154, 44);
+            this.moveZUpButton.Name = "moveZUpButton";
+            this.moveZUpButton.Size = new System.Drawing.Size(35, 35);
+            this.moveZUpButton.TabIndex = 11;
+            this.moveZUpButton.UseVisualStyleBackColor = false;
+            // 
+            // homeZButton
+            // 
+            this.homeZButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.homeZButton.FlatAppearance.BorderSize = 0;
+            this.homeZButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.homeZButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.homeZButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeZButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.homeZButton.Location = new System.Drawing.Point(150, 86);
+            this.homeZButton.Name = "homeZButton";
+            this.homeZButton.Size = new System.Drawing.Size(43, 36);
+            this.homeZButton.TabIndex = 12;
+            this.homeZButton.Text = " Z";
+            this.homeZButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.homeZButton.UseVisualStyleBackColor = false;
             // 
             // DeviceUserControl
             // 
@@ -244,8 +459,10 @@
             this.panel2.ResumeLayout(false);
             this.tableLayoutPanel1.ResumeLayout(false);
             this.tableLayoutPanel2.ResumeLayout(false);
-            this.panelTool.ResumeLayout(false);
-            this.panelToolHead.ResumeLayout(false);
+            this.panel4.ResumeLayout(false);
+            this.panel5.ResumeLayout(false);
+            this.panel1.ResumeLayout(false);
+            this.panel3.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
@@ -262,10 +479,24 @@
         private System.Windows.Forms.Label labelConsoleHead;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel1;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel2;
-        private System.Windows.Forms.Panel panelTool;
-        private System.Windows.Forms.Panel panelToolHead;
-        private System.Windows.Forms.Label labelTool;
         private System.Windows.Forms.Label labelBattery;
         private System.Windows.Forms.Timer logTimer;
+        private System.Windows.Forms.Panel panel4;
+        private System.Windows.Forms.Panel panel5;
+        private System.Windows.Forms.Label label4;
+        private System.Windows.Forms.Panel panel1;
+        private System.Windows.Forms.Panel panel3;
+        private System.Windows.Forms.Label label2;
+        private System.Windows.Forms.Button moveXRightButton;
+        private System.Windows.Forms.Button homeXYButton;
+        private System.Windows.Forms.Button moveYUpButton;
+        private System.Windows.Forms.Button moveXLeftButton;
+        private System.Windows.Forms.Button moveYDownButton;
+        private System.Windows.Forms.Button homeALLButton;
+        private System.Windows.Forms.Button homeXButton;
+        private System.Windows.Forms.Button homeYButton;
+        private System.Windows.Forms.Button homeZButton;
+        private System.Windows.Forms.Button moveZUpButton;
+        private System.Windows.Forms.Button moveZDownButton;
     }
 }
