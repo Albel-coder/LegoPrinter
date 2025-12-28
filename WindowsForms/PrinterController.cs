@@ -403,6 +403,57 @@ public class PrinterController : IDisposable
     public bool IsPrinterConnect() => SafeCall(() => IsConnected(PrinterHandle), false);
     public bool Disconnect() => SafeCall(() => PrinterDisconnect(PrinterHandle), false);
 
+    public bool RequestBatteryLevel()
+    {
+        lock (SyncRoot)
+        {
+            if (Disposed) throw new ObjectDisposedException("PrinterController");
+            Console.WriteLine($"[C#] RequestBatteryLevel called. PrinterHandle.VirtualTable: 0x{PrinterHandle.VirtualTable.ToInt64():X}");
+
+            return SafeCall(() =>
+            {
+                Console.WriteLine($"[C#] Calling native PrinterRequestBatteryLevel...");
+                bool result = PrinterRequestBatteryLevel(PrinterHandle);
+                Console.WriteLine($"[C#] PrinterRequestBatteryLevel returned: {result}");
+                return result;
+            }, false);
+        }
+    }
+
+    public byte GetBatteryLevel()
+    {
+        lock (SyncRoot)
+        {
+            if (Disposed) throw new ObjectDisposedException("PrinterController");
+            Console.WriteLine($"[C#] GetBatteryLevel called. PrinterHandle.VirtualTable: 0x{PrinterHandle.VirtualTable.ToInt64():X}");
+
+            return SafeCall(() =>
+            {
+                Console.WriteLine($"[C#] Calling native PrinterGetBatteryLevel...");
+                byte level = PrinterGetBatteryLevel(PrinterHandle);
+                Console.WriteLine($"[C#] PrinterGetBatteryLevel returned: {level}");
+                return level;
+            }, (byte)0);
+        }
+    }
+
+    public bool IsBatteryLevelFresh(int maxAgeSeconds)
+    {
+        lock (SyncRoot)
+        {
+            if (Disposed) throw new ObjectDisposedException("PrinterController");
+            Console.WriteLine($"[C#] IsBatteryLevelFresh called with maxAgeSeconds={maxAgeSeconds}");
+
+            return SafeCall(() =>
+            {
+                Console.WriteLine($"[C#] Calling native PrinterIsBatteryLevelFresh...");
+                bool isFresh = PrinterIsBatteryLevelFresh(PrinterHandle, maxAgeSeconds);
+                Console.WriteLine($"[C#] PrinterIsBatteryLevelFresh returned: {isFresh}");
+                return isFresh;
+            }, false);
+        }
+    }
+
     // Helper method for safely calling a DLL function
     private T SafeCall<T>(Func<T> function, T DefaultValue = default(T))
     {
@@ -514,7 +565,20 @@ public class PrinterController : IDisposable
     private static extern IntPtr GetLastErrorMessage(IPrinter printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterConnectionInfo(IPrinter printer);    
+    private static extern void PrinterConnectionInfo(IPrinter printer);
+
+    // Battery functions
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterRequestBatteryLevel(IPrinter printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern byte PrinterGetBatteryLevel(IPrinter printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterIsBatteryLevelFresh(IPrinter printer, int maxAgeSeconds);
+
 
     // To properly release resources
     public void Dispose()

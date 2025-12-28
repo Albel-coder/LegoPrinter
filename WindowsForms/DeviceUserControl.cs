@@ -5,6 +5,8 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Printing;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -15,9 +17,11 @@ namespace WindowsForms
     public partial class DeviceUserControl : UserControl
     {
         private PrinterController printerController;
+        private BatteryLabel batteryLabel;
+
         private int lastLogCount = 0;
         private readonly object updateLock = new object();
-        private bool isUpdating = false;
+        private bool isConsoleUpdating = false;
 
         [Flags]
         public enum LogCategory : uint
@@ -44,6 +48,26 @@ namespace WindowsForms
             {
                 printerController = new PrinterController();
                 InitializeComponent();
+
+                batteryLabel = new BatteryLabel();
+                batteryLabel.Location = this.labelBattery.Location;
+                batteryLabel.Size = this.labelBattery.Size;
+                batteryLabel.Name = this.labelBattery.Name;
+                batteryLabel.TabIndex = this.labelBattery.TabIndex;
+                batteryLabel.TextAlign = this.labelBattery.TextAlign;
+                batteryLabel.Font = this.labelBattery.Font;
+
+                // ВАЖНО: Убедитесь, что заменяете контрол в правильном контейнере
+                // Обычно labelBattery находится в panelConnection
+                int index = this.panelConnection.Controls.IndexOf(this.labelBattery);
+                if (index >= 0)
+                {
+                    this.panelConnection.Controls.Remove(this.labelBattery);
+                    this.panelConnection.Controls.Add(batteryLabel);
+                    this.panelConnection.Controls.SetChildIndex(batteryLabel, index);
+                }
+
+                this.labelBattery = batteryLabel;
                 logTimer.Interval = 100;
                 logTimer.Start();
             }
@@ -69,6 +93,12 @@ namespace WindowsForms
                         this.connectButton.Enabled = true;
                         this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(234)))), ((int)(((byte)(84)))), ((int)(((byte)(85)))));
                         this.connectButton.Text = "disconnect";
+
+                        batteryLabel.SetPrinterController(printerController);
+
+                        await Task.Delay(1000);
+
+
                     }
                 }
                 catch (Exception)
@@ -100,6 +130,8 @@ namespace WindowsForms
                         this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(29)))), ((int)(((byte)(175)))), ((int)(((byte)(30)))));
                         this.connectButton.Enabled = true;
                         this.connectButton.Text = "Connect";
+
+                        batteryLabel.SetPrinterController(null);
                     }
                 }
                 catch (Exception)
@@ -124,12 +156,12 @@ namespace WindowsForms
         }
         private void UpdateConsoleDisplay()
         {
-            if (isUpdating) return;
+            if (isConsoleUpdating) return;
 
             lock(updateLock)
             {
-                if (isUpdating) return;
-                isUpdating = true;
+                if (isConsoleUpdating) return;
+                isConsoleUpdating = true;
             }
 
             try
@@ -140,11 +172,10 @@ namespace WindowsForms
             {
                 lock(updateLock)
                 {
-                    isUpdating = false;
+                    isConsoleUpdating = false;
                 }
             }
         }
-
         private void UpdateConsoleDisplayInternal()
         {
             try
@@ -243,7 +274,6 @@ namespace WindowsForms
                 LimitLogSize();
             }
         }
-
         private void ClearTextBoxSafe()
         {
             if (textBoxConsole.InvokeRequired)
@@ -258,7 +288,6 @@ namespace WindowsForms
                 textBoxConsole.Clear();
             }
         }
-
         private void LimitLogSize()
         {
             // Ограничиваем лог для производительности, но НЕ очищаем полностью
@@ -286,12 +315,382 @@ namespace WindowsForms
             }
         }
         public bool AutoScrollEnabled { get; set; } = true;
-
         public void ClearLogs()
         {
             printerController.ClearLog();
             ClearTextBoxSafe();
             lastLogCount = 0;
+        }
+    }
+    public class BatteryLabel : Label
+    {
+        private PrinterController printer;
+        private Timer updateTimer;
+        private ToolTip batteryToolTip;
+
+        // battery
+        private int batteryLevel = 0;
+        private DateTime lastUpdateTime = DateTime.MinValue;
+        bool isConnected = false;
+
+        private int batteryWidth = 40;
+        private int batteryHeight = 20;
+        private int capWidth = 5;
+        private int capHeight = 10;
+        private int padding = 2;
+
+        private Color borderColor = Color.White;
+        private Color fillColor = Color.Gray;
+        private Color textColor = Color.White;
+        private Color disconnectedColor = Color.LightGray;
+
+        public BatteryLabel()
+        {
+            this.AutoSize = false;
+            this.Size = new Size(100, 30);
+            this.TextAlign = ContentAlignment.MiddleCenter;
+
+            batteryToolTip = new ToolTip();
+            batteryToolTip.AutoPopDelay = 5000;
+            batteryToolTip.InitialDelay = 1000;
+            batteryToolTip.ReshowDelay = 500;
+            batteryToolTip.ShowAlways = true;
+            batteryToolTip.SetToolTip(this, "Батарея не подключена");
+
+            updateTimer = new Timer();
+            updateTimer.Interval = 5000;
+            updateTimer.Tick += (s, e) => UpdateBatteryInfo();
+            updateTimer.Start();
+        }
+        public void RefreshBatteryState()
+        {
+            if (printer != null && isConnected)
+            {
+                UpdateBatteryInfo();
+            }
+            else
+            {
+                UpdateConnectionState();
+                this.Invalidate();
+            }
+        }
+        public void SetPrinterController(PrinterController currentPrinter)
+        {
+            printer = currentPrinter;
+
+            if (printer != null)
+            {
+                UpdateConnectionState();
+                updateTimer.Start();
+                UpdateBatteryInfo();
+            }
+            else
+            {
+                updateTimer.Stop();
+                isConnected = false;
+                batteryLevel = 0;
+                this.Invalidate();
+            }
+        }
+        private void UpdateConnectionState()
+        {
+            if (printer == null)
+            {
+                isConnected = false;
+                return;
+            }
+
+            try
+            {
+                isConnected = printer.IsPrinterConnect();
+            }
+            catch
+            {
+                isConnected = false;
+            }
+        }
+        private void UpdateBatteryInfo()
+        {
+            Debug.WriteLine($"=== UpdateBatteryInfo called at {DateTime.Now:HH:mm:ss.fff} ===");
+
+            if (printer == null)
+            {
+                Debug.WriteLine("Printer is null");
+                batteryLevel = 0;
+                isConnected = false;
+                this.Invalidate();
+                return;
+            }
+
+            try
+            {
+                Debug.WriteLine("Calling UpdateConnectionState...");
+                UpdateConnectionState();
+                Debug.WriteLine($"isConnected = {isConnected}");
+
+                if (!isConnected)
+                {
+                    Debug.WriteLine("Not connected - showing disconnected state");
+                    batteryLevel = 0;
+                    this.Invalidate();
+                    return;
+                }
+
+                Debug.WriteLine("Connected, trying to get battery level...");
+
+                // Пробуем несколько раз с разными интервалами
+                byte newLevel = 0;
+                int maxAttempts = 3;
+
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    Debug.WriteLine($"Attempt {attempt} of {maxAttempts}");
+
+                    try
+                    {
+                        // Запрашиваем обновление
+                        Debug.WriteLine("Requesting battery level...");
+                        bool requestResult = printer.RequestBatteryLevel();
+                        Debug.WriteLine($"RequestBatteryLevel result: {requestResult}");
+
+                        // Ждем разное время в зависимости от попытки
+                        int waitTime = attempt * 1000; // 1s, 2s, 3s
+                        Debug.WriteLine($"Waiting {waitTime}ms...");
+                        System.Threading.Thread.Sleep(waitTime);
+
+                        // Получаем уровень
+                        Debug.WriteLine("Getting battery level...");
+                        newLevel = printer.GetBatteryLevel();
+                        Debug.WriteLine($"GetBatteryLevel returned: {newLevel}%");
+
+                        // Проверяем корректность
+                        if (newLevel > 0 && newLevel <= 100)
+                        {
+                            Debug.WriteLine($"Valid battery level: {newLevel}%");
+                            break;
+                        }
+                        else if (newLevel > 100)
+                        {
+                            Debug.WriteLine($"WARNING: Invalid battery level: {newLevel}% (capping to 100)");
+                            newLevel = 100;
+                            break;
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"WARNING: Battery level is 0%");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Exception in attempt {attempt}: {ex.Message}");
+                    }
+                }
+
+                Debug.WriteLine($"Final battery level: {newLevel}%");
+
+                if (newLevel != batteryLevel)
+                {
+                    batteryLevel = newLevel;
+                    lastUpdateTime = DateTime.Now;
+                    Debug.WriteLine($"Battery level changed to {batteryLevel}%");
+
+                    UpdateColors();
+                    this.Invalidate();
+                    UpdateToolTip();
+                }
+                else
+                {
+                    Debug.WriteLine("Battery level unchanged");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"FATAL EXCEPTION in UpdateBatteryInfo: {ex.Message}");
+                Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+
+                batteryLevel = 0;
+                isConnected = false;
+                this.Invalidate();
+            }
+
+            Debug.WriteLine("=== UpdateBatteryInfo finished ===");
+        }
+        private void UpdateColors()
+        {
+            if (!isConnected)
+            {
+                fillColor = disconnectedColor;
+                textColor = Color.Gray;
+            }
+            else if (batteryLevel < 16)
+            {
+                fillColor = Color.Red;
+                textColor = Color.White;
+            }
+            else if (batteryLevel < 31)
+            {
+                fillColor = Color.Orange;
+                textColor = Color.White;
+            }
+            else if (batteryLevel < 51)
+            {
+                fillColor = Color.Yellow;
+                textColor = Color.White;
+            }
+            else
+            {
+                fillColor = Color.LimeGreen;
+                textColor = Color.White;
+            }
+        }
+        private void UpdateToolTip()
+        {
+            string status = isConnected ? "Подключено" : "Не подключено";
+            string time = lastUpdateTime > DateTime.MinValue ?
+                lastUpdateTime.ToString("HH:mm:ss") : "никогда";
+
+            string tooltipText = $"Уровень: {batteryLevel}%\n" +
+                                $"Статус: {status}\n" +
+                                $"Обновлено: {time}";
+
+            // Обновляем ToolTip напрямую
+            if (batteryToolTip != null)
+            {
+                batteryToolTip.SetToolTip(this, tooltipText);
+            }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            // Рассчитываем позицию батареи (слева)
+            int batteryX = padding;
+            int batteryY = (this.Height - batteryHeight) / 2;
+
+            // Рисуем батарею
+            DrawBattery(g, batteryX, batteryY);
+
+            // Рисуем текст (справа от батареи)
+            DrawText(g, batteryX + batteryWidth + capWidth + 5);
+        }
+        private void DrawBattery(Graphics g, int x, int y)
+        {
+            // 1. Основной корпус батареи
+            Rectangle batteryRect = new Rectangle(x, y, batteryWidth, batteryHeight);
+
+            using (Pen borderPen = new Pen(borderColor, 1))
+            {
+                g.DrawRectangle(borderPen, batteryRect);
+            }
+
+            // 2. Колпачок (справа)
+            int capY = y + (batteryHeight - capHeight) / 2;
+            Rectangle capRect = new Rectangle(
+                x + batteryWidth,
+                capY,
+                capWidth,
+                capHeight
+            );
+
+            g.FillRectangle(new SolidBrush(borderColor), capRect);
+
+            // 3. Проверяем подключение и заряд
+            if (isConnected && batteryLevel > 0)
+            {
+                // Вычисляем ширину заполнения с учетом границ
+                int innerWidth = batteryWidth - 2; // -2 для левой и правой границ
+                int fillWidth = (int)(innerWidth * batteryLevel / 100.0);
+
+                // Ограничиваем fillWidth, чтобы не выходил за границы
+                fillWidth = Math.Max(1, Math.Min(fillWidth, innerWidth));
+
+                Rectangle fillRect = new Rectangle(
+                    x + 1, // +1 для внутренней границы
+                    y + 1, // +1 для внутренней границы
+                    fillWidth,
+                    batteryHeight - 2 // -2 для верхней и нижней границ
+                );
+
+                g.FillRectangle(new SolidBrush(fillColor), fillRect);
+
+                // Легкий градиент для красоты
+                using (LinearGradientBrush brush = new LinearGradientBrush(
+                    fillRect,
+                    Color.FromArgb(150, Color.White),
+                    Color.Transparent,
+                    90f))
+                {
+                    g.FillRectangle(brush,
+                        fillRect.X, fillRect.Y,
+                        fillRect.Width, fillRect.Height / 3);
+                }
+            }
+            else if (!isConnected)
+            {
+                // Серый фон для отключенного состояния
+                Rectangle emptyRect = new Rectangle(
+                    x + 1,
+                    y + 1,
+                    batteryWidth - 2,
+                    batteryHeight - 2
+                );
+
+                g.FillRectangle(new SolidBrush(disconnectedColor), emptyRect);
+
+                // Крестик
+                using (Pen crossPen = new Pen(Color.Gray, 1))
+                {
+                    int crossSize = Math.Min(emptyRect.Width, emptyRect.Height) / 2;
+                    int crossX = emptyRect.X + (emptyRect.Width - crossSize) / 2;
+                    int crossY = emptyRect.Y + (emptyRect.Height - crossSize) / 2;
+
+                    g.DrawLine(crossPen, crossX, crossY, crossX + crossSize, crossY + crossSize);
+                    g.DrawLine(crossPen, crossX + crossSize, crossY, crossX, crossY + crossSize);
+                }
+            }
+        }
+
+        private void DrawText(Graphics g, int textX)
+        {
+            string text = isConnected ? $"{batteryLevel}%" : "---";
+
+            // Используем шрифт с правильными настройками
+            using (Font font = new Font("Arial", 9, FontStyle.Bold))
+            {
+                // Измеряем текст для правильного позиционирования
+                SizeF textSize = g.MeasureString(text, font);
+                int textY = (this.Height - (int)textSize.Height) / 2;
+
+                // Рисуем текст с небольшим смещением для лучшей читаемости
+                RectangleF textRect = new RectangleF(textX, textY, textSize.Width, textSize.Height);
+
+                // Рисуем фон для текста (опционально, для лучшей читаемости)
+                g.FillRectangle(new SolidBrush(Color.FromArgb(100, 0, 0, 0)), textRect);
+
+                // Тень для лучшей читаемости
+                g.DrawString(text, font, Brushes.Black, textX + 1, textY + 1);
+
+                // Основной текст
+                using (SolidBrush textBrush = new SolidBrush(textColor))
+                {
+                    g.DrawString(text, font, textBrush, textX, textY);
+                }
+            }
+        }
+
+        protected override void OnClick(EventArgs e)
+        {
+            base.OnClick(e);
+            UpdateBatteryInfo();
+        }
+
+        public void StopMonitoring()
+        {
+            updateTimer?.Stop();
         }
     }
 }

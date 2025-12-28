@@ -68,7 +68,6 @@
             // 
             // labelBattery
             // 
-            this.labelBattery.Image = global::WindowsForms.Properties.Resources.batteryImage32x32;
             this.labelBattery.Location = new System.Drawing.Point(158, 56);
             this.labelBattery.Name = "labelBattery";
             this.labelBattery.Size = new System.Drawing.Size(53, 32);
