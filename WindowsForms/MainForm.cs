@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -9,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using WindowsForms.Services;
 
 namespace WindowsForms
 {
@@ -21,6 +23,10 @@ namespace WindowsForms
         private bool isDragging = false;
         private Point dragStartPoint = Point.Empty;
 
+        private GitHubUpdateService _updateService;
+        private bool _updateChecked = false;
+        private System.Threading.Timer _updateTimer;
+
         public MainForm()
         {
             InitializeComponent();
@@ -31,7 +37,67 @@ namespace WindowsForms
             this.MaximizedBounds = Screen.FromHandle(this.Handle).WorkingArea;
 
             SubscribeAllControls(this);
+
+            string githubOwner = "Albel-coder";
+            string githubRepo = "LegoPrinter";
+
+            _updateService = new GitHubUpdateService(githubOwner, githubRepo);
+
+            this.Shown += MainForm_Shown;
         }
+
+        private async void MainForm_Shown(object sender, EventArgs e)
+        {
+            Console.WriteLine("start MainForm_Shown");
+            await Task.Delay(3000);
+            await CheckForUpdatesAsync();
+            Console.WriteLine("end MainForm_Shown");
+        }
+        private async Task CheckForUpdatesAsync(bool manualCheck = true)
+        {
+            try
+            {
+                if (_updateService == null)
+                {
+                    MessageBox.Show("Сервис обновлений не настроен",
+                        "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                var updateInfo = await _updateService.CheckForUpdatesAsync(manualCheck);
+
+                if (updateInfo == null)
+                {
+                    if (manualCheck)
+                        MessageBox.Show("Не удалось проверить обновления.", "Ошибка");
+                    return;
+                }
+
+                if (!updateInfo.IsAvailable)
+                {
+                    if (manualCheck)
+                        MessageBox.Show("У вас установлена последняя версия.", "Информация");
+                    return;
+                }
+
+                ShowUpdateDialog(updateInfo);
+            }
+            catch (Exception ex)
+            {
+                if (manualCheck)
+                {
+                    MessageBox.Show($"Error: {ex.Message}", "Error");
+                }
+            }
+        }
+
+        private void ShowUpdateDialog(UpdateInfo updateInfo)
+        {
+            Console.WriteLine("show update dialog");
+            var dialog = new UpdateDialog(updateInfo, _updateService);
+            dialog.ShowDialog();
+        }
+
         [DllImport("user32.DLL", EntryPoint = "ReleaseCapture")]
         private extern static void ReleaseCapture();
 
