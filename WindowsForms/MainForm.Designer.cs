@@ -30,6 +30,7 @@ namespace WindowsForms
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainForm));
             this.panelMenu = new System.Windows.Forms.Panel();
             this.minimizeWindowButton = new System.Windows.Forms.Button();
             this.restoreWindowButton = new System.Windows.Forms.Button();
@@ -217,6 +218,7 @@ namespace WindowsForms
             this.Controls.Add(this.panelSelect);
             this.Controls.Add(this.panelMenu);
             this.ForeColor = System.Drawing.SystemColors.InfoText;
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "MainForm";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "LP Studio 1.0";

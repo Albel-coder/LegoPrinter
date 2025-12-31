@@ -57,14 +57,27 @@ namespace WindowsForms
         {
             try
             {
+                Console.WriteLine($"Начало проверки обновлений (ручная проверка: {manualCheck})");
+
                 if (_updateService == null)
                 {
+                    Console.WriteLine("Сервис обновлений не настроен");
                     MessageBox.Show("Сервис обновлений не настроен",
                         "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
                 var updateInfo = await _updateService.CheckForUpdatesAsync(manualCheck);
+
+                Console.WriteLine($"Результат проверки: {(updateInfo == null ? "null" : "не null")}");
+                if (updateInfo != null)
+                {
+                    Console.WriteLine($"Доступно обновление: {updateInfo.IsAvailable}");
+                    Console.WriteLine($"Текущая версия: {updateInfo.CurrentVersion}");
+                    Console.WriteLine($"Новая версия: {updateInfo.LatestVersion}");
+                    Console.WriteLine($"URL для скачивания: {updateInfo.DownloadUrl ?? "null"}");
+                    Console.WriteLine($"Имя файла: {updateInfo.AssetName ?? "null"}");
+                }
 
                 if (updateInfo == null)
                 {
@@ -80,10 +93,14 @@ namespace WindowsForms
                     return;
                 }
 
+                Console.WriteLine("Показ диалога обновления...");
                 ShowUpdateDialog(updateInfo);
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"Ошибка при проверке обновлений: {ex.Message}");
+                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+
                 if (manualCheck)
                 {
                     MessageBox.Show($"Error: {ex.Message}", "Error");
