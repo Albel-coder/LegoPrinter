@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -6,10 +8,9 @@ using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace WindowsForms.Services
 {
@@ -20,7 +21,7 @@ namespace WindowsForms.Services
     {
         // Константы
         private const string GITHUB_API_URL = "https://api.github.com";
-        private const string DEFAULT_USER_AGENT = "WindowsForms-App-Updater";
+        private const string DEFAULT_USER_AGENT = "LegoPrinter-App-Updater";
 
         // Настройки
         private readonly string _owner;
@@ -157,7 +158,7 @@ namespace WindowsForms.Services
         {
             try
             {
-                string url = $"{GITHUB_API_URL}/repos/{_owner}/{_repo}/releases";
+                string url = $"{GITHUB_API_URL}/repo/{_owner}/{_repo}/releases";
 
                 var response = await _httpClient.GetAsync(url);
                 response.EnsureSuccessStatusCode();
@@ -284,20 +285,68 @@ namespace WindowsForms.Services
 
             try
             {
+                Console.WriteLine($"=== Запуск процесса обновления ===");
+                Console.WriteLine($"Current PID: {Process.GetCurrentProcess().Id}");
+
                 // Формируем аргументы командной строки для Updater
                 var arguments = BuildUpdaterArguments(updateInfo);
+                Console.WriteLine($"Аргументы Updater: {arguments}");
 
                 // Запускаем Updater
                 var updaterPath = UpdateHelper.GetUpdaterPath();
-                UpdateHelper.StartProcess(updaterPath, arguments, false);
+                Console.WriteLine($"Путь к Updater: {updaterPath}");
+                Console.WriteLine($"Exists: {File.Exists(updaterPath)}");
+
+                // Проверяем аргументы более подробно
+                Console.WriteLine($"\nДетали аргументов:");
+                Console.WriteLine($"App Exe: {Application.ExecutablePath}");
+                Console.WriteLine($"App Dir: {Application.StartupPath}");
+                Console.WriteLine($"Download URL: {updateInfo.DownloadUrl}");
+                Console.WriteLine($"Version: {updateInfo.LatestVersion}");
+                Console.WriteLine($"Asset Name: {updateInfo.AssetName}");
+
+                // Создаем временный файл с логами
+                var tempLogFile = Path.Combine(Path.GetTempPath(), $"updater_launch_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+                File.WriteAllText(tempLogFile,
+                    $"Updater Path: {updaterPath}\n" +
+                    $"Arguments: {arguments}\n" +
+                    $"Time: {DateTime.Now}");
+
+                Console.WriteLine($"Log file created: {tempLogFile}");
+
+                // Запускаем Updater с детальным логированием
+                var process = UpdateHelper.StartProcess(updaterPath, arguments, false);
+
+                if (process == null)
+                {
+                    Console.WriteLine("Process.Start вернул null!");
+                    throw new Exception("Не удалось запустить процесс Updater");
+                }
+
+                Console.WriteLine($"Updater запущен, PID: {process.Id}");
+                Console.WriteLine($"Process HasExited: {process.HasExited}");
+
+                // Даем Updater немного времени на запуск
+                Thread.Sleep(1000);
+
+                if (process.HasExited)
+                {
+                    Console.WriteLine($"Updater завершился с кодом: {process.ExitCode}");
+                    throw new Exception($"Updater завершился сразу после запуска. Код: {process.ExitCode}");
+                }
+
+                Console.WriteLine("Updater успешно запущен, закрываю основное приложение...");
 
                 // Закрываем текущее приложение
                 Application.Exit();
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"Ошибка запуска Updater: {ex.Message}");
+                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+
                 MessageBox.Show(
-                    $"Не удалось запустить процесс обновления: {ex.Message}",
+                    $"Не удалось запустить процесс обновления: {ex.Message}\n\nПроверьте консоль для деталей.",
                     "Ошибка",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);

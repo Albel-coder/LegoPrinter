@@ -17,24 +17,40 @@ namespace WindowsForms.Services
         {
             try
             {
-                var version = Assembly.GetExecutingAssembly().GetName().Version;
-                return $"{version.Major}.{version.Minor}.{version.Build}";
+                var assembly = Assembly.GetExecutingAssembly();
+                var fileVersionInfo = FileVersionInfo.GetVersionInfo(assembly.Location);
+
+                // ProductVersion часто содержит полную версию в удобочитаемом формате
+                if (!string.IsNullOrEmpty(fileVersionInfo.ProductVersion))
+                {
+                    return CleanVersion(fileVersionInfo.ProductVersion);
+                }
+
+                // Fallback
+                return CleanVersion(fileVersionInfo.FileVersion ?? "1.0.0");
             }
             catch
             {
-                return "1.0.0";
+                return "1.0.0.0";
             }
         }
 
-        /// <summary>
-        /// Очистить версию от префиксов (v1.0.0 → 1.0.0)
-        /// </summary>
         public static string CleanVersion(string version)
         {
             if (string.IsNullOrEmpty(version))
-                return "0.0.0";
+                return "0.0.0.0";
 
-            return version.TrimStart('v', 'V', ' ');
+            // Удаляем префиксы и обрезаем пробелы
+            version = version.Trim().TrimStart('v', 'V');
+
+            // Удаляем возможные суффиксы типа "-beta", "+build" и т.д.
+            var dashIndex = version.IndexOf('-');
+            var plusIndex = version.IndexOf('+');
+
+            if (dashIndex > 0) version = version.Substring(0, dashIndex);
+            if (plusIndex > 0) version = version.Substring(0, plusIndex);
+
+            return version.Trim();
         }
 
         /// <summary>
@@ -77,7 +93,13 @@ namespace WindowsForms.Services
         public static string GetUpdaterPath()
         {
             var appPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            return Path.Combine(appPath, "Updater", "LegoPrinter.Updater.exe");
+            Console.WriteLine($"Путь к приложению: {appPath}");
+
+            var updaterPath = Path.Combine(appPath, "LegoPrinter.Updater.exe");
+            Console.WriteLine($"Путь к Updater: {updaterPath}");
+            Console.WriteLine($"Updater существует: {File.Exists(updaterPath)}");
+
+            return updaterPath;
         }
 
         /// <summary>
@@ -94,15 +116,48 @@ namespace WindowsForms.Services
         /// </summary>
         public static Process StartProcess(string fileName, string arguments, bool waitForExit = false)
         {
+            Console.WriteLine($"\n[StartProcess] Запуск процесса:");
+            Console.WriteLine($"  FileName: {fileName}");
+            Console.WriteLine($"  Arguments: {arguments}");
+            Console.WriteLine($"  WaitForExit: {waitForExit}");
+
             var processInfo = new ProcessStartInfo
             {
                 FileName = fileName,
                 Arguments = arguments,
-                UseShellExecute = true,
-                CreateNoWindow = false
+                UseShellExecute = false, // Изменяем на false чтобы видеть консоль
+                CreateNoWindow = false,  // Показываем окно
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
 
             var process = Process.Start(processInfo);
+
+            if (process != null)
+            {
+                // Читаем вывод Updater
+                process.OutputDataReceived += (sender, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Console.WriteLine($"[Updater Output]: {e.Data}");
+                };
+
+                process.ErrorDataReceived += (sender, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Console.WriteLine($"[Updater Error]: {e.Data}");
+                };
+
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                Console.WriteLine($"  Process ID: {process.Id}");
+                Console.WriteLine($"  Process Handle: {process.Handle}");
+            }
+            else
+            {
+                Console.WriteLine("  Process.Start вернул null!");
+            }
 
             if (waitForExit && process != null)
             {

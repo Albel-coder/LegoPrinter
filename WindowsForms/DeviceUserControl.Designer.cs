@@ -44,6 +44,9 @@
             this.panel5 = new System.Windows.Forms.Panel();
             this.label4 = new System.Windows.Forms.Label();
             this.panel1 = new System.Windows.Forms.Panel();
+            this.homeZButton = new System.Windows.Forms.Button();
+            this.moveZUpButton = new System.Windows.Forms.Button();
+            this.moveZDownButton = new System.Windows.Forms.Button();
             this.homeALLButton = new System.Windows.Forms.Button();
             this.homeXButton = new System.Windows.Forms.Button();
             this.homeYButton = new System.Windows.Forms.Button();
@@ -55,9 +58,8 @@
             this.panel3 = new System.Windows.Forms.Panel();
             this.label2 = new System.Windows.Forms.Label();
             this.logTimer = new System.Windows.Forms.Timer(this.components);
-            this.moveZDownButton = new System.Windows.Forms.Button();
-            this.moveZUpButton = new System.Windows.Forms.Button();
-            this.homeZButton = new System.Windows.Forms.Button();
+            this.button1 = new System.Windows.Forms.Button();
+            this.textBox1 = new System.Windows.Forms.TextBox();
             this.panelConnection.SuspendLayout();
             this.panelConnectionHead.SuspendLayout();
             this.panelConsole.SuspendLayout();
@@ -212,6 +214,8 @@
             // panel4
             // 
             this.panel4.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
+            this.panel4.Controls.Add(this.textBox1);
+            this.panel4.Controls.Add(this.button1);
             this.panel4.Controls.Add(this.panel5);
             this.panel4.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panel4.Location = new System.Drawing.Point(3, 393);
@@ -263,6 +267,46 @@
             this.panel1.Name = "panel1";
             this.panel1.Size = new System.Drawing.Size(427, 232);
             this.panel1.TabIndex = 1;
+            // 
+            // homeZButton
+            // 
+            this.homeZButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.homeZButton.FlatAppearance.BorderSize = 0;
+            this.homeZButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.homeZButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.homeZButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeZButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.homeZButton.Location = new System.Drawing.Point(150, 86);
+            this.homeZButton.Name = "homeZButton";
+            this.homeZButton.Size = new System.Drawing.Size(43, 36);
+            this.homeZButton.TabIndex = 12;
+            this.homeZButton.Text = " Z";
+            this.homeZButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
+            this.homeZButton.UseVisualStyleBackColor = false;
+            // 
+            // moveZUpButton
+            // 
+            this.moveZUpButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveZUpButton.FlatAppearance.BorderSize = 0;
+            this.moveZUpButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveZUpButton.Image = global::WindowsForms.Properties.Resources.upArrowImage32x32;
+            this.moveZUpButton.Location = new System.Drawing.Point(154, 44);
+            this.moveZUpButton.Name = "moveZUpButton";
+            this.moveZUpButton.Size = new System.Drawing.Size(35, 35);
+            this.moveZUpButton.TabIndex = 11;
+            this.moveZUpButton.UseVisualStyleBackColor = false;
+            // 
+            // moveZDownButton
+            // 
+            this.moveZDownButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
+            this.moveZDownButton.FlatAppearance.BorderSize = 0;
+            this.moveZDownButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.moveZDownButton.Image = global::WindowsForms.Properties.Resources.downArrowImage32x32;
+            this.moveZDownButton.Location = new System.Drawing.Point(154, 128);
+            this.moveZDownButton.Name = "moveZDownButton";
+            this.moveZDownButton.Size = new System.Drawing.Size(35, 35);
+            this.moveZDownButton.TabIndex = 10;
+            this.moveZDownButton.UseVisualStyleBackColor = false;
             // 
             // homeALLButton
             // 
@@ -404,45 +448,30 @@
             // 
             this.logTimer.Tick += new System.EventHandler(this.logTimer_Tick);
             // 
-            // moveZDownButton
+            // button1
             // 
-            this.moveZDownButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
-            this.moveZDownButton.FlatAppearance.BorderSize = 0;
-            this.moveZDownButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveZDownButton.Image = global::WindowsForms.Properties.Resources.downArrowImage32x32;
-            this.moveZDownButton.Location = new System.Drawing.Point(154, 128);
-            this.moveZDownButton.Name = "moveZDownButton";
-            this.moveZDownButton.Size = new System.Drawing.Size(35, 35);
-            this.moveZDownButton.TabIndex = 10;
-            this.moveZDownButton.UseVisualStyleBackColor = false;
+            this.button1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.button1.FlatAppearance.BorderSize = 0;
+            this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.button1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.button1.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.button1.Location = new System.Drawing.Point(13, 58);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(111, 36);
+            this.button1.TabIndex = 7;
+            this.button1.Text = " Execute code";
+            this.button1.UseVisualStyleBackColor = false;
             // 
-            // moveZUpButton
+            // textBox1
             // 
-            this.moveZUpButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
-            this.moveZUpButton.FlatAppearance.BorderSize = 0;
-            this.moveZUpButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveZUpButton.Image = global::WindowsForms.Properties.Resources.upArrowImage32x32;
-            this.moveZUpButton.Location = new System.Drawing.Point(154, 44);
-            this.moveZUpButton.Name = "moveZUpButton";
-            this.moveZUpButton.Size = new System.Drawing.Size(35, 35);
-            this.moveZUpButton.TabIndex = 11;
-            this.moveZUpButton.UseVisualStyleBackColor = false;
-            // 
-            // homeZButton
-            // 
-            this.homeZButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
-            this.homeZButton.FlatAppearance.BorderSize = 0;
-            this.homeZButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.homeZButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.homeZButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
-            this.homeZButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.homeZButton.Location = new System.Drawing.Point(150, 86);
-            this.homeZButton.Name = "homeZButton";
-            this.homeZButton.Size = new System.Drawing.Size(43, 36);
-            this.homeZButton.TabIndex = 12;
-            this.homeZButton.Text = " Z";
-            this.homeZButton.TextAlign = System.Drawing.ContentAlignment.MiddleRight;
-            this.homeZButton.UseVisualStyleBackColor = false;
+            this.textBox1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
+            this.textBox1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(150)))), ((int)(((byte)(150)))), ((int)(((byte)(150)))));
+            this.textBox1.Location = new System.Drawing.Point(150, 65);
+            this.textBox1.Name = "textBox1";
+            this.textBox1.ReadOnly = true;
+            this.textBox1.ScrollBars = System.Windows.Forms.ScrollBars.Both;
+            this.textBox1.Size = new System.Drawing.Size(146, 22);
+            this.textBox1.TabIndex = 8;
             // 
             // DeviceUserControl
             // 
@@ -460,6 +489,7 @@
             this.tableLayoutPanel1.ResumeLayout(false);
             this.tableLayoutPanel2.ResumeLayout(false);
             this.panel4.ResumeLayout(false);
+            this.panel4.PerformLayout();
             this.panel5.ResumeLayout(false);
             this.panel1.ResumeLayout(false);
             this.panel3.ResumeLayout(false);
@@ -498,5 +528,7 @@
         private System.Windows.Forms.Button homeZButton;
         private System.Windows.Forms.Button moveZUpButton;
         private System.Windows.Forms.Button moveZDownButton;
+        private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.TextBox textBox1;
     }
 }
