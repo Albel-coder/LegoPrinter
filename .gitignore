@@ -5,3 +5,9 @@ PrinterDriver/build/LegoPrinterCore.dir/Debug/objects.txt
 PrinterDriver/build/LegoPrinterCore.dir/MinSizeRel/objects.txt
 PrinterDriver/build/LegoPrinterCore.dir/RelWithDebInfo/objects.txt
 PrinterDriver/build/LegoPrinterCore.dir/Release/objects.txt
+Interpreter/Interpreter/*
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
