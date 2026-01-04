@@ -15,8 +15,8 @@ namespace WindowsForms.Updater
     {
         static async Task Main(string[] args)
         {
-            Console.Title = "WindowsForms Updater";
-            Console.WriteLine("=== WindowsForms AutoUpdater ===");
+            Console.Title = "LPStudio Updater";
+            Console.WriteLine("=== LPStudio AutoUpdater ===");
             Console.WriteLine();
 
             try
@@ -35,17 +35,17 @@ namespace WindowsForms.Updater
 
         private static async Task RunUpdateAsync(UpdateOptions options)
         {
-            Console.WriteLine($"=== Запуск обновления до версии {options.Version} ===");
-            Console.WriteLine($"AppExe из параметров: {options.AppExe}");
-            Console.WriteLine($"AppDir из параметров: {options.AppDir}");
+            Console.WriteLine($"=== Launching the update to version {options.Version} ===");
+            Console.WriteLine($"AppExe from parameters: {options.AppExe}");
+            Console.WriteLine($"AppDir from parameters: {options.AppDir}");
             Console.WriteLine();
 
-            // Логируем существование директории
+            // Log the existence of the directory
             if (Directory.Exists(options.AppDir))
             {
-                Console.WriteLine($"✓ Директория существует: {options.AppDir}");
+                Console.WriteLine($"The directory exists: {options.AppDir}");
                 var files = Directory.GetFiles(options.AppDir, "*.exe");
-                Console.WriteLine($"Найдено {files.Length} EXE-файлов:");
+                Console.WriteLine($"Found {files.Length} EXE files:");
                 foreach (var file in files)
                 {
                     Console.WriteLine($"  - {Path.GetFileName(file)}");
@@ -53,7 +53,7 @@ namespace WindowsForms.Updater
             }
             else
             {
-                Console.WriteLine($"✗ Директория не существует: {options.AppDir}");
+                Console.WriteLine($"Directory does not exist: {options.AppDir}");
             }
 
             try
@@ -79,45 +79,45 @@ namespace WindowsForms.Updater
                 // 5. Clean up temporary files
                 CleanUpTempFiles();
 
-                // 6. Запускаем обновленное приложение
-                Console.WriteLine($"\n=== Запуск обновленного приложения ===");
+                // 6. Launch the updated application
+                Console.WriteLine($"\n=== Launching the updated application ===");
 
-                // Увеличиваем время ожидания после установки
-                Console.WriteLine("Ожидание завершения установки...");
-                await Task.Delay(15000); // Увеличиваем до 15 секунд
+                // Increase the wait time after installation
+                Console.WriteLine("Waiting for installation to complete...");
+                await Task.Delay(15000); // Increase to 15 seconds
 
-                // Запускаем с улучшенной логикой поиска
+                // Launch with improved search logic
                 bool appLaunched = LaunchUpdatedApp(options.AppExe);
 
                 if (appLaunched)
                 {
-                    Console.WriteLine($"\nПриложение успешно запущено!");
+                    Console.WriteLine($"\nThe application has been launched successfully!");
 
-                    // Создаем файл-маркер об успешном обновлении
+                    // Create a marker file about a successful update
                     var updateMarker = Path.Combine(Path.GetTempPath(), $"LPStudio_Update_Success_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
                     File.WriteAllText(updateMarker, $"Update completed at {DateTime.Now}\nVersion: {options.Version}");
                 }
                 else
                 {
-                    Console.WriteLine($"\nНе удалось запустить приложение автоматически");
-                    Console.WriteLine($"Рекомендуемые действия:");
-                    Console.WriteLine($"1. Перезагрузите компьютер");
-                    Console.WriteLine($"2. Запустите приложение вручную через ярлык на рабочем столе");
-                    Console.WriteLine($"3. Или через меню Пуск -> LPStudio");
+                    Console.WriteLine($"\nThe application failed to start automatically.");
+                    Console.WriteLine($"Recommended actions:");
+                    Console.WriteLine($"1. Restart your computer");
+                    Console.WriteLine($"2. Launch the application manually via the desktop shortcut");
+                    Console.WriteLine($"3. Or via the Start menu -> LPStudio");
 
-                    // Показываем возможные пути
-                    Console.WriteLine($"\nИщите приложение в следующих папках:");
+                    // Show possible paths
+                    Console.WriteLine($"\nLook for the application in the following folders:");
                     Console.WriteLine($"- {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "LPStudio")}");
                     Console.WriteLine($"- {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "LPStudio")}");
                     Console.WriteLine($"- {Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "LPStudio")}");
                 }
 
                 Console.WriteLine();
-                Console.WriteLine("=== Обновление завершено ===");
+                Console.WriteLine("===Update Complete ===");
 
                 if (!options.Silent)
                 {
-                    Console.WriteLine("Нажмите любую клавишу для выхода...");
+                    Console.WriteLine("Press any key to exit...");
                     Console.ReadKey();
                 }
             }
@@ -159,7 +159,7 @@ namespace WindowsForms.Updater
                 // If still running, try to kill
                 Console.WriteLine("\nForcing termination...");
                 process.Kill();
-                await Task.Delay(2000); // Даем время на завершение
+                await Task.Delay(2000); // Give it time to complete
             }
             catch
             {
@@ -303,13 +303,13 @@ namespace WindowsForms.Updater
         {
             Console.WriteLine("Running installer...");
 
-            // Проверяем, что установщик существует
+            // Check that the installer exists
             if (!File.Exists(exePath))
             {
                 throw new FileNotFoundException($"Installer not found: {exePath}");
             }
 
-            // Проверяем AppId установщика
+            // Check the installer's AppId
             Console.WriteLine("Checking installer AppId...");
             string foundAppId = ExtractAppIdFromInstaller(exePath);
             string expectedAppId = "{6A00D414-87C7-4422-A25A-EAE68F7E4B19}";
@@ -327,7 +327,7 @@ namespace WindowsForms.Updater
                     Console.WriteLine($"  Found: {foundAppId}");
                     Console.WriteLine("  This may cause update issues!");
 
-                    // Но все равно продолжаем - может быть, это первая установка
+                    // But we continue anyway - maybe this is the first installation
                 }
             }
             else
@@ -335,28 +335,28 @@ namespace WindowsForms.Updater
                 Console.WriteLine("Could not extract AppId from installer");
             }
 
-            // Подготавливаем параметры для Inno Setup
+            // Prepare parameters for Inno Setup
             Console.WriteLine("Preparing installer arguments...");
 
             var arguments = new StringBuilder();
-            arguments.Append("/VERYSILENT ");        // Полностью тихий режим
-            arguments.Append("/SUPPRESSMSGBOXES ");  // Не показывать сообщения
-            arguments.Append("/NORESTART ");         // Не перезагружать компьютер
-            arguments.Append("/CLOSEAPPLICATIONS "); // Закрыть запущенные приложения
+            arguments.Append("/VERYSILENT ");        // Completely silent mode
+            arguments.Append("/SUPPRESSMSGBOXES ");  // Don't show messages
+            arguments.Append("/NORESTART ");         // Do not restart the computer
+            arguments.Append("/CLOSEAPPLICATIONS "); // Close running applications
 
-            // Для обновления важно указать, что это переустановка
+            // For an update, it is important to indicate that this is a reinstallation
             arguments.Append("/RESTARTAPPLICATIONS ");
 
-            // Отключаем создание ярлыков при обновлении (чтобы не было дубликатов)
+            // Disable shortcut creation during updates (to avoid duplicates)
             arguments.Append("/MERGETASKS=\"!desktopicon,!startmenu\" ");
 
-            // Указываем директорию установки
+            // Specify the installation directory
             if (!string.IsNullOrEmpty(targetDir))
             {
                 arguments.Append($"/DIR=\"{targetDir}\" ");
             }
 
-            // Логирование для отладки
+            // Logging for debugging
             var logFile = Path.Combine(Path.GetTempPath(), $"LPStudio_Update_{DateTime.Now:yyyyMMdd_HHmmss}.log");
             arguments.Append($"/LOG=\"{logFile}\"");
 
@@ -364,7 +364,7 @@ namespace WindowsForms.Updater
             Console.WriteLine($"Arguments: {arguments}");
             Console.WriteLine($"Log file: {logFile}");
 
-            // Запускаем установщик
+            // Run the installer
             var processInfo = new ProcessStartInfo
             {
                 FileName = exePath,
@@ -380,7 +380,7 @@ namespace WindowsForms.Updater
             {
                 process.StartInfo = processInfo;
 
-                // Коллекторы для вывода
+                // Collectors for output
                 var outputBuilder = new StringBuilder();
                 var errorBuilder = new StringBuilder();
 
@@ -409,7 +409,7 @@ namespace WindowsForms.Updater
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // Ждем завершения с таймаутом (10 минут)
+                // Wait for completion with a timeout (10 minutes)
                 bool exited = process.WaitForExit(600000);
 
                 if (!exited)
@@ -419,7 +419,7 @@ namespace WindowsForms.Updater
                 }
                 Console.WriteLine($"Installer exit code: {process.ExitCode}");
 
-                // Анализируем лог файл
+                // Analyze the log file
                 if (File.Exists(logFile))
                 {
                     try
@@ -436,7 +436,7 @@ namespace WindowsForms.Updater
                         }
                         Console.WriteLine("=== End Log ===");
 
-                        // Проверяем успешность установки по логу
+                        // Check the success of the installation using the log
                         if (logContent.Contains("Installation process succeeded"))
                         {
                             Console.WriteLine(" Installation succeeded (from log)");
@@ -460,11 +460,11 @@ namespace WindowsForms.Updater
                 Console.WriteLine($" Installer completed successfully");
             }
 
-            // Даем время на завершение всех файловых операций
+            // Give time for all file operations to complete
             Console.WriteLine("Waiting for file operations to complete...");
             await Task.Delay(10000);
 
-            // Очищаем старые деинсталляторы
+            // Clean up old uninstallers
             CleanupOldUninstallers(targetDir);
         }
 
@@ -472,15 +472,15 @@ namespace WindowsForms.Updater
         {
             try
             {
-                // Читаем бинарный файл и ищем AppId
+                // Read the binary file and look for AppId
                 var bytes = File.ReadAllBytes(exePath);
                 var content = System.Text.Encoding.ASCII.GetString(bytes);
 
-                // Ищем AppId={{
+                // Search for AppId={{
                 var startIndex = content.IndexOf("AppId={{");
                 if (startIndex >= 0)
                 {
-                    startIndex += 8; // Пропускаем "AppId={{"
+                    startIndex += 8; // Skipping "AppId={{"
                     var endIndex = content.IndexOf("}", startIndex);
                     if (endIndex > startIndex)
                     {
@@ -491,7 +491,7 @@ namespace WindowsForms.Updater
             }
             catch
             {
-                // Не критично, если не удалось извлечь
+                // It is not critical if the extraction failed
             }
 
             return null;
@@ -506,13 +506,13 @@ namespace WindowsForms.Updater
                 var allFiles = Directory.GetFiles(targetDir, "unins*.*", SearchOption.TopDirectoryOnly);
                 if (allFiles.Length > 1)
                 {
-                    // Находим самый новый файл по дате изменения
+                    // Find the newest file by modification date
                     var newestUninstaller = allFiles
                         .Select(f => new FileInfo(f))
                         .OrderByDescending(f => f.LastWriteTime)
                         .FirstOrDefault();
 
-                    // Удаляем все старые
+                    // Delete all old ones
                     foreach (var file in allFiles)
                     {
                         var fileInfo = new FileInfo(file);
@@ -601,38 +601,38 @@ namespace WindowsForms.Updater
 
         private static bool LaunchUpdatedApp(string appExePath)
         {
-            Console.WriteLine($"=== Запуск обновленного приложения ===");
+            Console.WriteLine($"=== Launching the updated application ===");
 
-            // Даем больше времени для завершения всех операций установки
-            Console.WriteLine("Ожидание завершения всех операций установки...");
-            Thread.Sleep(15000); // Увеличиваем до 15 секунд
+            // Give more time for all installation operations to complete
+            Console.WriteLine("Waiting for all installation operations to complete...");
+            Thread.Sleep(15000); // Increase to 15 seconds
 
-            // Список приоритетных путей для поиска
+            // List of priority paths to search
             var possiblePaths = new List<string>();
 
-            // 1. Путь, который пришел в аргументах (оригинальный)
+            // 1. The path that came in the arguments (original)
             if (!string.IsNullOrEmpty(appExePath))
             {
                 possiblePaths.Add(appExePath);
-                Console.WriteLine($"Добавлен путь из аргументов: {appExePath}");
+                Console.WriteLine($"Added path from arguments: {appExePath}");
             }
 
-            // 2. Стандартные пути установки Inno Setup
+            // 2. Standard Inno Setup installation paths
             var appName = "LPStudio.exe";
 
-            // Путь для установки текущего пользователя
+            // Path to set the current user
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             possiblePaths.Add(Path.Combine(localAppData, "Programs", "LPStudio", appName));
 
-            // Путь для установки для всех пользователей (Program Files)
+            // Installation path for all users (Program Files)
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             possiblePaths.Add(Path.Combine(programFiles, "LPStudio", appName));
 
-            // Путь x86 для 32-битных систем
+            // x86 path for 32-bit systems
             var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             possiblePaths.Add(Path.Combine(programFilesX86, "LPStudio", appName));
 
-            // 3. Текущая директория и родительские директории
+            // 3. Current directory and parent directories
             var currentDir = Directory.GetCurrentDirectory();
             possiblePaths.Add(Path.Combine(currentDir, appName));
 
@@ -642,28 +642,28 @@ namespace WindowsForms.Updater
                 possiblePaths.Add(Path.Combine(parentDir, appName));
             }
 
-            // Ищем файл
+            // Looking for a file
             string foundPath = null;
             foreach (var path in possiblePaths)
             {
                 if (File.Exists(path))
                 {
                     foundPath = path;
-                    Console.WriteLine($"✓ Найден исполняемый файл: {path}");
+                    Console.WriteLine($"Executable file found: {path}");
                     break;
                 }
                 else
                 {
-                    Console.WriteLine($"✗ Файл не найден: {path}");
+                    Console.WriteLine($"File not found: {path}");
                 }
             }
 
             if (foundPath == null)
             {
-                Console.WriteLine("Не удалось найти исполняемый файл приложения");
+                Console.WriteLine("The application executable file could not be found.");
 
-                // Попробуем найти через поиск по диску
-                Console.WriteLine("Попытка поиска по диску C:");
+                // Let's try to find it using disk search
+                Console.WriteLine("Trying to search drive C:");
                 try
                 {
                     var drives = DriveInfo.GetDrives();
@@ -671,7 +671,7 @@ namespace WindowsForms.Updater
                     {
                         if (drive.IsReady && drive.Name.StartsWith("C:"))
                         {
-                            Console.WriteLine($"Поиск на диске {drive.Name}...");
+                            Console.WriteLine($"Search on disk {drive.Name}...");
                             var foundFiles = Directory.GetFiles(drive.RootDirectory.FullName, appName, SearchOption.AllDirectories)
                                 .Where(f => f.Contains("LPStudio"))
                                 .Take(5)
@@ -679,7 +679,7 @@ namespace WindowsForms.Updater
 
                             foreach (var file in foundFiles)
                             {
-                                Console.WriteLine($"Найден: {file}");
+                                Console.WriteLine($"Found: {file}");
                                 if (TryLaunchApp(file))
                                 {
                                     return true;
@@ -690,36 +690,36 @@ namespace WindowsForms.Updater
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Ошибка при поиске: {ex.Message}");
+                    Console.WriteLine($"Search error: {ex.Message}");
                 }
 
                 return false;
             }
 
-            // Запускаем приложение
+            // Launch the application
             return TryLaunchApp(foundPath);
         }
 
         private static bool TryLaunchApp(string appExePath)
         {
-            Console.WriteLine($"\n=== Попытка запуска приложения ===");
-            Console.WriteLine($"Путь: {appExePath}");
+            Console.WriteLine($"\n=== Trying to launch the application ===");
+            Console.WriteLine($"Path: {appExePath}");
 
-            // Проверяем существование файла
+            // Check the existence of the file
             if (!File.Exists(appExePath))
             {
-                Console.WriteLine($"✗ Файл не существует: {appExePath}");
+                Console.WriteLine($"File does not exist: {appExePath}");
                 return false;
             }
 
             try
             {
-                Console.WriteLine($"Размер файла: {new FileInfo(appExePath).Length} байт");
+                Console.WriteLine($"File size: {new FileInfo(appExePath).Length} bytes");
 
-                // Пробуем разные способы запуска
+                // Let's try different launch methods
 
-                // Способ 1: Используем Process.Start с UseShellExecute = true
-                Console.WriteLine("\nСпособ 1: Запуск через ShellExecute");
+                // Method 1: Using Process.Start with UseShellExecute = true
+                Console.WriteLine("\nMethod 1: Launch via ShellExecute");
                 try
                 {
                     var process1 = new Process();
@@ -732,29 +732,29 @@ namespace WindowsForms.Updater
 
                     if (process1.Start())
                     {
-                        Console.WriteLine($"✓ Процесс запущен через ShellExecute (PID: {process1.Id})");
+                        Console.WriteLine($"The process was started via ShellExecute (PID: {process1.Id})");
 
-                        // Даем время на запуск
+                        // Give it time to launch
                         Thread.Sleep(3000);
 
                         if (!process1.HasExited)
                         {
-                            Console.WriteLine("✓ Приложение успешно запущено и работает");
+                            Console.WriteLine("The application has been successfully launched and is working.");
                             return true;
                         }
                         else
                         {
-                            Console.WriteLine($"✗ Приложение завершилось сразу (код: {process1.ExitCode})");
+                            Console.WriteLine($"The application terminated immediately (code: {process1.ExitCode})");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Ошибка ShellExecute: {ex.Message}");
+                    Console.WriteLine($"Error ShellExecute: {ex.Message}");
                 }
 
-                // Способ 2: Используем Process.Start с UseShellExecute = false
-                Console.WriteLine("\nСпособ 2: Запуск напрямую");
+                // Method 2: Using Process.Start with UseShellExecute = false
+                Console.WriteLine("\nMethod 2: Launch directly");
                 try
                 {
                     var process2 = new Process();
@@ -766,29 +766,29 @@ namespace WindowsForms.Updater
 
                     if (process2.Start())
                     {
-                        Console.WriteLine($"✓ Процесс запущен напрямую (PID: {process2.Id})");
+                        Console.WriteLine($"The process was started directly (PID: {process2.Id})");
 
-                        // Даем время на запуск
+                        // Give it time to launch
                         Thread.Sleep(3000);
 
                         if (!process2.HasExited)
                         {
-                            Console.WriteLine("✓ Приложение успешно запущено");
+                            Console.WriteLine("Application launched successfully");
                             return true;
                         }
                         else
                         {
-                            Console.WriteLine($"✗ Приложение завершилось сразу (код: {process2.ExitCode})");
+                            Console.WriteLine($"The application terminated immediately (code: {process2.ExitCode})");
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Ошибка прямого запуска: {ex.Message}");
+                    Console.WriteLine($"Direct launch error: {ex.Message}");
                 }
 
-                // Способ 3: Запуск через cmd
-                Console.WriteLine("\nСпособ 3: Запуск через командную строку");
+                // Method 3: Launch via cmd
+                Console.WriteLine("\nMethod 3: Launch via command line");
                 try
                 {
                     var process3 = new Process();
@@ -799,22 +799,22 @@ namespace WindowsForms.Updater
 
                     if (process3.Start())
                     {
-                        Console.WriteLine("✓ Команда запуска отправлена через cmd");
+                        Console.WriteLine("The launch command was sent via cmd");
                         Thread.Sleep(3000);
                         return true;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Ошибка запуска через cmd: {ex.Message}");
+                    Console.WriteLine($"Error launching via cmd: {ex.Message}");
                 }
 
-                Console.WriteLine("✗ Все способы запуска не сработали");
+                Console.WriteLine("All launch methods did not work.");
                 return false;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"✗ Критическая ошибка при запуске: {ex.Message}");
+                Console.WriteLine($"Critical error on startup: {ex.Message}");
                 Console.WriteLine($"StackTrace: {ex.StackTrace}");
                 return false;
             }
@@ -825,22 +825,22 @@ namespace WindowsForms.Updater
             var appName = "LPStudio.exe";
             var possiblePaths = new List<string>();
 
-            // 1. Путь текущего пользователя (AppData\Local\Programs)
+            // 1. Current user path (AppData\Local\Programs)
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             possiblePaths.Add(Path.Combine(userProfile, "AppData", "Local", "Programs", "LPStudio", appName));
 
-            // 2. Public пользователь (если установка для всех пользователей)
+            // 2. Public user (if installed for all users)
             var publicProfile = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             possiblePaths.Add(Path.Combine(publicProfile, "Programs", "LPStudio", appName));
 
-            // 3. Текущая рабочая директория
+            // 3. Current working directory
             possiblePaths.Add(Path.Combine(Directory.GetCurrentDirectory(), appName));
 
-            // 4. Рядом с Updater
+            // 4. Next to Updater
             var updaterDir = AppDomain.CurrentDomain.BaseDirectory;
             possiblePaths.Add(Path.Combine(updaterDir, appName));
 
-            // 5. Проверяем AppDir из аргументов (может измениться)
+            // 5. Check AppDir from arguments (may change)
             var appDirFromArgs = GetAppDirFromArgs();
             if (!string.IsNullOrEmpty(appDirFromArgs))
             {
@@ -859,7 +859,7 @@ namespace WindowsForms.Updater
 
                 if (File.Exists(shortcutPath))
                 {
-                    Console.WriteLine($"Найден ярлык на рабочем столе: {shortcutPath}");
+                    Console.WriteLine($"Shortcut found on desktop: {shortcutPath}");
 
                     var startInfo = new ProcessStartInfo
                     {
@@ -869,14 +869,14 @@ namespace WindowsForms.Updater
                     };
 
                     Process.Start(startInfo);
-                    Console.WriteLine("Ярлык запущен");
+                    Console.WriteLine("Shortcut launched");
                     return true;
                 }
                 else
                 {
-                    Console.WriteLine($"Ярлык не найден: {shortcutPath}");
+                    Console.WriteLine($"Shortcut not found: {shortcutPath}");
 
-                    // Проверяем в меню "Пуск"
+                    // Check in the Start menu
                     var startMenuPath = Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
                         "Programs",
@@ -885,7 +885,7 @@ namespace WindowsForms.Updater
 
                     if (File.Exists(startMenuPath))
                     {
-                        Console.WriteLine($"Найден ярлык в меню Пуск: {startMenuPath}");
+                        Console.WriteLine($"Shortcut found in Start menu: {startMenuPath}");
                         Process.Start(startMenuPath);
                         return true;
                     }
@@ -893,7 +893,7 @@ namespace WindowsForms.Updater
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Ошибка при запуске через ярлык: {ex.Message}");
+                Console.WriteLine($"Error when launching via shortcut: {ex.Message}");
             }
 
             return false;
@@ -914,7 +914,7 @@ namespace WindowsForms.Updater
             }
             catch
             {
-                // Игнорируем ошибки
+                // Ignore errors
             }
 
             return null;
@@ -959,7 +959,7 @@ namespace WindowsForms.Updater
             {
                 Console.WriteLine("Cleaning up temporary files...");
 
-                // Удаляем .old файлы которые могли создать предыдущие запуски
+                // Delete .old files that may have been created by previous launches
                 var currentDir = AppDomain.CurrentDomain.BaseDirectory;
                 var oldFiles = Directory.GetFiles(currentDir, "*.old", SearchOption.TopDirectoryOnly);
 
@@ -972,11 +972,11 @@ namespace WindowsForms.Updater
                     }
                     catch
                     {
-                        // Игнорируем ошибки удаления
+                        // Ignore deletion errors
                     }
                 }
 
-                // Удаляем временную папку загрузок
+                // Delete the temporary download folder
                 var tempUpdateDir = Path.Combine(Path.GetTempPath(), "WindowsForms_Update");
                 if (Directory.Exists(tempUpdateDir))
                 {
@@ -987,13 +987,13 @@ namespace WindowsForms.Updater
                     }
                     catch
                     {
-                        // Игнорируем
+                        // Ignore
                     }
                 }
             }
             catch
             {
-                // Игнорируем ошибки очистки
+                // Ignore cleanup errors
             }
         }
 
@@ -1005,8 +1005,6 @@ namespace WindowsForms.Updater
                 Console.WriteLine($"  {err}");
             }
 
-            Console.WriteLine("\nUsage example:");
-            Console.WriteLine("WindowsForms.Updater.exe --app-exe \"C:\\Program Files\\WindowsForms\\WindowsForms.exe\" --app-dir \"C:\\Program Files\\WindowsForms\" --download-url \"https://github.com/user/repo/releases/download/v1.0.0/setup.exe\" --version 1.0.0 --wait-pid 1234");
             Console.WriteLine("\nPress any key to exit...");
             Console.ReadKey();
         }
