@@ -25,11 +25,12 @@ extern "C"
 	GCODE_API int GetStatus(InterpreterHandle handle);
 	GCODE_API double GetProgress(InterpreterHandle handle);
 	GCODE_API const char* GetLastInterpreterError(InterpreterHandle handle);
-	GCODE_API int GetErrorCount(InterpreterHandle handle);
 	GCODE_API const char* GetError(InterpreterHandle handle, int index);
 	GCODE_API int GetLogCount(InterpreterHandle handle);
 	GCODE_API const char* GetLogEntry(InterpreterHandle handle, int index);
-	GCODE_API void ClearErrors(InterpreterHandle handle);
 	GCODE_API void ClearLog(InterpreterHandle handle);
+	GCODE_API void SetLogCategories(InterpreterHandle handle, unsigned int categories);
+	GCODE_API unsigned int GetLogCategories(InterpreterHandle handle);
+	GCODE_API int GetFilterLogCount(InterpreterHandle handle, unsigned int categoryMask);
 	GCODE_API bool ReadConfig(InterpreterHandle handle, const char* filename);
 }

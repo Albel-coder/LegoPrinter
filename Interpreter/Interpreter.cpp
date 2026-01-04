@@ -13,6 +13,68 @@
 #include <sstream>
 #include <fstream>
 #include <future>
+#include <chrono>
+
+#ifdef _DEBUG
+	#define LOG_ENABLED 1
+	#define LOG_DEBUG_ENABLED 1
+#else
+	#define LOG_ENABLED 1
+	#define LOG_DEBUG_ENABLED 0
+#endif
+
+// Macros for logging in the interpreter
+#define LOG_ERROR(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_ERROR)) \
+		addLogInternal(LOG_CATEGORY_ERROR, format, ##__VA_ARGS__)
+
+#define LOG_WARNING(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_WARNING)) \
+		addLogInternal(LOG_CATEGORY_WARNING, format, ##__VA_ARGS__)
+
+#define LOG_INFO(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_INFO)) \
+		addLogInternal(LOG_CATEGORY_INFO, format, ##__VA_ARGS__)
+
+#define LOG_DEBUG(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_DEBUG)) \
+		addLogInternal(LOG_CATEGORY_DEBUG, format, ##__VA_ARGS__)
+
+#define LOG_GCODE(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_GCODE)) \
+		addLogInternal(LOG_CATEGORY_GCODE, format, ##__VA_ARGS__)
+
+#define LOG_MOVEMENT(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_MOVEMENT)) \
+		addLogInternal(LOG_CATEGORY_MOVEMENT, format, ##__VA_ARGS__)
+
+#define LOG_ARC(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_ARC)) \
+		addLogInternal(LOG_CATEGORY_ARC, format, ##__VA_ARGS__)
+
+#define LOG_CONFIG(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_CONFIG)) \
+		addLogInternal(LOG_CATEGORY_CONFIG, format, ##__VA_ARGS__)
+
+#define LOG_PARSING(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_PARSING)) \
+		addLogInternal(LOG_CATEGORY_PARSING, format, ##__VA_ARGS__)
+
+#define LOG_EXECUTION(format, ...) \
+	if (isCategoryEnabled(LOG_CATEGORY_EXECUTION)) \
+		addLogInternal(LOG_CATEGORY_EXECUTION, format, ##__VA_ARGS__)
+
+#ifdef _DEBUG
+#define LOG_PERFORMANCE_START() auto performanceStartTime = std::chrono::high_resolution_clock::now()
+#define LOG_PERFORMANCE_END(category, operation) \
+        auto performanceEndTime = std::chrono::high_resolution_clock::now(); \
+        auto performanceDuration = std::chrono::duration_cast<std::chrono::microseconds>(performanceEndTime - performanceStartTime); \
+        if (isCategoryEnabled(LOG_CATEGORY_PERFORMANCE)) \
+            addLogInternal(LOG_CATEGORY_PERFORMANCE, "%s took %lld µs", operation, performanceDuration.count())
+#else
+#define LOG_PERFORMANCE_START() 
+#define LOG_PERFORMANCE_END(category, operation)
+#endif
 
 enum LogCategory {
 	LOG_CATEGORY_NONE = 0,
@@ -159,83 +221,110 @@ private:
 		double endY;
 	};
 
-	void addLogEntry(const std::string& entry) {
-		std::unique_lock<std::mutex> lock(logMutex, std::try_to_lock);
-		if (lock.owns_lock()) {
-			// Size limit without recursion
-			if (executionLog.size() >= 1000) {
-				executionLog.erase(executionLog.begin(), executionLog.begin() + 100);
+	std::atomic<uint32_t> enabledCategories;
 
-				static bool cleanupMessageAdded = false;
-				if (!cleanupMessageAdded) {
-					executionLog.push_back("Log buffer limit reached - old entries are being removed");
-					cleanupMessageAdded = true;
-				}	
-			}
+	struct LogEntry {
+		char message[1024];
+		LogCategory category;
+		std::chrono::system_clock::time_point timestamp;
+	};
 
-			executionLog.push_back(entry);
-		}
+	static constexpr size_t MAX_LOG_ENTRIES = 5000;
+	static constexpr size_t MAX_MESSAGE_LENGTH = 1023;
+
+	std::unique_ptr<LogEntry[]> logBuffer;
+	std::atomic<size_t> logWriteIndex{ 0 };
+	std::atomic<size_t> logReadIndex{ 0 };
+	std::mutex logBufferMutex;
+
+	__forceinline bool isCategoryEnabled(LogCategory category) {
+		return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
 	}
 
-	// Add G-code error information
-	void addGCodeErrorInfo(const std::string& code, GcodeError errorType = VALUE_NOT_DEFINED) {
-		std::unique_lock<std::mutex> lock(logMutex, std::try_to_lock);
-
-		if (gCodeErrors.size() > 999) {
-			gCodeErrors.erase(gCodeErrors.begin());
-		}
-
-		std::string ErrorInfo;
-		currentError = errorType;
-
-		switch (errorType) {
-		case IDENTIFIER_NOT_DEFINED:
-			ErrorInfo = "Identifier '" + code + "' is not defined";
-			break;
-		case VALUE_NOT_DEFINED:
-			ErrorInfo = "Value '" + code + "' is not defined or invalid";
-			break;
-		case OUT_OF_RANGE:
-			ErrorInfo = "Value '" + code + "' is out of range";
-			break;
-		case FILE_ERROR:
-			ErrorInfo = "File error: " + code;
-			break;
-		case CONFIG_ERROR:
-			ErrorInfo = "Configuration error: " + code;
-			break;
-		case PRINTER_ERROR:
-			ErrorInfo = "Printer error: " + code;
-			break;
-		case SYNTAX_ERROR:
-			ErrorInfo = "Syntax error: " + code;
-			break;
-		case MOVEMENT_ERROR:
-			ErrorInfo = "Movement error: " + code;
-			break;
-		case NO_ERROR:
-			break;
-		default:
-			ErrorInfo = "Unknown error: " + code;
-			break;
-		}
-
-		gCodeErrors.push_back(ErrorInfo);
-		addLogEntry("[ERROR] " + ErrorInfo);
-		lastError = ErrorInfo;
-		status = ERROR;
-
-		// Add to the main log without recursion
-		if (lock.owns_lock()) {
-			if (executionLog.size() > 999) {
-				executionLog.erase(executionLog.begin());
-			}
-			executionLog.push_back("[ERROR] " + ErrorInfo);
-		}
+	template<size_t N>
+	__forceinline void formatToBuffer(char(&buffer)[N], const char* format, va_list args) {
+		vsnprintf(buffer, N, format, args);
 	}
 
-	void setError(GcodeError error, const std::string& message) {
-		addGCodeErrorInfo(message, error);
+	void addLogInternal(LogCategory category, const char* format, ...) {
+		if (!isCategoryEnabled(category)) return;
+
+		char formatted[1024];
+		va_list args;
+		va_start(args, format);
+		vsnprintf(formatted, sizeof(formatted), format, args);
+		formatted[sizeof(formatted) - 1] = '\0';
+		va_end(args);
+
+		auto now = std::chrono::system_clock::now();
+		auto time_t_now = std::chrono::system_clock::to_time_t(now);
+		auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+			now.time_since_epoch()) % 1000;
+
+		tm time_info;
+		localtime_s(&time_info, &time_t_now);
+
+		const char* categoryName = "UNKNOWN";
+		switch (category) {
+		case LOG_CATEGORY_ERROR:
+			categoryName = "ERROR";
+			break;
+		case LOG_CATEGORY_WARNING:
+			categoryName = "WARNING";
+			break;
+		case LOG_CATEGORY_INFO:
+			categoryName = "INFO";
+			break;
+		case LOG_CATEGORY_DEBUG:
+			categoryName = "DEBUG";
+			break;
+		case LOG_CATEGORY_GCODE:
+			categoryName = "GCODE";
+			break;
+		case LOG_CATEGORY_MOVEMENT:
+			categoryName = "MOVEMENT";
+			break;
+		case LOG_CATEGORY_ARC:
+			categoryName = "ARC";
+			break;
+		case LOG_CATEGORY_CONFIG:
+			categoryName = "CONFIG";
+			break;
+		case LOG_CATEGORY_PARSING:
+			categoryName = "PARSING";
+			break;
+		case LOG_CATEGORY_EXECUTION:
+			categoryName = "EXECUTION";
+			break;
+		case LOG_CATEGORY_PERFORMANCE:
+			categoryName = "PERFORMANCE";
+			break;
+		}
+
+		char finalBuffer[1024];
+		snprintf(finalBuffer, sizeof(finalBuffer),
+			"[%s][%02d:%02d:%02d.%03d] %s",
+			categoryName,
+			time_info.tm_hour, time_info.tm_min, time_info.tm_sec,
+			(int)milliseconds.count(),
+			formatted);
+
+		size_t write_idx = logWriteIndex.load(std::memory_order_relaxed);
+		size_t read_idx = logReadIndex.load(std::memory_order_relaxed);
+
+		size_t next_write = (write_idx + 1) % MAX_LOG_ENTRIES;
+
+		if (next_write == read_idx % MAX_LOG_ENTRIES) {
+			logReadIndex.store((read_idx + 1) % MAX_LOG_ENTRIES,
+				std::memory_order_relaxed);
+		}
+
+		size_t buffer_idx = write_idx % MAX_LOG_ENTRIES;
+		strncpy_s(logBuffer[buffer_idx].message, finalBuffer, MAX_MESSAGE_LENGTH);
+		logBuffer[buffer_idx].category = category;
+		logBuffer[buffer_idx].timestamp = now;
+
+		logWriteIndex.store(next_write, std::memory_order_release);
 	}
 
 	Section stringToSection(const std::string& section) {
@@ -1091,14 +1180,17 @@ public:
 			currentPrinter = nullptr;
 			executionThread = nullptr;
 
+			logBuffer = std::make_unique<LogEntry[]>(MAX_LOG_ENTRIES);		
+			enabledCategories.store(LOG_CATEGORY_RELEASE, std::memory_order_relaxed);
+
 			stepperX = StepperConfig();
 			stepperY = StepperConfig();
 			stepperZ = StepperConfig();
 
-			addLogEntry("Interpreter initialized successfully");
+			LOG_INFO("Interpreter initialized successfully");
 		}
 		catch (const std::exception& ex) {
-			addLogEntry("Error in interpreter constructor: " + std::string(ex.what()));
+			LOG_ERROR("Error in interpreter constructor: %s", ex.what());
 		}
 	}
 
@@ -1121,6 +1213,85 @@ public:
 
 		addLogEntry("Interpreter destroyed");
 		gActiveInterpreters--;
+	}
+
+	void setLogCategories(uint32_t categories) {
+		enabledCategories.store(categories, std::memory_order_relaxed);
+		addLogInternal(LOG_CATEGORY_INFO, "Log categories updated: 0x%08X", categories);
+	}
+
+	uint32_t getLogCategories() const {
+		return enabledCategories.load(std::memory_order_relaxed);
+	}
+
+	int getLogCount() {
+		size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+		size_t readIndex = logReadIndex.load(std::memory_order_acquire);
+
+		if (writeIndex >= readIndex) {
+			size_t count = writeIndex - readIndex;
+			return static_cast<int>(std::min(count, MAX_LOG_ENTRIES));
+		}
+		else {
+			size_t count = (writeIndex + MAX_LOG_ENTRIES) - readIndex;
+			return static_cast<int>(std::min(count, MAX_LOG_ENTRIES));
+		}
+	}
+
+	const char* getLogEntry(int index, LogCategory* outCategory = nullptr) {
+		size_t readIndex = logReadIndex.load(std::memory_order_acquire);
+		size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+
+		size_t available;
+		if (writeIndex >= readIndex) {
+			available = writeIndex - readIndex;
+		}
+		else {
+			available = (writeIndex + MAX_LOG_ENTRIES) - readIndex;
+		}
+
+		available = std::min(available, MAX_LOG_ENTRIES);
+
+		if (index < 0 || static_cast<size_t>(index) >= available) {
+			return "";
+		}
+
+		size_t bufferIndex = (readIndex + index) % MAX_LOG_ENTRIES;
+
+		if (outCategory) {
+			*outCategory = logBuffer[bufferIndex].category;
+		}
+
+		return logBuffer[bufferIndex].message;
+	}
+
+	int getFilterLogCount(uint32_t categoryMask) {
+		size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+		size_t readIndex = logReadIndex.load(std::memory_order_relaxed);
+
+		int count = 0;
+
+		std::lock_guard<std::mutex> lock(logBufferMutex);
+
+		for (size_t i = readIndex; i < writeIndex; i++) {
+			size_t index = i % MAX_LOG_ENTRIES;
+			if (logBuffer[index].category & categoryMask) {
+				count++;
+			}
+		}
+
+		return count;
+	}
+
+	void clearLog() {
+		logWriteIndex.store(0, std::memory_order_release);
+		logReadIndex.store(0, std::memory_order_relaxed);
+
+		addLogInternal(LOG_CATEGORY_INFO, "Log buffer cleared");
+	}
+
+	const char* getLastErrorMessage() {
+		return lastError.empty() ? "" : lastError.c_str();
 	}
 
 	// Execute G-code from file
@@ -1244,52 +1415,7 @@ public:
 		return cacheString(lastError);
 	}
 
-	int getLastErrorCode() { return static_cast<int>(currentError.load()); }
-
 	double getSpeed() { return speed; }
-
-	int getErrorCount() {
-		std::lock_guard<std::mutex> lock(logMutex);
-		return static_cast<int>(gCodeErrors.size());
-	}
-
-	const char* GetError(int index) {
-		std::lock_guard<std::mutex> lock(logMutex);
-		if (index >= 0 && index < gCodeErrors.size()) {
-			return cacheString(gCodeErrors[index]);
-		}
-
-		return cacheString("");
-	}
-
-	int getLogCount() {
-		std::lock_guard<std::mutex> lock(logMutex);
-		return static_cast<int>(executionLog.size());
-	}
-
-	const char* GetLogEntry(int index) {
-		std::lock_guard<std::mutex> lock(logMutex);
-		if (index >= 0 && index < executionLog.size()) {
-			return cacheString(executionLog[index]);
-		}
-
-		addLogEntry("Invalid log index requested: " + std::to_string(index));
-		return cacheString("");
-	}
-
-	void clearErrors() {
-		std::lock_guard<std::mutex> lock(logMutex);
-		gCodeErrors.clear();
-		lastError.clear();
-		currentError = NO_ERROR;
-		addLogEntry("All errors cleared");
-	}
-
-	void clearLog()	{
-		std::lock_guard<std::mutex> lock(logMutex);
-		executionLog.clear();
-		addLogEntry("Log cleared");
-	}
 
 	bool testFunction(IPrinter* printer) {
 		currentPrinter = printer;
@@ -2469,16 +2595,10 @@ extern "C"
 		return static_cast<Interpreter*>(handle)->getLastError();
 	}
 
-	GCODE_API int GetErrorCount(InterpreterHandle handle) {
-		if (!handle) return 0;
-
-		return static_cast<Interpreter*>(handle)->getErrorCount();
-	}
-
 	GCODE_API const char* GetError(InterpreterHandle handle, int index) {
 		if (!handle) return nullptr;
 
-		return static_cast<Interpreter*>(handle)->GetError(index);
+		return static_cast<Interpreter*>(handle)->getLastError();
 	}
 
 	GCODE_API int GetLogCount(InterpreterHandle handle)	{
@@ -2490,19 +2610,31 @@ extern "C"
 	GCODE_API const char* GetLogEntry(InterpreterHandle handle, int index) {
 		if (!handle) return nullptr;
 
-		return static_cast<Interpreter*>(handle)->GetLogEntry(index);
-	}
-
-	GCODE_API void ClearErrors(InterpreterHandle handle) {
-		if (handle)	{
-			static_cast<Interpreter*>(handle)->clearErrors();
-		}
+		return static_cast<Interpreter*>(handle)->getLogEntry(index);
 	}
 
 	GCODE_API void ClearLog(InterpreterHandle handle) {
 		if (handle)	{
 			static_cast<Interpreter*>(handle)->clearLog();
 		}
+	}
+
+	GCODE_API void SetLogCategories(InterpreterHandle handle, unsigned int categories) {
+		if (!handle) return;
+
+		static_cast<Interpreter*>(handle)->setLogCategories(categories);
+	}
+
+	GCODE_API unsigned int GetLogCategories(InterpreterHandle handle) {
+		if (!handle) return 0;
+
+		return static_cast<Interpreter*>(handle)->getLogCategories();
+	}
+
+	GCODE_API int GetFilterLogCount(InterpreterHandle handle, unsigned int categoryMask) {
+		if (!handle) return 0;
+
+		return static_cast<Interpreter*>(handle)->getFilterLogCount(categoryMask);
 	}
 
 	GCODE_API bool ReadConfig(InterpreterHandle handle, const char* filename) {
