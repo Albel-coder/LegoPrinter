@@ -338,7 +338,7 @@ private:
 			return Section::STEPPER_Z;
 		}
 
-		addLogEntry("Unknown section in configuration: " + section);
+		LOG_WARNING("Unknown section in configuration: %s", section);
 		return Section::UNKNOWN;
 	}
 
@@ -357,7 +357,7 @@ private:
 		auto it = keyMap.find(key);
 		if (it != keyMap.end()) return it->second;
 
-		addLogEntry("Unknown configuration key: " + key);
+		LOG_WARNING("Unknown configuration key: %s", key);
 		return ConfigKey::UNKNOWN;
 	}
 
@@ -389,7 +389,7 @@ private:
 			config = &stepperZ;
 			break;
 		default:
-			addGCodeErrorInfo("Unknown section in configuration", CONFIG_ERROR);
+			LOG_ERROR("Unknown section in configuration");
 			return;
 		}
 
@@ -397,10 +397,10 @@ private:
 		case ConfigKey::ROTATE_DISTANCE:
 			try	{
 				config->rotationDistance = std::stod(parseValue(value));
-				addLogEntry("Set rotation_distance: " + std::to_string(config->rotationDistance));
+				LOG_CONFIG("Set rotation_distance: %f", config->rotationDistance);
 			}
 			catch (const std::exception& ex) {				
-				addGCodeErrorInfo("Invalid rotation distance value: " + std::to_string(config->rotationDistance), CONFIG_ERROR);
+				LOG_ERROR("Invalid rotation distance value: %f", config->rotationDistance);
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -409,10 +409,10 @@ private:
 		case ConfigKey::GEAR_RATIO:
 			try	{
 				config->gearRatio = std::stod(parseValue(value));
-				addLogEntry("Set gear_ratio: " + std::to_string(config->gearRatio));
+				LOG_CONFIG("Set gear_ratio: %f", value);
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Invalid gear ratio value: " + value, CONFIG_ERROR);
+				LOG_ERROR("Invalid gear ratio value: %f", value);
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -425,20 +425,20 @@ private:
 
 				if (directionString == "clockwise" || directionString == "cw") {
 					config->direction = true;
-					addLogEntry("Set direction: clockwise (true)");
+					LOG_CONFIG("Set direction: clockwise (true)");
 				}
 				else if (directionString == "counterclockwise" || directionString == "ccw") {
 					config->direction = false;
-					addLogEntry("Set direction: counterclockwise (false)");
+					LOG_CONFIG("Set direction: counterclockwise (false)");
 				}
 				else {
 					// Try to convert as number for backward compatibility
 					config->direction = std::stoi(directionString) != 0;
-					addLogEntry("Set direction: " + std::to_string(config->direction));
+					LOG_CONFIG("Set direction: %d", config->direction);
 				}
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Invalid direction value: " + value, CONFIG_ERROR);
+				LOG_ERROR("Invalid direction value: %s", value);
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -447,7 +447,7 @@ private:
 		case ConfigKey::PORTS:
 			try	{
 				std::vector<uint8_t> ports;
-				addLogEntry("Processing ports configuration: " + value);
+				LOG_CONFIG("Processing ports configuration: %s", value);
 
 				std::string processedValue = value;
 				processedValue.erase(std::remove(processedValue.begin(), processedValue.end(), ' '), processedValue.end());
@@ -474,7 +474,7 @@ private:
 						portValue = 0x03;
 						break;
 					default:
-						addLogEntry("Warning: unknown port character '" + std::string(1, character) + "'");
+						LOG_WARNING("Warning: unknown port character '%s'", character);
 						break;
 					}
 
@@ -488,18 +488,18 @@ private:
 
 					if (!isDuplicate) {
 						ports.push_back(portValue);
-						addLogEntry("Added port " + std::string(1, character));
+						LOG_CONFIG("Added port '%s'", character);
 					}
 					else {
-						addLogEntry("Duplicate port detected: " + std::string(1, character));
+						LOG_WARNING("Duplicate port detected: '%s'", character);
 					}
 				}				
 
 				config->ports = ports;
-				addLogEntry("Ports configuration completed. Total ports: " + std::to_string(config->ports.size()));
+				LOG_CONFIG("Ports configuration completed. Total ports: %d", config->ports.size());
 
 				if (config->ports.empty()) {
-					addLogEntry("WARNING: No valid ports configured!");
+					LOG_WARNING("WARNING: No valid ports configured!");
 				}
 				else {
 					std::string portsList = "Configured ports: ";
@@ -507,11 +507,11 @@ private:
 						portsList += std::to_string(port) + " ";
 					}
 
-					addLogEntry(portsList);
+					LOG_CONFIG("%s", portsList);
 				}
 			}
 			catch (const std::exception& ex)  {
-				addGCodeErrorInfo("Invalid ports configuration: " + value, CONFIG_ERROR);
+				LOG_ERROR("Invalid ports configuration: %s", value);
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -520,10 +520,10 @@ private:
 		case ConfigKey::MINIMUM_FEEDRATE:
 			try	{
 				config->minimumFeedrate = std::stod(parseValue(value));
-				addLogEntry("Set miminum_feedrate: " + value);
+				LOG_CONFIG("Set miminum_feedrate: %s", value);
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Invalid minimum feedrate value: " + value, CONFIG_ERROR);
+				LOG_ERROR("Invalid minimum feedrate value: %s", value);
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -532,17 +532,17 @@ private:
 		case ConfigKey::MAXIMUM_FEEDRATE:
 			try	{
 				config->maximumFeedrate = std::stod(parseValue(value));
-				addLogEntry("Set maximum_feedrate: " + value);
+				LOG_CONFIG("Set maximum_feedrate: %s", value);
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Invalid maximum feedrate value: " + value, CONFIG_ERROR);
+				LOG_ERROR("Invalid maximum feedrate value: %s", value);
 				lastError = ex.what();
 				status = ERROR;
 			}
 			break;
 
 		case ConfigKey::UNKNOWN:
-			addGCodeErrorInfo("Unknown configuration key", CONFIG_ERROR);
+			LOG_WARNING("Unknown configuration key");
 			break;
 		}
 	}
@@ -639,7 +639,7 @@ private:
 		std::vector<SpeedProfile> profiles;
 
 		if (config.ports.empty() || movementPoints.empty()) {
-			addLogEntry("Warning: no ports or movement ports for axis");
+			LOG_WARNING("Warning: no ports or movement ports for axis");
 			return profiles;
 		}
 
@@ -656,7 +656,7 @@ private:
 		stopPoint.tolerance = 0.0;
 
 		pointsWithStop.push_back(stopPoint);
-		addLogEntry("Added stop point at distance " + std::to_string(stopPoint.distance));
+		LOG_DEBUG("Added stop point at distance %f", stopPoint.distance);
 
 		if (config.ports.size() == 1) {
 			SpeedProfile profile;
@@ -668,7 +668,7 @@ private:
 			std::copy(pointsWithStop.begin(), pointsWithStop.end(), profile.points);
 
 			profiles.push_back(profile);
-			addLogEntry("Created single speed profile with stop for port " + std::to_string(profile.port));
+			LOG_DEBUG("Created single speed profile with stop for port %s", profile.port);
 		}
 		else {
 			for (uint8_t port : config.ports) {
@@ -681,10 +681,10 @@ private:
 				std::copy(pointsWithStop.begin(), pointsWithStop.end(), profile.points);
 
 				profiles.push_back(profile);
-				addLogEntry("Created speed profile with stop for port " + std::to_string(port));
+				LOG_DEBUG("Created speed profile with stop for port %s", port);
 			}
 
-			addLogEntry("Created " + std::to_string(profiles.size()) + " speed profiles with stop");
+			LOG_DEBUG("Created speed profiles with stop: %d", profiles.size());
 		}
 
 		return profiles;
@@ -730,7 +730,7 @@ private:
 
 		// Check for movement
 		if (abs(arc.endX - arc.startX) < 0.001 && abs(arc.endY - arc.startY) < 0.001) {
-			addLogEntry("Warning: No arc movement - start and end points are the same");
+			LOG_WARNING("Warning: No arc movement - start and end points are the same");
 			arc.radius = 0;
 			return arc;
 		}
@@ -742,14 +742,13 @@ private:
 			double chordLength = std::sqrt(dx * dx + dy * dy);
 
 			if (chordLength == 0) {
-				addGCodeErrorInfo("Chord length is zero", MOVEMENT_ERROR);
+				LOG_ERROR("Chord length is zero");
 				arc.radius = 0;
 				return arc;
 			}
 
 			if (chordLength > 2 * r) {
-				addGCodeErrorInfo("Radius too small. Radius: " +
-					std::to_string(r) + ", Chord: " + std::to_string(chordLength), MOVEMENT_ERROR);
+				LOG_ERROR("Radius too small. Radius: %f, Choord: %f", r, chordLength);
 				arc.radius = 0;
 				return arc;
 			}
@@ -783,7 +782,7 @@ private:
 			arc.radius = std::sqrt(i * i + j * j);
 
 			if (arc.radius < 0.001) {
-				addGCodeErrorInfo("Arc radius too small", MOVEMENT_ERROR);
+				LOG_ERROR("Arc radius too small");
 				return arc;
 			}
 		}
@@ -824,7 +823,7 @@ private:
 		// If feedrate is not specified, use the maximum of the X/Y axes
 		if (feedrate <= 0) {
 			feedrate = std::max(stepperX.maximumFeedrate, stepperY.maximumFeedrate);
-			addLogEntry("Warning: Using default feedrate: " + std::to_string(feedrate) + " mm/min");
+			LOG_WARNING("Warning: Using default feedrate: %f mm/min", feedrate);
 		}
 
 		// Determine which axis it is (X or Y)
@@ -861,7 +860,7 @@ private:
 			(config.rotationDistance * 60.0);
 
 		if (maxSpeedRevPerSec <= 0) {
-			addLogEntry("Error: maxSpeedRevPerSec is zero or negative");
+			LOG_ERROR("MaxSpeedRevolutionsPerSecond is zero or negative");
 			return points;
 		}
 
@@ -946,14 +945,10 @@ private:
 
 		// Debugging
 		if (isXAxis) {
-			addLogEntry("Generated " + std::to_string(points.size()) +
-				" points for X axis, total revolutions: " +
-				std::to_string(points.back().distance));
+			LOG_ARC("Generated %d points for X axis, total revolutions: %d", points.size(), points.back().distance);
 		}
 		else {
-			addLogEntry("Generated " + std::to_string(points.size()) +
-				" points for Y axis, total revolutions: " +
-				std::to_string(points.back().distance));
+			LOG_ARC("Generated %d points for Y axis, total revolutions: %d", points.size(), points.back().distance);
 		}
 
 		return points;
@@ -961,7 +956,7 @@ private:
 
 	bool validateArc(const ArcParameters& arc) {
 		if (arc.radius < 0.1) {
-			addGCodeErrorInfo("Invalid arc radius: " + std::to_string(arc.radius), MOVEMENT_ERROR);
+			LOG_ERROR("Invalid arc radius: %f", arc.radius);
 			return false;
 		}
 
@@ -972,10 +967,7 @@ private:
 		);
 
 		if (std::abs(distanceToEnd - arc.radius) > 0.1) {
-			addGCodeErrorInfo("End point is not on the arc circle. Radius: " +
-				std::to_string(arc.radius) +
-				", Distance to end: " + std::to_string(distanceToEnd),
-				MOVEMENT_ERROR);
+			LOG_ARC("End point is not on arc circle. Radius: %f, Distance to end: %f", arc.radius, distanceToEnd);
 			return false;
 		}
 
@@ -1056,7 +1048,7 @@ private:
 			stepperY, arc, feedrate);
 
 		if (pointsX.size() != pointsY.size() || pointsX.size() < 3) {
-			addGCodeErrorInfo("Failed to generate arc points with linear approximation", MOVEMENT_ERROR);
+			LOG_ERROR("Failed to generate arc points with linear approximation");
 			return;
 		}
 
@@ -1111,7 +1103,7 @@ private:
 			// Update the current position
 			currentX = arc.endX;
 			currentY = arc.endY;
-			addLogEntry("Arc movement completed with linear approximation");
+			LOG_ARC("Arc movement completed with linear approximation");
 		}
 	}
 
@@ -1122,7 +1114,7 @@ private:
 
 		for (uint8_t port : config.ports) {
 			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
-			addLogEntry("Stopped motor on port " + std::to_string(static_cast<int>(port)));
+			LOG_DEBUG("Stopped motor on port %s", port);
 		}
 	}
 
@@ -1135,30 +1127,27 @@ private:
 			if (points[i].speed != 0) {
 				totalTime += points[i].distance / (std::abs(points[i].speed) / 100.0);
 			}
-			addLogEntry(axisName + " Point " + std::to_string(i) +
-				": dist=" + std::to_string(points[i].distance) +
-				", speed=" + std::to_string(static_cast<int>(points[i].speed)));
+			LOG_ARC("%s Point %d: distance = %f, speed = %d", axisName, i, points[i].distance, speed);
 		}
 
-		addLogEntry(axisName + " Summary: total dist=" + std::to_string(totalDistance) +
-			", est time=" + std::to_string(totalTime) + "s");
+		LOG_ARC("%s Summary: total distance = %f, est time = %f seconds", axisName, totalDistance, totalTime);
 	}
 
 	void debugArcCalculation(const ArcParameters& arc, double feedrate) {
-		addLogEntry("=== DEBUG ARC CALCULATION ===");
-		addLogEntry("Start: (" + std::to_string(arc.startX) + ", " + std::to_string(arc.startY) + ")");
-		addLogEntry("End: (" + std::to_string(arc.endX) + ", " + std::to_string(arc.endY) + ")");
-		addLogEntry("Center: (" + std::to_string(arc.centerX) + ", " + std::to_string(arc.centerY) + ")");
-		addLogEntry("Radius: " + std::to_string(arc.radius));
-		addLogEntry("Start angle: " + std::to_string(arc.startAngle * 180.0 / PI) + " deg");
-		addLogEntry("End angle: " + std::to_string(arc.endAngle * 180.0 / PI) + " deg");
-		addLogEntry("Total angle: " + std::to_string((arc.endAngle - arc.startAngle) * 180.0 / PI) + " deg");
-		addLogEntry("Feedrate: " + std::to_string(feedrate) + " mm/min");
+		LOG_DEBUG("=== DEBUG ARC CALCULATION ===");
+		LOG_DEBUG("Start: (%f , %f)", arc.startX, arc.startY);
+		LOG_DEBUG("End: (%f, %f)", arc.endX, arc.endY);
+		LOG_DEBUG("Center (%f, %f)", arc.centerX, arc.centerY);
+		LOG_DEBUG("Radius: %f", arc.radius);
+		LOG_DEBUG("Start angle: %f degrees", arc.startAngle * 180.0 / PI);
+		LOG_DEBUG("End angle: %f degrees", arc.endAngle * 180.0 / PI);
+		LOG_DEBUG("Total angle: %f degress", (arc.endAngle - arc.startAngle) * 180.0 / PI);
+		LOG_DEBUG("Feedrate: %f mm/min", feedrate);
 
 		// Calculating the approximate speed
 		double arcLength = arc.radius * std::abs(arc.endAngle - arc.startAngle);
-		addLogEntry("Arc length: " + std::to_string(arcLength) + " mm");
-		addLogEntry("Estimated time: " + std::to_string(arcLength / (feedrate / 60.0)) + " sec");
+		LOG_DEBUG("Arc length: %f mm", arcLength);
+		LOG_DEBUG("Estimated time: %f seconds", arcLength / (feedrate / 60.0));
 	}
 
 
@@ -1211,7 +1200,7 @@ public:
 			if (executionThread->joinable()) executionThread->detach();
 		}
 
-		addLogEntry("Interpreter destroyed");
+		LOG_INFO("Interpreter destroyed");
 		gActiveInterpreters--;
 	}
 
@@ -1297,45 +1286,45 @@ public:
 	// Execute G-code from file
 	bool executeFile(const char* filename, IPrinter* printer) {
 		std::lock_guard<std::mutex> lock(mutex);
-		addLogEntry("=== ExecuteFile called ===");
-		addLogEntry("Current status: " + std::to_string(static_cast<int>(status)));
-		addLogEntry("Printer valid: " + std::string(printer && printer->vtable ? "YES" : "NO"));
+		LOG_EXECUTION("=== ExecuteFile called ===");
+		LOG_EXECUTION("Current status: %f", static_cast<int>(status));
+		LOG_EXECUTION("Printer valid: %f", std::string(printer && printer->vtable ? "YES" : "NO"));
 
 		if (!filename) {
-			addLogEntry("Filename: NULL");
+			LOG_ERROR("Filename: NULL");
 			return false;
 		}
 
 		if (strlen(filename) == 0) {
-			addLogEntry("Filename: EMPTY STRING");
+			LOG_ERROR("Filename: EMPTY STRING");
 			return false;
 		}
 
 		if (threadRunning) {
-			addGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
+			LOG_WARNING("Interpreter is already executing");
 			return false;
 		}
 
 		// Clean up previous thread
 		if (executionThread && executionThread->joinable()) executionThread->detach();
 
-		addLogEntry("Filename: " + std::string(filename));
-		addLogEntry("Filename length: " + std::to_string(strlen(filename)));
+		LOG_EXECUTION("Filename: %f", filename);
+		LOG_EXECUTION("Filename length: %f", strlen(filename));
 
 		if (status == RUNNING) {
-			addGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
+			LOG_WARNING("Interpreter ia already running");
 			return false;
 		}
 
 		if (!printer || !printer->vtable) {
-			addGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
+			LOG_ERROR("Invalid printer instance");
 			return false;
 		}
 
 		// Check if file exists
 		std::ifstream testFile(filename);
 		if (!testFile.is_open()) {
-			addGCodeErrorInfo("File does not exist or cannot be opened: " + std::string(filename), FILE_ERROR);
+			LOG_ERROR("File does not exist or cannot be opened: %f", filename);
 		}
 		testFile.close();
 
@@ -1353,19 +1342,19 @@ public:
 		absolutePositioning = true;
 		speed = 0.0;
 
-		addLogEntry("Starting execution thread...");
-		addLogEntry("Reset coordinates to X = 0; Y = 0; Z = 0");
+		LOG_EXECUTION("Starting execution thread...");
+		LOG_DEBUG("Reset coordinates to X = 0; Y = 0; Z = 0");
 
 		std::string filenameCopy = filename;
 		executionThread = std::make_unique<std::thread>([this, filenameCopy]() {
-				addLogEntry("Execution thread started");
-				addLogEntry("Thread filename: " + filenameCopy);
+				LOG_DEBUG("Execution thread started");
+				LOG_EXECUTION("Thread filename: %f", filenameCopy);
 				runFile(filenameCopy);
-				addLogEntry("Execution thread finished");
+				LOG_EXECUTION("Execution thread finished");
 				threadRunning = false;
 			});
 
-		addLogEntry("Execution started: " + std::string(filename));
+		LOG_DEBUG("Execution started: %f", filename);
 		return true;
 	}
 
@@ -1374,10 +1363,10 @@ public:
 		if (status == RUNNING) {
 			pauseRequested = true;
 			status = PAUSED;
-			addLogEntry("Execution paused");
+			LOG_INFO("Execution paused");
 		}
 		else {
-			addLogEntry("Pause request ignored - interpreter not running");
+			LOG_WARNING("Pause request ignored - interpreter not running");
 		}
 	}
 
@@ -1385,24 +1374,24 @@ public:
 		if (status == PAUSED) {
 			pauseRequested = false;
 			status = RUNNING;
-			addLogEntry("Execution resumed");
+			LOG_INFO("Execution resumed");
 		}
 		else {
-			addLogEntry("Resume request ignored - interpreter not paused");
+			LOG_WARNING("Resume request ignored - interpreter not paused");
 		}
 	}
 
 	void stop()	{ // Stop execution
-		addLogEntry("Stop requested");
+		LOG_DEBUG("Stop requested");
 		stopRequested = true;
 		if (status == RUNNING || status == PAUSED || status == CHECKING_CODE) {
 			status = IDLE;
-			addLogEntry("Execution stopped by user request");
+			LOG_INFO("Execution stopped by user request");
 		}
 
 		if (executionThread->joinable()) {
 			executionThread->join();
-			addLogEntry("Execution thread joined");
+			LOG_INFO("Execution thread joined");
 		}
 	}
 
@@ -1419,10 +1408,10 @@ public:
 
 	bool testFunction(IPrinter* printer) {
 		currentPrinter = printer;
-		addLogEntry("Test function started");
+		LOG_DEBUG("Test function started");
 
 		if (!currentPrinter || !currentPrinter->vtable)	{
-			addGCodeErrorInfo("Printer is not available for test", PRINTER_ERROR);
+			LOG_ERROR("Printer is not available for test");
 			return false;
 		}
 
@@ -1443,17 +1432,17 @@ public:
 		currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, profile1.data());
 		currentPrinter->vtable->printer_printer_execute_speed_profile(currentPrinter, profile2.data());
 
-		addLogEntry("Multi profile test completed");
+		LOG_DEBUG("Multi profile test completed");
 		return true;
 	}
 
 	bool readConfigFile(const std::string& filename) {
-		addLogEntry("Reading interpreter config from: " + filename);
+		LOG_CONFIG("Reading interpreter config from: %f", filename);
 
 		try	{
 			std::ifstream file(filename);
 			if (!file.is_open()) {
-				addGCodeErrorInfo("Cannot open file: " + filename, FILE_ERROR);
+				LOG_ERROR("Cannot open file: %s", filename);
 				return false;
 			}
 
@@ -1465,7 +1454,7 @@ public:
 			while (std::getline(file, line)) {
 				lineNumber++;
 				if (stopRequested) {
-					addLogEntry("Config reading interrupted by stop request");
+					LOG_INFO("Config reading interrupted by stop request");
 					break;
 				}
 
@@ -1489,11 +1478,11 @@ public:
 
 					if (currentSection != Section::UNKNOWN) {
 						processedSections++;
-						addLogEntry("Found interpreter section: " + sectionName);
+						LOG_CONFIG("Found interpreter section: %s", sectionName);
 					}
 					else {
 						// Ignore non-interpreter sections
-						addLogEntry("Ignoring non-interpreter section: " + sectionName);
+						LOG_CONFIG("Ignoring non-interpreter section: %s", sectionName);
 					}
 					continue;
 				}
@@ -1504,7 +1493,7 @@ public:
 				// Process key=value pairs
 				size_t delimiterPosition = line.find('=');
 				if (delimiterPosition == std::string::npos)	{
-					addLogEntry("Invalid config line in interpreter section: " + line);
+					LOG_CONFIG("Invalid config line in interpreter section: %s", line);
 					continue;
 				}
 				else {
@@ -1519,14 +1508,14 @@ public:
 
 					ConfigKey configKey = stringToKey(key);
 					if (configKey == ConfigKey::UNKNOWN) {
-						addLogEntry("Unknown interpreter config key: " + key);
+						LOG_WARNING("Unknown interpreter config key: %s", key);
 					}
 					else {
 						setConfigValue(currentSection, configKey, value);
 
 						// Check status after setting value
 						if (status == ERROR) {
-							addLogEntry("Error setting config value for key: " + key);
+							LOG_ERROR("Error setting config value for key: %s", key);
 							file.close();
 							return false;
 						}
@@ -1538,47 +1527,46 @@ public:
 
 			// Validate required settings
 			if (!validateConfig()) {
-				addGCodeErrorInfo("Configuration validation failed", CONFIG_ERROR);
+				LOG_ERROR("Configuration validation failed");
 			}
 
 			if (status != ERROR) {
-				addLogEntry("Interpreter config loaded - processed " +
-				std::to_string(processedSections) + " sections");
+				LOG_CONFIG("Interpreter config loaded - processed %d sections", processedSections);
 				return true;
 			}
 
 			return false;
 		}
 		catch (const std::exception& ex) {
-			addLogEntry("Error with read: " + filename + " config file: " + ex.what());
+			LOG_ERROR("Error with read: %s config file: %s", filename, ex.what());
 			lastError = ex.what();
 			status = ERROR;
 		}
 	}	
 
 	bool executeLine(const std::string& line, IPrinter* printer) {
-		addLogEntry("ExecuteLine started: " + line);
+		LOG_EXECUTION("ExecuteLine started: %s", line);
 
 		if (status == RUNNING) {
-			addGCodeErrorInfo("Interpreter ia already running", PRINTER_ERROR);
+			LOG_ERROR("Interpreter is already running");
 			return false;
 		}
 
 		if (!printer || !printer->vtable) {
-			addGCodeErrorInfo("Invalid printer instance", PRINTER_ERROR);
+			LOG_ERROR("Invalid printer instance");
 			return false;
 		}
 		
 		currentPrinter = printer;
 
 		if (!currentPrinter || !currentPrinter->vtable) {
-			addGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
+			LOG_ERROR("Printer is not available for execution");
 			status = ERROR;
 			return false;
 		}
 
 		if (threadRunning) {
-			addGCodeErrorInfo("Interpreter is already executing", PRINTER_ERROR);
+			LOG_ERROR("Interpreter is already executing");
 			return false;
 		}
 
@@ -1592,7 +1580,7 @@ public:
 			processLine(line, 1, true);
 
 			if (status == ERROR) {
-				addLogEntry("Execution aborted due to errors");
+				LOG_INFO("Execution aborted due to errors");
 				threadRunning = false;
 				return false;
 			}
@@ -1602,24 +1590,24 @@ public:
 			processLine(line, 1, false);
 
 			if (!stopRequested)	{
-				addLogEntry("Execution completed successfully");
+				LOG_EXECUTION("Execution completed successfully");
 				status = COMPLETED;
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				status = IDLE;
 			}
 			else {
-				addLogEntry("Execution stopped by user");
+				LOG_EXECUTION("Execution stopped by user");
 				status = IDLE;
 			}
 		}
 		catch (const std::exception& ex) {
-			addGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			LOG_ERROR("Runtime error: %s", ex.what());
 			lastError = ex.what();
 			status = ERROR;
 		}
 
 		threadRunning = false;
-		addLogEntry("Line executed successfully!");
+		LOG_EXECUTION("Line executed successfully!");
 		return true;
 	}
 
@@ -1627,43 +1615,43 @@ private:
 
 	bool validateConfig() { // Validate configuration
 		if (stepperX.ports.empty())	{
-			addGCodeErrorInfo("Stepper X has no ports configured", CONFIG_ERROR);
+			LOG_ERROR("Stepper X has no ports configured");
 			return false;
 		}
 		if (stepperX.rotationDistance <= 0) {
-			addGCodeErrorInfo("Stepper X rotation distance not set", CONFIG_ERROR);
+			LOG_ERROR("Stepper X rotation distance not set");
 			return false;
 		}
 
 		if (stepperY.ports.empty()) {
-			addGCodeErrorInfo("Stepper Y has no ports configured", CONFIG_ERROR);
+			LOG_ERROR("Stepper Y has no ports configured");
 			return false;
 		}
 		if (stepperY.rotationDistance <= 0) {
-			addGCodeErrorInfo("Stepper Y rotation distance not set", CONFIG_ERROR);
+			LOG_ERROR("Stepper Y rotation distance not set");
 			return false;
 		}
 
 		if (stepperZ.ports.empty()) {
-			addGCodeErrorInfo("Stepper Z has no ports configured", CONFIG_ERROR);
+			LOG_ERROR("Stepper Z has no ports configured");
 			return false;
 		}
 		if (stepperZ.rotationDistance <= 0) {
-			addGCodeErrorInfo("Stepper Z rotation distance not set", CONFIG_ERROR);
+			LOG_ERROR("Stepper Z rotation distance not set");
 			return false;
 		}
 
 		// Validate speed ranges
 		if (stepperX.minimumFeedrate >= stepperX.maximumFeedrate) {
-			addGCodeErrorInfo("Stepper X feedrate range invalid", CONFIG_ERROR);
+			LOG_ERROR("Stepper X feedrate range invalid");
 			return false;
 		}
 		if (stepperY.minimumFeedrate >= stepperY.maximumFeedrate) {
-			addGCodeErrorInfo("Stepper Y feedrate range invalid", CONFIG_ERROR);
+			LOG_ERROR("Stepper Y feedrate range invalid");
 			return false;
 		}
 		if (stepperZ.minimumFeedrate >= stepperZ.maximumFeedrate) {
-			addGCodeErrorInfo("Stepper Z feedrate range invalid", CONFIG_ERROR);
+			LOG_ERROR("Stepper Z feedrate range invalid");
 			return false;
 		}
 
@@ -1676,22 +1664,22 @@ private:
 			runFileInternal(filename);
 		}
 		catch (const std::exception& ex) {
-			addLogEntry("CRITICAL ERROR in RunFile: " + std::string(ex.what()));
+			LOG_ERROR("CRITICAL ERROR in RunFile: %s", ex.what());
 			status = ERROR;
 			threadRunning = false;
 		}
 		catch (...)	{
-			addLogEntry("CRITICAL ERROR: Unknown exception in RunFile");
+			LOG_ERROR("CRITICAL ERROR: Unknown exception in RunFile");
 			status = ERROR;
 			threadRunning = false;
 		}
 	}
 
 	void runFileInternal(const std::string& filename) {
-		addLogEntry("Runfile started: " + filename);
+		LOG_INFO("run file started: %s", filename);
 
 		if (!currentPrinter || !currentPrinter->vtable)	{
-			addGCodeErrorInfo("Printer is not available for execution", PRINTER_ERROR);
+			LOG_ERROR("Printer is not available for execution");
 			status = ERROR;
 			return;
 		}
@@ -1701,7 +1689,7 @@ private:
 			status = CHECKING_CODE;
 			std::ifstream file(filename);
 			if (!file.is_open()) {
-				addGCodeErrorInfo("Cannot open file: " + filename, FILE_ERROR);
+				LOG_ERROR("Cannot open file: %s", filename);
 				lastError = "Cannot open file: " + filename;
 				status = ERROR;
 				threadRunning = false;
@@ -1735,7 +1723,7 @@ private:
 			file.close();
 
 			if (hasErrors) {
-				addLogEntry("Execution aborted due to errors");
+				LOG_INFO("Execution aborted due to errors");
 				status = ERROR;
 				threadRunning = false;
 				return;
@@ -1745,7 +1733,7 @@ private:
 			status = RUNNING;
 			std::ifstream file2(filename);
 			if (!file2.is_open()) {
-				addGCodeErrorInfo("Cannot open file: " + filename, FILE_ERROR);
+				LOG_ERROR("Cannot open file: %s", filename);
 				lastError = "Cannot open file: " + filename;
 				status = ERROR;
 				threadRunning = false;
@@ -1782,18 +1770,18 @@ private:
 			file2.close();
 
 			if (!stopRequested) {
-				addLogEntry("Execution completed successfully");
+				LOG_INFO("Execution completed successfully");
 				status = COMPLETED;
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 				status = IDLE;
 			}
 			else {
-				addLogEntry("Execution stopped by user");
+				LOG_INFO("Execution stopped by user");
 				status = IDLE;
 			}
 		}
 		catch (const std::exception& ex) {
-			addGCodeErrorInfo("Runtime error: " + std::string(ex.what()), MOVEMENT_ERROR);
+			LOG_ERROR("Runtime error: %s", ex.what());
 			lastError = ex.what();
 			status = ERROR;
 		}		
@@ -1821,13 +1809,13 @@ private:
 		commandStream >> command;
 
 		if (command.empty()) {
-			addLogEntry("Empty command in line: " + line);
+			LOG_EXECUTION("Empty command in line: %s", line);
 			return;
 		}
 
 		if (isTryingInterpret) {
 			try {
-				addLogEntry("Syntax checking line: " + std::to_string(linesCount) + " : " + cleanLine);
+				LOG_EXECUTION("Syntax checking line: %d : %s", linesCount, cleanLine);
 				if (command[0] == 'G' || command[0] == 'g') {
 					int gCode = std::stoi(command.substr(1));
 
@@ -1848,8 +1836,7 @@ private:
 					case 91:
 						break;
 					default:
-						addGCodeErrorInfo("Unknown G-code: " + std::to_string(gCode) +
-							" at line " + std::to_string(linesCount), VALUE_NOT_DEFINED);
+						LOG_ERROR("Unknown G-code: %s at line %d", gCode, linesCount);
 						break;
 					}
 				}
@@ -1859,8 +1846,7 @@ private:
 					case 30:
 						break;
 					default:
-						addGCodeErrorInfo("Unknown M-code: " + std::to_string(mCode) +
-							" at line " + std::to_string(linesCount));
+						LOG_ERROR("Unknown M-code: %s at line %d", mCode, linesCount);
 						break;
 					}
 				}
@@ -1868,26 +1854,24 @@ private:
 					try {
 						double newSpeed = std::stoi(command.substr(1));
 						if (newSpeed < 0) {
-							addGCodeErrorInfo("Negative feedrate not allowed: " + command, VALUE_NOT_DEFINED);
+							LOG_ERROR("Negative feedrate not allowed: %s", command);
 						}
 					}
 					catch (const std::exception& ex) {
-						addGCodeErrorInfo("Invalid feedrate value: " + command, VALUE_NOT_DEFINED);
+						LOG_ERROR("Invalid feedrate value: %s", command);
 					}
 				}
 				else {
-					addGCodeErrorInfo("Unknown processing command '" + command + "' " +
-						" at line " + std::to_string(linesCount));
+					LOG_ERROR("Unknown processing command '%s' at line %d", command, linesCount);
 				}
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Exception in processLine: " + std::string(ex.what()) + " at line " +
-				std::to_string(linesCount), SYNTAX_ERROR);
+				LOG_ERROR("Execution in processLine: %s at line %d", ex.what(), linesCount);
 			}
 		}
 		else {
 			try {
-				addLogEntry("Executing line " + std::to_string(linesCount) + " : " + cleanLine);
+				LOG_EXECUTION("Executing line %d : %s", linesCount, cleanLine);
 				if (command[0] == 'G' || command[0] == 'g') {
 					int gCode = std::stoi(command.substr(1));
 
@@ -1933,8 +1917,7 @@ private:
 				}
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Exception during execution: " + std::string(ex.what()) + " at line " +
-				std::to_string(linesCount), MOVEMENT_ERROR);
+				LOG_ERROR("Exception during execution: %s at line %d", ex.what(), linesCount);
 			}
 		}
 	}
@@ -1958,32 +1941,32 @@ private:
 					case 'J': hasJ = true; break;
 					case 'R': hasR = true; break;
 					default:
-						addGCodeErrorInfo("Invalid axis: " + std::string(1, axis), SYNTAX_ERROR);
+						LOG_ERROR("Invalid axis: %s", axis);
 						return;
 					}
 				}
 				catch (...) {
-					addGCodeErrorInfo("Invalid number format: " + token, SYNTAX_ERROR);
+					LOG_ERROR("Invalid number format: %s", token);
 					return;
 				}
 			}
 
 			// Minimum requirements: X,Y and (R or I,J)
 			if (!hasX || !hasY) {
-				addGCodeErrorInfo("Arc requires X and Y coordinates", SYNTAX_ERROR);
+				LOG_ERROR("Arc requires X and Y coordinates");
 				return;
 			}
 
 			if (!hasR && (!hasI || !hasJ)) {
-				addGCodeErrorInfo("Arc requires either R or I,J parameters", SYNTAX_ERROR);
+				LOG_ERROR("Arc requires either R or I,J parameters");
 				return;
 			}
 
-			addLogEntry("Arc syntax OK");
+			LOG_ARC("Arc syntax OK");
 		}
 		else {
 			// Execution
-			addLogEntry("Executing " + std::string(clockwise ? "G2" : "G3"));
+			LOG_EXECUTION("Executing %s", std::string(clockwise ? "G2" : "G3"));
 
 			std::string token;
 			double x = 0, y = 0, i = 0, j = 0, r = -1;
@@ -2007,7 +1990,7 @@ private:
 
 			// If R is not specified, use I,J
 			if (!hasR && (i == 0 && j == 0)) {
-				addGCodeErrorInfo("Arc radius not specified", MOVEMENT_ERROR);
+				LOG_ERROR("Arc radius not specified");
 				return;
 			}
 
@@ -2015,14 +1998,14 @@ private:
 				ArcParameters arc = calculateArcParameters(x, y, i, j, r, clockwise);
 
 				if (arc.radius <= 0) {
-					addGCodeErrorInfo("Invalid arc parameters", MOVEMENT_ERROR);
+					LOG_ERROR("Invalid arc parameters");
 					return;
 				}
 
 				executeArcMovement(arc, speed);
 			}
 			catch (const std::exception& ex) {
-				addGCodeErrorInfo("Arc error: " + std::string(ex.what()), MOVEMENT_ERROR);
+				LOG_ERROR("Arc error: %s", ex.what());
 			}
 		}
 	}
@@ -2034,16 +2017,16 @@ private:
 
 		if (isTryingInterpret) {
 			if (!currentPrinter || !currentPrinter->vtable) {
-				addGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
+				LOG_ERROR("Printer is not available for movement");
 				return;
 			}
 
 			if (stepperX.ports.empty() || stepperY.ports.empty() || stepperZ.ports.empty())	{
-				addGCodeErrorInfo("Motor ports are not configured", CONFIG_ERROR);
+				LOG_ERROR("Motor ports are not configured");
 				return;
 			}
 
-			addLogEntry("Checking movement command syntax");
+			LOG_EXECUTION("Checking movement command syntax");
 			while (string >> token)	{
 				axis = token[0];
 				value = std::stof(token.substr(1));
@@ -2057,14 +2040,13 @@ private:
 				case 'z':
 					break;
 				default:
-					addGCodeErrorInfo("Unknown axis: " + std::string(1, axis) + 
-					" at line " + std::to_string(lineCount));
+					LOG_ERROR("unknown axis: %s at line %d", axis, lineCount);
 					break;
 				}
 			}
 		}
 		else {
-			addLogEntry("Execute movement command");
+			LOG_EXECUTION("Execute movement command");
 
 			// Initialize target coordinates
 			double targetX = absolutePositioning ? currentX : 0.0;
@@ -2101,8 +2083,7 @@ private:
 			double yMovement = targetY - currentY;
 			double zMovement = targetZ - currentZ;
 
-			addLogEntry("Execute movement command - X:" + std::to_string(xMovement) +
-			 " Y: " + std::to_string(yMovement) + " Z:" + std::to_string(zMovement));
+			LOG_EXECUTION("Execute movement command - X: %f Y: %f Z: %f", xMovement, yMovement, zMovement);
 
 			// Process X and Y axis movement
 			if (std::abs(xMovement) > 0 || std::abs(yMovement) > 0)	{
@@ -2193,9 +2174,7 @@ private:
 
 						xyCommands.push_back(command);
 
-						addLogEntry("X axis - Port: " + std::to_string(port) +
-							" Speed: " + std::to_string(calculatedSpeed) +
-							" Revolutions: " + std::to_string(revolutionsX));
+						LOG_EXECUTION("X axis - Port: %s, Speed: %s, Revolutions: %f", port, calculatedSpeed, revolutionsX);
 					}
 				}
 
@@ -2229,9 +2208,7 @@ private:
 
 						xyCommands.push_back(command);
 
-						addLogEntry("Y axis - Port: " + std::to_string(port) +
-						" Speed: " + std::to_string(calculatedSpeed) +
-						" Revolutions " + std::to_string(revolutionsY));
+						LOG_EXECUTION("Y axis - Port: %s Speed: %s Revolutions: %f", port, calculatedSpeed, revolutionsY);
 					}
 				}
 
@@ -2242,7 +2219,7 @@ private:
 					currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, xyCommands.size());
 					delete[] finalCommands;
 
-					addLogEntry("XY movement synchronized. Max time: " + std::to_string(maxTime));
+					LOG_EXECUTION("XY movement synchronized. Max time: ", maxTime);
 				}
 			}
 
@@ -2283,20 +2260,18 @@ private:
 			currentY = targetY;
 			currentZ = targetZ;
 
-			addLogEntry("Movement completed. New position: X=" + std::to_string(currentX) +
-			" Y=" + std::to_string(currentY) + " Z=" + std::to_string(currentZ));
+			LOG_EXECUTION("Movement completed. New position: X = %f Y = %f Z = %f", currentX, currentY, currentZ);
 		}
 	}
 
 	void processHoming() {
-		addLogEntry("Homing command started");
+		LOG_EXECUTION("Homing command started");
 
 		double xMovement = -currentX;
 		double yMovement = -currentY;
 		double zMovement = -currentZ;
 
-		addLogEntry("Execute movement command - X:" + std::to_string(xMovement) +
-			" Y: " + std::to_string(yMovement) + " Z:" + std::to_string(zMovement));
+		LOG_EXECUTION("Execution movement command - X: %f, Y: %f, Z: %f", xMovement, yMovement, zMovement);
 
 		// Process X and Y axis movement
 		if (std::abs(xMovement) > 0 || std::abs(yMovement) > 0)	{
@@ -2388,9 +2363,7 @@ private:
 
 					xyCommands.push_back(command);
 
-					addLogEntry("X axis - Port: " + std::to_string(port) +
-						" Speed: " + std::to_string(calculatedSpeed) +
-						" Revolutions: " + std::to_string(revolutionsX));
+					LOG_EXECUTION("X axis - Port: %s Speed: %s Revolutions: %f", port, calculatedSpeed, revolutionsX);
 				}
 			}
 
@@ -2424,9 +2397,7 @@ private:
 
 					xyCommands.push_back(command);
 
-					addLogEntry("Y axis - Port: " + std::to_string(port) +
-						" Speed: " + std::to_string(calculatedSpeed) +
-						" Revolutions " + std::to_string(revolutionsY));
+					LOG_EXECUTION("Y axis - Port: %s Speed: %s Revolutions: %f", port, calculatedSpeed, revolutionsY);
 				}
 			}
 
@@ -2437,7 +2408,7 @@ private:
 				currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, xyCommands.size());
 				delete[] finalCommands;
 
-				addLogEntry("XY movement synchronized. Max time: " + std::to_string(maxTime));
+				LOG_EXECUTION("XY movement synchronized. Max time: %f", maxTime);
 			}
 		}
 
@@ -2478,20 +2449,19 @@ private:
 		currentY = 0;
 		currentZ = 0;
 
-		addLogEntry("Movement completed. New position: X=" + std::to_string(currentX) +
-			" Y=" + std::to_string(currentY) + " Z=" + std::to_string(currentZ));
+		LOG_EXECUTION("Movement completed. New position: X = %f Y = %f Z = %f", currentX, currentY, currentZ);
 
-		addLogEntry("Homing completed");
+		LOG_EXECUTION("Homing completed");
 	}
 
 	void stopAllMotors() {
 		if (!currentPrinter || !currentPrinter->vtable) {
-			addGCodeErrorInfo("Printer is not available for movement", PRINTER_ERROR);
+			LOG_ERROR("Printer is not available for movement");
 			return;
 		}
 
 		if (stepperX.ports.empty() || stepperY.ports.empty() || stepperZ.ports.empty()) {
-			addGCodeErrorInfo("Motor ports are not configured", CONFIG_ERROR);
+			LOG_ERROR("Motor ports are not configured");
 			return;
 		}
 
@@ -2505,7 +2475,7 @@ private:
 			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
 		}
 
-		addLogEntry("All motors have already stopped");
+		LOG_INFO("All motors have already stopped");
 	}
 };
 
