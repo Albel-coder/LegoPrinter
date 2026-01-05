@@ -9,46 +9,47 @@
 
 struct FontConfig
 {
-    std::string Name;
+    std::string name;
     int size = 20;
-    bool IsCustom = false;
-    std::string Path; // For custom fonts
+    bool isCustom = false;
+    std::string path; // For custom fonts
 
-    FontConfig() : size(20), IsCustom(false) {}
+    FontConfig() : size(20), isCustom(false) {}
     FontConfig(const std::string& name, int s, bool custom, const std::string& path)
-        : Name(name), size(s), IsCustom(custom), Path(path) { }
+        : name(name), size(s), isCustom(custom), path(path) { }
 };
 
 class FontManager
 {
 private:
-    std::map<std::string, FontConfig> BuiltinFonts;
-    std::map<std::string, FontConfig> CustomFonts;
-    std::map<char, std::string> CharToPng;
-    std::map<std::string, std::map<char, cv::Mat>> FontCache;
+    std::map<std::string, FontConfig> builtinFonts;
+    std::map<std::string, FontConfig> customFonts;
+    std::map<char, std::string> charToPng;
+    std::map<std::string, std::map<char, cv::Mat>> fontCache;
 
     // Normalization Options
-    int NormalizedWidth = 100;
-    int NormalizedHeight = 100;
-    cv::Scalar BackgroundColor = cv::Scalar(255, 255, 255);
+    int normalizedWidth = 100;
+    int normalizedHeight = 100;
+    cv::Scalar backgroundColor = cv::Scalar(255, 255, 255);
 
     // Methods for normalization
-    cv::Mat NormalizeCharacterImage(const cv::Mat& InputImage);
-    cv::Mat FitCharacterToSize(const cv::Mat& CharacterImage, int TargetWidth, int TargetHeight);
-    bool CreateNormalizedFont(const std::string& SourceFontFolder, const std::string& TargetFontFolder);
+    cv::Mat normalizeCharacterImage(const cv::Mat& inputImage);
+    cv::Mat fitCharacterToSize(const cv::Mat& characterImage, int targetWidth, int targetHeight);
+    bool createNormalizedFont(const std::string& sourceFontFolder, const std::string& targetFontFolder);
 
 public:
     FontManager();
-    void InitializeBuiltinFonts();
-    void LoadCustomFont(const std::string& FontFolder);
-    cv::Mat RenderText(const std::string& Text, const std::string FontName);
+
+    void initializeBuiltinFonts();
+    void loadCustomFont(const std::string& fontFolder);
+    cv::Mat renderText(const std::string& text, const std::string fontName);
 
     // Methods for working with normalized fonts and underscores
-    bool LoadAndCreateNormalizedFont(const std::string& FontName, const std::string& SourcePath);
-    void SetNormalizedSize(int Width, int Height);
+    bool loadAndCreateNormalizedFont(const std::string& fontName, const std::string& sourcePath);
+    void setNormalizedSize(int width, int height);
 
 private:
-    cv::Mat RenderWithCustomFont(const std::string& Text, const std::string FontName);
-    cv::Mat LoadCharacterImage(char Character, const std::string& FontName);
-    cv::Mat RenderWithBuiltinFont(const std::string& Text, const std::string FontName);
+    cv::Mat renderWithCustomFont(const std::string& text, const std::string fontName);
+    cv::Mat loadCharacterImage(char character, const std::string& fontName);
+    cv::Mat renderWithBuiltinFont(const std::string& text, const std::string fontName);
 };
