@@ -6,20 +6,20 @@
 #include <fstream>
 #include <sstream>
 
-bool GenerateTestGcode(const std::string& Filename);
+bool generateTestGcode(const std::string& filename);
 
 class SimpleGcodeGenerator
 {
 public:
-	bool GenerateCode(const std::string& ContourFilename, const std::string& OutputFilename);
-	void SetPrintingParameters(double TravelSpeed, double PrintSpeed, double ZHopHeight);
+	bool generateCode(const std::string& contourFilename, const std::string& outputFilename);
+	void setPrintingParameters(double travelSpeed, double printSpeed, double zHopHeight);
 
 private:
-	double TravelSpeed = 40.0;
-	double PrintSpeed = 20.0;
-	double ZHopHeight = 5.0;
+	double travelSpeed = 40.0;
+	double printSpeed = 20.0;
+	double zHopHeight = 5.0;
 
-	std::string GenerateGcodeForContour(const std::vector<cv::Point>& Contour, bool IsOther);
-	double CalculateDistance(const cv::Point& FirstPoint, const cv::Point& SecondPoint);
-	cv::Point FindNearestPoint(const cv::Point& Reference, const std::vector<cv::Point>& Points);
+	std::string generateGcodeForContour(const std::vector<cv::Point>& contour, bool isOther);
+	double calculateDistance(const cv::Point& firstPoint, const cv::Point& secondPoint);
+	cv::Point findNearestPoint(const cv::Point& reference, const std::vector<cv::Point>& points);
 };

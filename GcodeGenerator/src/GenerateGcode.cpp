@@ -1,192 +1,164 @@
 #include "GenerateGcode.h"
 
-bool GenerateTestGcode(const std::string& Filename)
-{
-	std::ifstream Input(Filename);
-	if (Input.is_open())
-	{
-		std::ofstream Output("G-code.txt");
-		if (Output.is_open())
-		{
-			Output << "; Generated test G-code\n";
-			Output << "F40\n";
-			Output << "G91\n";
-			std::string Line;
-			double X = 0.0;
-			double Y = 0.0;
+bool generateTestGcode(const std::string& filename) {
+	std::ifstream input(filename);
 
-			while (std::getline(Input, Line))
-			{
-				if (Line.find("CONTOUR") != std::string::npos)
-				{
+	if (input.is_open()) {
+		std::ofstream output("G-code.txt");
+		if (output.is_open()) {
+			output << "; Generated test G-code\n";
+			output << "F40\n";
+			output << "G91\n";
+			std::string line;
+			double x = 0.0;
+			double y = 0.0;
+
+			while (std::getline(input, line)) {
+				if (line.find("CONTOUR") != std::string::npos) {
 					continue;
 				}
-				else
-				{
-					std::istringstream String(Line);
-					String >> X >> Y;
+				else {
+					std::istringstream String(line);
+					String >> x >> y;
 
-					Output << "G0 X" << X / 2 << " Y" << Y / 2 << " Z-10\n";
+					output << "G0 X" << x / 2 << " Y" << y / 2 << " Z-10\n";
 				}
 			}
 
-			Output << "G0 X0 Y0 Z0\n";
+			output << "G0 X0 Y0 Z0\n";
 
-			Output.close();
+			output.close();
 		}
-		else
-		{
-			std::cout << "Error with generate result g-code file";
-			Output.close();
+		else {
+			//std::cout << "Error with generate result g-code file";
+			output.close();
 			return false;
 		}
 
-		Input.close();
+		input.close();
 	}
-	else
-	{
-		std::cout << "Error with open file: " << Filename;
-		Input.close();
+	else {
+		//std::cout << "Error with open file: " << filename;
+		input.close();
 		return false;
 	}		
 
 	return true;
 }
 
-bool SimpleGcodeGenerator::GenerateCode(const std::string& ContourFilename, const std::string& OutputFilename)
-{
-    std::ifstream Input(ContourFilename);
-    std::ofstream Output(OutputFilename);
+bool SimpleGcodeGenerator::generateCode(const std::string& contourFilename, const std::string& outputFilename) {
+    std::ifstream input(contourFilename);
+    std::ofstream output(outputFilename);
 
-    if (!Input.is_open() || !Output.is_open()) 
-    {
-        std::cout << "Error opening files\n";
+    if (!input.is_open() || !output.is_open()) {
+        //std::cout << "Error opening files\n";
         return false;
     }
-    else
-    {
-        Output << "; G-code for LEGO printer\n";
-        Output << "G21 ; Millimeter units\n";
-        Output << "G90 ; Absolute positioning\n";
-        Output << "G28 ; Home all axes\n\n";
+    else {
+        output << "; G-code for LEGO printer\n";
+        output << "G21 ; Millimeter units\n";
+        output << "G90 ; Absolute positioning\n";
+        output << "G28 ; Home all axes\n\n";
 
-        std::string Line;
-        std::vector<cv::Point> CurrentContour;
-        std::string ContourType = "OUTER";
-        bool FirstContour = true;
-        cv::Point LastPosition(0, 0);
+        std::string line;
+        std::vector<cv::Point> currentContour;
+        std::string contourType = "OUTER";
+        bool firstContour = true;
+        cv::Point lastPosition(0, 0);
 
-        while (std::getline(Input, Line)) 
-        {
-            if (Line.empty())
-            {
-                continue;
-            }
+        while (std::getline(input, line)) {
+            if (line.empty()) continue;
 
-            if (Line.find("OUTER_CONTOUR") != std::string::npos ||
-                Line.find("INNER_CONTOUR") != std::string::npos) 
-            {
+            if (line.find("OUTER_CONTOUR") != std::string::npos || line.find("INNER_CONTOUR") != std::string::npos) {
 
                 // We process the previous contour
-                if (!CurrentContour.empty()) 
-                {
-                    if (!FirstContour) 
-                    {
+                if (!currentContour.empty()) {
+                    if (!firstContour) {
                         // Raise the nozzle to move
-                        Output << "G0 Z" << ZHopHeight << " F" << TravelSpeed << "\n";
+                        output << "G0 Z" << zHopHeight << " F" << travelSpeed << "\n";
                     }
 
                     // We move to the beginning of the contour
-                    cv::Point start_point = CurrentContour[0];
-                    Output << "G0 X" << start_point.x / 10.0 << " Y" << start_point.y / 10.0
-                        << " F" << TravelSpeed << "\n";
+                    cv::Point start_point = currentContour[0];
+                    output << "G0 X" << start_point.x / 10.0 << " Y" << start_point.y / 10.0
+                        << " F" << travelSpeed << "\n";
 
                     // Lower the nozzle and print the outline.
-                    Output << "G1 Z0 F" << PrintSpeed << "\n";
-                    Output << GenerateGcodeForContour(CurrentContour, ContourType == "OUTER");
+                    output << "G1 Z0 F" << printSpeed << "\n";
+                    output << generateGcodeForContour(currentContour, contourType == "OUTER");
 
-                    LastPosition = CurrentContour.back();
-                    FirstContour = false;
+                    lastPosition = currentContour.back();
+                    firstContour = false;
                 }
 
                 // Starting a new circuit
-                CurrentContour.clear();
-                ContourType = (Line.find("OUTER") != std::string::npos) ? "OUTER" : "INNER";
+                currentContour.clear();
+                contourType = (line.find("OUTER") != std::string::npos) ? "OUTER" : "INNER";
             }
-            else 
-            {
+            else {
                 // Reading the coordinates of a point
-                std::istringstream iss(Line);
+                std::istringstream iss(line);
                 double X, Y;
-                if (iss >> X >> Y) 
-                {
-                    CurrentContour.push_back(cv::Point(X, Y));
+                if (iss >> X >> Y) {
+                    currentContour.push_back(cv::Point(X, Y));
                 }
             }
         }
 
         // We process the last contour
-        if (!CurrentContour.empty()) 
-        {
-            if (!FirstContour) 
-            {
-                Output << "G0 Z" << ZHopHeight << " F" << TravelSpeed << "\n";
+        if (!currentContour.empty()) {
+            if (!firstContour) {
+                output << "G0 Z" << zHopHeight << " F" << travelSpeed << "\n";
             }
 
-            cv::Point start_point = CurrentContour[0];
-            Output << "G0 X" << start_point.x / 10.0 << " Y" << start_point.y / 10.0
-                << " F" << TravelSpeed << "\n";
-            Output << "G1 Z0 F" << PrintSpeed << "\n";
-            Output << GenerateGcodeForContour(CurrentContour, ContourType == "OUTER");
+            cv::Point start_point = currentContour[0];
+            output << "G0 X" << start_point.x / 10.0 << " Y" << start_point.y / 10.0
+                << " F" << travelSpeed << "\n";
+            output << "G1 Z0 F" << printSpeed << "\n";
+            output << generateGcodeForContour(currentContour, contourType == "OUTER");
         }
 
         // We are finishing the program
-        Output << "\nG0 Z" << ZHopHeight << " F" << TravelSpeed << "\n";
-        Output << "G0 X0 Y0 F" << TravelSpeed << "\n";
-        Output << "M2 ; Program end\n";
+        output << "\nG0 Z" << zHopHeight << " F" << travelSpeed << "\n";
+        output << "G0 X0 Y0 F" << travelSpeed << "\n";
+        output << "M2 ; Program end\n";
 
         return true;
     }    
 }
 
-void SimpleGcodeGenerator::SetPrintingParameters(double TravelSpeed, double PrintSpeed, double ZHopHeight)
-{
-	this->TravelSpeed = TravelSpeed;
-	this->PrintSpeed = PrintSpeed;
-	this->ZHopHeight = ZHopHeight;
+void SimpleGcodeGenerator::setPrintingParameters(double travelSpeed, double printSpeed, double zHopHeight) {
+	this->travelSpeed = travelSpeed;
+	this->printSpeed = printSpeed;
+	this->zHopHeight = zHopHeight;
 }
 
-std::string SimpleGcodeGenerator::GenerateGcodeForContour(const std::vector<cv::Point>& Contour, bool IsOther)
-{
-    std::stringstream Gcode;
+std::string SimpleGcodeGenerator::generateGcodeForContour(const std::vector<cv::Point>& contour, bool isOther) {
+    std::stringstream gCode;
 
     // For outer contours - clockwise, for inner ones - counterclockwise
     // This ensures the correct extrusion direction
 
-    if (IsOther)
-    {
+    if (isOther) {
         // Outer contour - normal order
-        for (size_t i = 1; i < Contour.size(); i++) 
-        {
-            Gcode << "G1 X" << Contour[i].x / 10.0 << " Y" << Contour[i].y / 10.0
-                << " F" << PrintSpeed << "\n";
+        for (size_t i = 1; i < contour.size(); i++) {
+            gCode << "G1 X" << contour[i].x / 10.0 << " Y" << contour[i].y / 10.0
+                << " F" << printSpeed << "\n";
         }
         // Closing the loop
-        Gcode << "G1 X" << Contour[0].x / 10.0 << " Y" << Contour[0].y / 10.0
-            << " F" << PrintSpeed << "\n";
+        gCode << "G1 X" << contour[0].x / 10.0 << " Y" << contour[0].y / 10.0
+            << " F" << printSpeed << "\n";
     }
-    else 
-    {
+    else {
         // Inner contour - reverse order for correct filling
-        for (int i = Contour.size() - 1; i > 0; i--) 
-        {
-            Gcode << "G1 X" << Contour[i].x / 10.0 << " Y" << Contour[i].y / 10.0
-                << " F" << PrintSpeed << "\n";
+        for (int i = contour.size() - 1; i > 0; i--) {
+            gCode << "G1 X" << contour[i].x / 10.0 << " Y" << contour[i].y / 10.0
+                << " F" << printSpeed << "\n";
         }
         // Closing the loop
-        Gcode << "G1 X" << Contour.back().x / 10.0 << " Y" << Contour.back().y / 10.0
-            << " F" << PrintSpeed << "\n";
+        gCode << "G1 X" << contour.back().x / 10.0 << " Y" << contour.back().y / 10.0
+            << " F" << printSpeed << "\n";
     }
 
-    return Gcode.str();
+    return gCode.str();
 }
