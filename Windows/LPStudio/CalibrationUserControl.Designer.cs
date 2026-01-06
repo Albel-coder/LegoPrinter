@@ -1,4 +1,4 @@
-﻿namespace WindowsForms
+﻿namespace LPStudio
 {
     partial class CalibrationUserControl
     {

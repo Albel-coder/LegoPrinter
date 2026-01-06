@@ -698,8 +698,6 @@ public class GCodeInterpreter : IDisposable
     public void Resume() => ResumeExecution(InterpreterHandle);
     public Status GetStatus() => (Status)GetStatus(InterpreterHandle);
     public double GetProgress() => GetProgress(InterpreterHandle);
-
-    // String methods - NOW LIKE IN THE DRIVER!
     public string GetLastError()
     {
         IntPtr errorPtr = GetLastInterpreterError(InterpreterHandle);
@@ -720,7 +718,6 @@ public class GCodeInterpreter : IDisposable
 
     public int GetErrorCount() => GetErrorCount(InterpreterHandle);
     public int GetLogCount() => GetLogCount(InterpreterHandle);
-    public void ClearErrors() => ClearErrors(InterpreterHandle);
     public void ClearLog() => ClearLog(InterpreterHandle);
     public bool ReadConfig(string filename) => ReadConfig(InterpreterHandle, filename);
 
@@ -808,14 +805,20 @@ public class GCodeInterpreter : IDisposable
     private static extern IntPtr GetLogEntry(IntPtr interpreter, int index);
 
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void ClearErrors(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern void ClearLog(IntPtr interpreter);
 
     [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool ReadConfig(IntPtr interpreter, string filename);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void SetLogCategories(IntPtr interpreter, ulong categories);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern ulong GetLogCategories(IntPtr interpreter);
+
+    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int GetFilterLogCount(IntPtr interpreter, ulong categoryMask);
 
     public void Dispose()
     {

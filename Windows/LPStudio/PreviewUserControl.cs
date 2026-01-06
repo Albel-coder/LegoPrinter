@@ -8,11 +8,11 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace WindowsForms
+namespace LPStudio
 {
-    public partial class PrepareUserControl : UserControl
+    public partial class PreviewUserControl : UserControl
     {
-        public PrepareUserControl()
+        public PreviewUserControl()
         {
             InitializeComponent();
         }

@@ -8,11 +8,11 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace WindowsForms
+namespace LPStudio
 {
-    public partial class PreviewUserControl : UserControl
+    public partial class CalibrationUserControl : UserControl
     {
-        public PreviewUserControl()
+        public CalibrationUserControl()
         {
             InitializeComponent();
         }

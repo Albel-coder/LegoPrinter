@@ -1,4 +1,4 @@
-﻿namespace WindowsForms
+﻿namespace LPStudio
 {
     partial class DeviceUserControl
     {
@@ -41,6 +41,9 @@
             this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
             this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
             this.panel4 = new System.Windows.Forms.Panel();
+            this.browseButton = new System.Windows.Forms.Button();
+            this.showCodeFile = new System.Windows.Forms.TextBox();
+            this.buttonExecuteCode = new System.Windows.Forms.Button();
             this.panel5 = new System.Windows.Forms.Panel();
             this.label4 = new System.Windows.Forms.Label();
             this.panel1 = new System.Windows.Forms.Panel();
@@ -58,8 +61,7 @@
             this.panel3 = new System.Windows.Forms.Panel();
             this.label2 = new System.Windows.Forms.Label();
             this.logTimer = new System.Windows.Forms.Timer(this.components);
-            this.button1 = new System.Windows.Forms.Button();
-            this.textBox1 = new System.Windows.Forms.TextBox();
+            this.OpenFileDialog = new System.Windows.Forms.OpenFileDialog();
             this.panelConnection.SuspendLayout();
             this.panelConnectionHead.SuspendLayout();
             this.panelConsole.SuspendLayout();
@@ -107,7 +109,7 @@
             // 
             this.labelConnectionHead.Dock = System.Windows.Forms.DockStyle.Left;
             this.labelConnectionHead.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.labelConnectionHead.Image = global::WindowsForms.Properties.Resources.connectionPanelImage32x32;
+            this.labelConnectionHead.Image = global::LPStudio.Properties.Resources.connectionPanelImage32x32;
             this.labelConnectionHead.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.labelConnectionHead.Location = new System.Drawing.Point(0, 0);
             this.labelConnectionHead.Name = "labelConnectionHead";
@@ -168,7 +170,7 @@
             // labelConsoleHead
             // 
             this.labelConsoleHead.Dock = System.Windows.Forms.DockStyle.Left;
-            this.labelConsoleHead.Image = global::WindowsForms.Properties.Resources.consoleImage32x32;
+            this.labelConsoleHead.Image = global::LPStudio.Properties.Resources.consoleImage32x32;
             this.labelConsoleHead.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.labelConsoleHead.Location = new System.Drawing.Point(0, 0);
             this.labelConsoleHead.Name = "labelConsoleHead";
@@ -214,14 +216,56 @@
             // panel4
             // 
             this.panel4.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
-            this.panel4.Controls.Add(this.textBox1);
-            this.panel4.Controls.Add(this.button1);
+            this.panel4.Controls.Add(this.browseButton);
+            this.panel4.Controls.Add(this.showCodeFile);
+            this.panel4.Controls.Add(this.buttonExecuteCode);
             this.panel4.Controls.Add(this.panel5);
             this.panel4.Dock = System.Windows.Forms.DockStyle.Fill;
             this.panel4.Location = new System.Drawing.Point(3, 393);
             this.panel4.Name = "panel4";
             this.panel4.Size = new System.Drawing.Size(427, 336);
             this.panel4.TabIndex = 2;
+            // 
+            // browseButton
+            // 
+            this.browseButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.browseButton.FlatAppearance.BorderSize = 0;
+            this.browseButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.browseButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.browseButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.browseButton.Location = new System.Drawing.Point(302, 65);
+            this.browseButton.Name = "browseButton";
+            this.browseButton.Size = new System.Drawing.Size(88, 22);
+            this.browseButton.TabIndex = 9;
+            this.browseButton.Text = " browse...";
+            this.browseButton.UseVisualStyleBackColor = false;
+            this.browseButton.Click += new System.EventHandler(this.browseButton_Click);
+            // 
+            // showCodeFile
+            // 
+            this.showCodeFile.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
+            this.showCodeFile.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(150)))), ((int)(((byte)(150)))), ((int)(((byte)(150)))));
+            this.showCodeFile.Location = new System.Drawing.Point(130, 65);
+            this.showCodeFile.Name = "showCodeFile";
+            this.showCodeFile.ReadOnly = true;
+            this.showCodeFile.ScrollBars = System.Windows.Forms.ScrollBars.Both;
+            this.showCodeFile.Size = new System.Drawing.Size(166, 22);
+            this.showCodeFile.TabIndex = 8;
+            // 
+            // buttonExecuteCode
+            // 
+            this.buttonExecuteCode.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
+            this.buttonExecuteCode.FlatAppearance.BorderSize = 0;
+            this.buttonExecuteCode.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.buttonExecuteCode.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
+            this.buttonExecuteCode.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.buttonExecuteCode.Location = new System.Drawing.Point(13, 58);
+            this.buttonExecuteCode.Name = "buttonExecuteCode";
+            this.buttonExecuteCode.Size = new System.Drawing.Size(111, 36);
+            this.buttonExecuteCode.TabIndex = 7;
+            this.buttonExecuteCode.Text = " Execute code";
+            this.buttonExecuteCode.UseVisualStyleBackColor = false;
+            this.buttonExecuteCode.Click += new System.EventHandler(this.buttonExecuteCode_Click);
             // 
             // panel5
             // 
@@ -238,7 +282,7 @@
             // 
             this.label4.Dock = System.Windows.Forms.DockStyle.Left;
             this.label4.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.label4.Image = global::WindowsForms.Properties.Resources.cubeG_codeImage32x32;
+            this.label4.Image = global::LPStudio.Properties.Resources.cubeG_codeImage32x32;
             this.label4.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.label4.Location = new System.Drawing.Point(0, 0);
             this.label4.Name = "label4";
@@ -274,7 +318,7 @@
             this.homeZButton.FlatAppearance.BorderSize = 0;
             this.homeZButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.homeZButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.homeZButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeZButton.Image = global::LPStudio.Properties.Resources.homeImage16x16;
             this.homeZButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.homeZButton.Location = new System.Drawing.Point(150, 86);
             this.homeZButton.Name = "homeZButton";
@@ -289,7 +333,7 @@
             this.moveZUpButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
             this.moveZUpButton.FlatAppearance.BorderSize = 0;
             this.moveZUpButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveZUpButton.Image = global::WindowsForms.Properties.Resources.upArrowImage32x32;
+            this.moveZUpButton.Image = global::LPStudio.Properties.Resources.upArrowImage32x32;
             this.moveZUpButton.Location = new System.Drawing.Point(154, 44);
             this.moveZUpButton.Name = "moveZUpButton";
             this.moveZUpButton.Size = new System.Drawing.Size(35, 35);
@@ -301,7 +345,7 @@
             this.moveZDownButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
             this.moveZDownButton.FlatAppearance.BorderSize = 0;
             this.moveZDownButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveZDownButton.Image = global::WindowsForms.Properties.Resources.downArrowImage32x32;
+            this.moveZDownButton.Image = global::LPStudio.Properties.Resources.downArrowImage32x32;
             this.moveZDownButton.Location = new System.Drawing.Point(154, 128);
             this.moveZDownButton.Name = "moveZDownButton";
             this.moveZDownButton.Size = new System.Drawing.Size(35, 35);
@@ -314,7 +358,7 @@
             this.homeALLButton.FlatAppearance.BorderSize = 0;
             this.homeALLButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.homeALLButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.homeALLButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeALLButton.Image = global::LPStudio.Properties.Resources.homeImage16x16;
             this.homeALLButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.homeALLButton.Location = new System.Drawing.Point(204, 44);
             this.homeALLButton.Name = "homeALLButton";
@@ -330,7 +374,7 @@
             this.homeXButton.FlatAppearance.BorderSize = 0;
             this.homeXButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.homeXButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.homeXButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeXButton.Image = global::LPStudio.Properties.Resources.homeImage16x16;
             this.homeXButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.homeXButton.Location = new System.Drawing.Point(204, 85);
             this.homeXButton.Name = "homeXButton";
@@ -346,7 +390,7 @@
             this.homeYButton.FlatAppearance.BorderSize = 0;
             this.homeYButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.homeYButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.homeYButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeYButton.Image = global::LPStudio.Properties.Resources.homeImage16x16;
             this.homeYButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.homeYButton.Location = new System.Drawing.Point(204, 127);
             this.homeYButton.Name = "homeYButton";
@@ -362,7 +406,7 @@
             this.homeXYButton.FlatAppearance.BorderSize = 0;
             this.homeXYButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.homeXYButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.homeXYButton.Image = global::WindowsForms.Properties.Resources.homeImage16x16;
+            this.homeXYButton.Image = global::LPStudio.Properties.Resources.homeImage16x16;
             this.homeXYButton.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.homeXYButton.Location = new System.Drawing.Point(54, 86);
             this.homeXYButton.Name = "homeXYButton";
@@ -377,7 +421,7 @@
             this.moveYUpButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
             this.moveYUpButton.FlatAppearance.BorderSize = 0;
             this.moveYUpButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveYUpButton.Image = global::WindowsForms.Properties.Resources.upArrowImage32x32;
+            this.moveYUpButton.Image = global::LPStudio.Properties.Resources.upArrowImage32x32;
             this.moveYUpButton.Location = new System.Drawing.Point(60, 44);
             this.moveYUpButton.Name = "moveYUpButton";
             this.moveYUpButton.Size = new System.Drawing.Size(35, 35);
@@ -389,7 +433,7 @@
             this.moveXLeftButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
             this.moveXLeftButton.FlatAppearance.BorderSize = 0;
             this.moveXLeftButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveXLeftButton.Image = global::WindowsForms.Properties.Resources.leftArrowImage32x32;
+            this.moveXLeftButton.Image = global::LPStudio.Properties.Resources.leftArrowImage32x32;
             this.moveXLeftButton.Location = new System.Drawing.Point(13, 86);
             this.moveXLeftButton.Name = "moveXLeftButton";
             this.moveXLeftButton.Size = new System.Drawing.Size(35, 35);
@@ -401,7 +445,7 @@
             this.moveYDownButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
             this.moveYDownButton.FlatAppearance.BorderSize = 0;
             this.moveYDownButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveYDownButton.Image = global::WindowsForms.Properties.Resources.downArrowImage32x32;
+            this.moveYDownButton.Image = global::LPStudio.Properties.Resources.downArrowImage32x32;
             this.moveYDownButton.Location = new System.Drawing.Point(60, 128);
             this.moveYDownButton.Name = "moveYDownButton";
             this.moveYDownButton.Size = new System.Drawing.Size(35, 35);
@@ -413,7 +457,7 @@
             this.moveXRightButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(65)))), ((int)(((byte)(65)))), ((int)(((byte)(224)))));
             this.moveXRightButton.FlatAppearance.BorderSize = 0;
             this.moveXRightButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.moveXRightButton.Image = global::WindowsForms.Properties.Resources.rigthArrowImage32x32;
+            this.moveXRightButton.Image = global::LPStudio.Properties.Resources.rigthArrowImage32x32;
             this.moveXRightButton.Location = new System.Drawing.Point(109, 86);
             this.moveXRightButton.Name = "moveXRightButton";
             this.moveXRightButton.Size = new System.Drawing.Size(35, 35);
@@ -435,7 +479,7 @@
             // 
             this.label2.Dock = System.Windows.Forms.DockStyle.Left;
             this.label2.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.label2.Image = global::WindowsForms.Properties.Resources.toolImage32x32;
+            this.label2.Image = global::LPStudio.Properties.Resources.toolImage32x32;
             this.label2.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.label2.Location = new System.Drawing.Point(0, 0);
             this.label2.Name = "label2";
@@ -448,30 +492,9 @@
             // 
             this.logTimer.Tick += new System.EventHandler(this.logTimer_Tick);
             // 
-            // button1
+            // OpenFileDialog
             // 
-            this.button1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
-            this.button1.FlatAppearance.BorderSize = 0;
-            this.button1.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.button1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.button1.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
-            this.button1.Location = new System.Drawing.Point(13, 58);
-            this.button1.Name = "button1";
-            this.button1.Size = new System.Drawing.Size(111, 36);
-            this.button1.TabIndex = 7;
-            this.button1.Text = " Execute code";
-            this.button1.UseVisualStyleBackColor = false;
-            // 
-            // textBox1
-            // 
-            this.textBox1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(38)))), ((int)(((byte)(38)))), ((int)(((byte)(41)))));
-            this.textBox1.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(150)))), ((int)(((byte)(150)))), ((int)(((byte)(150)))));
-            this.textBox1.Location = new System.Drawing.Point(150, 65);
-            this.textBox1.Name = "textBox1";
-            this.textBox1.ReadOnly = true;
-            this.textBox1.ScrollBars = System.Windows.Forms.ScrollBars.Both;
-            this.textBox1.Size = new System.Drawing.Size(146, 22);
-            this.textBox1.TabIndex = 8;
+            this.OpenFileDialog.FileName = "openFileDialog";
             // 
             // DeviceUserControl
             // 
@@ -528,7 +551,9 @@
         private System.Windows.Forms.Button homeZButton;
         private System.Windows.Forms.Button moveZUpButton;
         private System.Windows.Forms.Button moveZDownButton;
-        private System.Windows.Forms.Button button1;
-        private System.Windows.Forms.TextBox textBox1;
+        private System.Windows.Forms.Button buttonExecuteCode;
+        private System.Windows.Forms.TextBox showCodeFile;
+        private System.Windows.Forms.OpenFileDialog OpenFileDialog;
+        private System.Windows.Forms.Button browseButton;
     }
 }

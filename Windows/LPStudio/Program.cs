@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Windows.Forms;
 
-namespace WindowsForms
+namespace LPStudio
 {
     internal static class Program
     {

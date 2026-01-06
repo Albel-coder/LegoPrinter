@@ -11,14 +11,18 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.IO;
 
-namespace WindowsForms
+namespace LPStudio
 {
     public partial class DeviceUserControl : UserControl
     {
         private PrinterController printerController;
+        private GCodeInterpreter interpreter;
         private BatteryLabel batteryLabel;
 
+        private int lastDriverLogCount = 0;
+        private int lastInterpreterLogCount = 0;
         private int lastLogCount = 0;
         private readonly object updateLock = new object();
         private bool isConsoleUpdating = false;
@@ -47,7 +51,10 @@ namespace WindowsForms
             try
             {
                 printerController = new PrinterController();
+                interpreter = new GCodeInterpreter();
                 InitializeComponent();
+
+                interpreter.ReadConfig("Printer.cfg");
 
                 batteryLabel = new BatteryLabel();
                 batteryLabel.Location = this.labelBattery.Location;
@@ -180,27 +187,54 @@ namespace WindowsForms
         {
             try
             {
-                int currentLogCount = printerController.GetLogCount();
+                // 1. Обновляем логи драйвера
+                int currentDriverLogCount = printerController.GetLogCount();
 
-                if (currentLogCount < lastLogCount)
+                if (currentDriverLogCount < lastDriverLogCount)
                 {
+                    // Логи драйвера были очищены
                     ClearTextBoxSafe();
-                    lastLogCount = 0;
+                    lastDriverLogCount = 0;
 
-                    if (currentLogCount > 0)
+                    // Также сбрасываем счетчик интерпретатора при полной очистке
+                    if (currentDriverLogCount == 0)
                     {
-                        AppendNewLogs(0, currentLogCount);
-                        lastLogCount = currentLogCount;
+                        lastInterpreterLogCount = 0;
+                    }
+
+                    if (currentDriverLogCount > 0)
+                    {
+                        AppendDriverLogs(0, currentDriverLogCount);
+                        lastDriverLogCount = currentDriverLogCount;
                     }
 
                     return;
                 }
 
-                if (currentLogCount > lastLogCount)
+                if (currentDriverLogCount > lastDriverLogCount)
                 {
-                    int newLogs = currentLogCount - lastLogCount;
-                    AppendNewLogs(lastLogCount, newLogs);
-                    lastLogCount = currentLogCount;
+                    int newDriverLogs = currentDriverLogCount - lastDriverLogCount;
+                    AppendDriverLogs(lastDriverLogCount, newDriverLogs);
+                    lastDriverLogCount = currentDriverLogCount;
+                }
+
+                // 2. Обновляем логи интерпретатора
+                if (interpreter != null)
+                {
+                    int currentInterpreterLogCount = interpreter.GetLogCount();
+
+                    if (currentInterpreterLogCount < lastInterpreterLogCount)
+                    {
+                        // Логи интерпретатора были очищены
+                        lastInterpreterLogCount = 0;
+                    }
+
+                    if (currentInterpreterLogCount > lastInterpreterLogCount)
+                    {
+                        int newInterpreterLogs = currentInterpreterLogCount - lastInterpreterLogCount;
+                        AppendInterpreterLogs(lastInterpreterLogCount, newInterpreterLogs);
+                        lastInterpreterLogCount = currentInterpreterLogCount;
+                    }
                 }
             }
             catch (Exception)
@@ -209,7 +243,7 @@ namespace WindowsForms
             }
         }
 
-        private void AppendNewLogs(int startIndex, int count)
+        private void AppendDriverLogs(int startIndex, int count)
         {
             if (count < 1) return;
 
@@ -222,12 +256,12 @@ namespace WindowsForms
                     string logEntry = printerController.GetLogEntry(startIndex + i);
                     if (!string.IsNullOrEmpty(logEntry))
                     {
-                        stringBuilder.AppendLine(logEntry);
+                        stringBuilder.AppendLine($"[Driver] {logEntry}");
                     }
                 }
                 catch
                 {
-
+                    // Игнорируем ошибки получения одной записи
                 }
             }
 
@@ -236,6 +270,43 @@ namespace WindowsForms
                 AppendTextSafe(stringBuilder.ToString());
             }
         }
+
+        private void AppendInterpreterLogs(int startIndex, int count)
+        {
+            if (count < 1 || interpreter == null) return;
+
+            StringBuilder stringBuilder = new StringBuilder(count * 100);
+
+            for (int i = 0; i < count; i++)
+            {
+                try
+                {
+                    // Получаем запись лога и ее категорию
+                    string logEntry = interpreter.GetLog(startIndex + i);
+                    if (!string.IsNullOrEmpty(logEntry))
+                    {
+                        // Определяем префикс в зависимости от категории (для удобства чтения)
+                        string prefix = "[Interpreter]";
+
+                        // Можно добавить цветовое кодирование или префиксы по категориям:
+                        // if (category == InterpreterLogCategory.Error) prefix = "[Interpreter ERROR]";
+                        // else if (category == InterpreterLogCategory.Warning) prefix = "[Interpreter WARN]";
+
+                        stringBuilder.AppendLine($"{prefix} {logEntry}");
+                    }
+                }
+                catch
+                {
+                    // Игнорируем ошибки получения одной записи
+                }
+            }
+
+            if (stringBuilder.Length > 0)
+            {
+                AppendTextSafe(stringBuilder.ToString());
+            }
+        }
+
         private void AppendTextSafe(string text)
         {
             if (textBoxConsole.InvokeRequired)
@@ -320,6 +391,99 @@ namespace WindowsForms
             printerController.ClearLog();
             ClearTextBoxSafe();
             lastLogCount = 0;
+        }
+
+        private void browseButton_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.InitialDirectory = "c:\\";
+                openFileDialog.Filter = "g-code files (*.gcode)|*.gcode";
+                openFileDialog.FilterIndex = 1;
+                openFileDialog.RestoreDirectory = true;
+
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string filePath = openFileDialog.FileName;
+                    showCodeFile.Text = filePath;
+                }
+            }
+        }
+        private async void buttonExecuteCode_Click(object sender, EventArgs e)
+        {
+            buttonExecuteCode.Enabled = false;
+            buttonExecuteCode.Text = "Executing";
+
+            try
+            {
+                string filePath = showCodeFile.Text;
+                string fullPath = Path.GetFullPath(filePath);
+
+                if (!File.Exists(fullPath))
+                {
+                    Console.WriteLine($"File '{fullPath}' not found!");
+                    return;
+                }
+
+                var printerHandle = printerController.GetPrinterHandle();
+
+                Console.WriteLine($"C#: Printer handle: VirtualTable={printerHandle.VirtualTable}");
+
+                if (printerHandle.VirtualTable == IntPtr.Zero)
+                {
+                    Console.WriteLine("Printer handle is invalid!");
+                    return;
+                }
+
+                var status = interpreter.GetStatus();
+                Console.WriteLine($"C#: Current interpreter status: {status}");
+
+                if (status == GCodeInterpreter.Status.RUNNING ||
+                    status == GCodeInterpreter.Status.PAUSED ||
+                    status == GCodeInterpreter.Status.CHECKING_CODE)
+                {
+                    Console.WriteLine("Interpreter is busy. Please wait for current execution to complete.");
+                    return;
+                }
+
+                if (status == GCodeInterpreter.Status.COMPLETED || status == GCodeInterpreter.Status.ERROR)
+                {
+                    await Task.Delay(200); // 200ms задержка
+                }
+
+                if (status == GCodeInterpreter.Status.ERROR)
+                {
+                    interpreter.ClearLog();
+                }
+
+                Console.WriteLine("C#: Calling Interpreter.ExecuteFile...");
+                bool success = await Task.Run(() => interpreter.ExecuteFile(fullPath, printerHandle));
+
+                Console.WriteLine($"C#: ExecuteFile returned: {success}");
+
+                if (success)
+                {
+                    Console.WriteLine("G-code execution started successfully");
+                    //StartExecutionMonitoring();
+                }
+                else
+                {
+                    string error = interpreter.GetLastError();
+                    Console.WriteLine($"C#: ExecuteFile failed: {error}");
+                    Console.WriteLine($"Failed to execute G-code: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"C#: Exception in ExecuteGcodeButton_Click: {ex}");
+                Console.WriteLine($"Execution error: {ex.Message}");
+            }
+            finally
+            {
+                buttonExecuteCode.Enabled = true;
+                buttonExecuteCode.Text = "Execute code";
+                Console.WriteLine("=== ExecuteGcodeButton_Click END ===");
+            }
         }
     }
     public class BatteryLabel : Label

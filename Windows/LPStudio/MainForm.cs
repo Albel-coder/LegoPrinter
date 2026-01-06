@@ -4,15 +4,16 @@ using System.ComponentModel;
 using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Text;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using WindowsForms.Services;
+using LPStudio.Services;
 
-namespace WindowsForms
+namespace LPStudio
 {
     public partial class MainForm : Form
     {
@@ -27,9 +28,11 @@ namespace WindowsForms
         private bool _updateChecked = false;
         private System.Threading.Timer _updateTimer;
 
+        private NotifyIcon notifyIcon;
         public MainForm()
         {
             InitializeComponent();
+            InitializeNotifyIcon();
             SetupTabs();
 
             this.Text = string.Empty;
@@ -53,6 +56,18 @@ namespace WindowsForms
             await CheckForUpdatesAsync();
             Console.WriteLine("end MainForm_Shown");
         }
+
+        private void InitializeNotifyIcon()
+        {
+            notifyIcon = new NotifyIcon
+            {
+                Icon = SystemIcons.Information,
+                Visible = true,
+                BalloonTipTitle = "Обновления",
+                BalloonTipText = "У вас установлена последняя версия",
+                BalloonTipIcon = ToolTipIcon.Info
+            };
+        }
         private async Task CheckForUpdatesAsync(bool manualCheck = true)
         {
             try
@@ -65,7 +80,7 @@ namespace WindowsForms
                     MessageBox.Show("Сервис обновлений не настроен",
                         "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
-                }
+                }                
 
                 var updateInfo = await _updateService.CheckForUpdatesAsync(manualCheck);
 
@@ -89,7 +104,7 @@ namespace WindowsForms
                 if (!updateInfo.IsAvailable)
                 {
                     if (manualCheck)
-                        MessageBox.Show("У вас установлена последняя версия.", "Информация");
+                        notifyIcon.ShowBalloonTip(5000);
                     return;
                 }
 
@@ -192,12 +207,12 @@ namespace WindowsForms
             if (WindowState == FormWindowState.Normal)
             {
                 this.WindowState = FormWindowState.Maximized;
-                this.restoreWindowButton.Image = global::WindowsForms.Properties.Resources.restoreImage32x32;
+                this.restoreWindowButton.Image = global::LPStudio.Properties.Resources.restoreImage32x32;
             }
             else
             {
                 this.WindowState = FormWindowState.Normal;
-                this.restoreWindowButton.Image = global::WindowsForms.Properties.Resources.maximizeWindowImage32x32;
+                this.restoreWindowButton.Image = global::LPStudio.Properties.Resources.maximizeWindowImage32x32;
             }
         }
         private void minimizeWindowButton_Click(object sender, EventArgs e)

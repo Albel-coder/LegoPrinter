@@ -1,6 +1,6 @@
 ﻿using System.Drawing;
 
-namespace WindowsForms
+namespace LPStudio
 {
     partial class MainForm
     {
@@ -64,7 +64,7 @@ namespace WindowsForms
             this.minimizeWindowButton.FlatAppearance.BorderSize = 0;
             this.minimizeWindowButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.minimizeWindowButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.minimizeWindowButton.Image = global::WindowsForms.Properties.Resources.minimizeWindowImage32x32;
+            this.minimizeWindowButton.Image = global::LPStudio.Properties.Resources.minimizeWindowImage32x32;
             this.minimizeWindowButton.Location = new System.Drawing.Point(1005, 0);
             this.minimizeWindowButton.Name = "minimizeWindowButton";
             this.minimizeWindowButton.Size = new System.Drawing.Size(57, 36);
@@ -78,7 +78,7 @@ namespace WindowsForms
             this.restoreWindowButton.FlatAppearance.BorderSize = 0;
             this.restoreWindowButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.restoreWindowButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.restoreWindowButton.Image = global::WindowsForms.Properties.Resources.maximizeWindowImage32x32;
+            this.restoreWindowButton.Image = global::LPStudio.Properties.Resources.maximizeWindowImage32x32;
             this.restoreWindowButton.Location = new System.Drawing.Point(1062, 0);
             this.restoreWindowButton.Name = "restoreWindowButton";
             this.restoreWindowButton.Size = new System.Drawing.Size(57, 36);
@@ -92,7 +92,7 @@ namespace WindowsForms
             this.exitButton.FlatAppearance.BorderSize = 0;
             this.exitButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.exitButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.exitButton.Image = global::WindowsForms.Properties.Resources.rejectWindow1;
+            this.exitButton.Image = global::LPStudio.Properties.Resources.rejectWindow1;
             this.exitButton.Location = new System.Drawing.Point(1119, 0);
             this.exitButton.Name = "exitButton";
             this.exitButton.Size = new System.Drawing.Size(57, 36);
@@ -120,7 +120,7 @@ namespace WindowsForms
             this.buttonCalibration.FlatAppearance.BorderSize = 0;
             this.buttonCalibration.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.buttonCalibration.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.buttonCalibration.Image = global::WindowsForms.Properties.Resources.calibrationImage32x32;
+            this.buttonCalibration.Image = global::LPStudio.Properties.Resources.calibrationImage32x32;
             this.buttonCalibration.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.buttonCalibration.Location = new System.Drawing.Point(563, 0);
             this.buttonCalibration.Name = "buttonCalibration";
@@ -137,7 +137,7 @@ namespace WindowsForms
             this.buttonDevice.FlatAppearance.BorderSize = 0;
             this.buttonDevice.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.buttonDevice.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.buttonDevice.Image = global::WindowsForms.Properties.Resources.deviceImage32x32;
+            this.buttonDevice.Image = global::LPStudio.Properties.Resources.deviceImage32x32;
             this.buttonDevice.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.buttonDevice.Location = new System.Drawing.Point(403, 0);
             this.buttonDevice.Name = "buttonDevice";
@@ -154,7 +154,7 @@ namespace WindowsForms
             this.buttonPreview.FlatAppearance.BorderSize = 0;
             this.buttonPreview.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.buttonPreview.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.buttonPreview.Image = global::WindowsForms.Properties.Resources.previewIcon;
+            this.buttonPreview.Image = global::LPStudio.Properties.Resources.previewIcon;
             this.buttonPreview.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.buttonPreview.Location = new System.Drawing.Point(243, 0);
             this.buttonPreview.Name = "buttonPreview";
@@ -171,7 +171,7 @@ namespace WindowsForms
             this.buttonPrepare.FlatAppearance.BorderSize = 0;
             this.buttonPrepare.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.buttonPrepare.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.buttonPrepare.Image = global::WindowsForms.Properties.Resources.prepareImag32x32;
+            this.buttonPrepare.Image = global::LPStudio.Properties.Resources.prepareImag32x32;
             this.buttonPrepare.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.buttonPrepare.Location = new System.Drawing.Point(83, 0);
             this.buttonPrepare.Name = "buttonPrepare";
@@ -188,7 +188,7 @@ namespace WindowsForms
             this.buttonHome.FlatAppearance.BorderSize = 0;
             this.buttonHome.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.buttonHome.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(212)))), ((int)(((byte)(212)))), ((int)(((byte)(212)))));
-            this.buttonHome.Image = global::WindowsForms.Properties.Resources.homeImage32x32;
+            this.buttonHome.Image = global::LPStudio.Properties.Resources.homeImage32x32;
             this.buttonHome.ImageAlign = System.Drawing.ContentAlignment.MiddleLeft;
             this.buttonHome.Location = new System.Drawing.Point(0, 0);
             this.buttonHome.Name = "buttonHome";

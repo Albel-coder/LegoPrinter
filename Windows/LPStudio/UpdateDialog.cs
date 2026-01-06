@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
-using WindowsForms.Services;
+using LPStudio.Services;
 
-namespace WindowsForms
+namespace LPStudio
 {
     public partial class UpdateDialog : Form
     {
@@ -190,7 +190,7 @@ namespace WindowsForms
                 // Временная загрузка настроек из файла
                 string settingsPath = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "WindowsForms", "update_settings.txt");
+                    "LPStudio", "update_settings.txt");
 
                 if (System.IO.File.Exists(settingsPath))
                 {
@@ -234,7 +234,7 @@ namespace WindowsForms
             {
                 string settingsPath = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "WindowsForms", "update_settings.txt");
+                    "LPStudio", "update_settings.txt");
 
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(settingsPath));
 
