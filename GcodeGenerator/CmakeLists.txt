@@ -3,18 +3,6 @@ project(GcodeGenerator LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# For Windows DLLs, you need to define export symbols
-if(WIN32)
-    # Add a definition for exporting symbols from the DLL
-    add_definitions(-DGCODEGENERATOR_EXPORTS)
-    
-    # Setting up policy for DLLs
-    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
-    
-    # Add compilation flags for the DLL
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_WINDLL")
-endif()
-
 # First, compile OpenCV separately
 if(NOT TARGET opencv_world)
     message(STATUS "Building OpenCV first...")
@@ -23,10 +11,9 @@ if(NOT TARGET opencv_world)
     set(OPENCV_BUILD_DIR "${CMAKE_BINARY_DIR}/opencv_build")
     set(OPENCV_INSTALL_DIR "${CMAKE_BINARY_DIR}/opencv_install")
     
-    # OpenCV settings - make sure OpenCV is also built as a DLL
+    # OpenCV settings
     set(OPENCV_OPTIONS
         -DBUILD_opencv_world=ON
-        -DBUILD_SHARED_LIBS=ON  # Important: compile OpenCV as a DLL
         -DBUILD_EXAMPLES=OFF
         -DBUILD_TESTS=OFF
         -DBUILD_PERF_TESTS=OFF
@@ -78,19 +65,26 @@ if(NOT TARGET opencv_world)
     endif()
 endif()
 
-# Create a SHARED library (DLL) instead of an EXE
-add_library(GcodeGenerator SHARED src/main.cpp)
-
-# Optional: You can specify the library version
-set_target_properties(GcodeGenerator PROPERTIES
-    VERSION 1.0.0
-    SOVERSION 1
+# Create shared library (DLL) instead of executable
+add_library(GcodeGenerator SHARED 
+	src/FontManager.cpp
+	src/FontManager.h
+	src/GcodeGenerator.cpp
+	src/GcodeGenerator.h
+	src/GenerateGcode.cpp
+	src/GenerateGcode.h
 )
 
-# Configuring symbol export for DLL
-target_compile_definitions(GcodeGenerator PRIVATE
-    $<$<BOOL:${WIN32}>:GCODEGENERATOR_BUILD_DLL>
-)
+# For Windows DLL export symbols
+if(WIN32)
+    # Automatically export all symbols (simplifies the process)
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    
+    # Optionally set output directories
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+endif()
 
 if(OpenCV_FOUND)
     target_include_directories(GcodeGenerator PRIVATE ${OpenCV_INCLUDE_DIRS})
@@ -100,17 +94,4 @@ if(OpenCV_FOUND)
     message(STATUS "OpenCV libs: ${OpenCV_LIBS}")
 else()
     message(FATAL_ERROR "OpenCV not found")
-endif()
-
-# For Windows DLLs, you also need to create a .lib (import library) file
-if(WIN32)
-    # Automatically export all symbols
-    set_target_properties(GcodeGenerator PROPERTIES
-        WINDOWS_EXPORT_ALL_SYMBOLS TRUE
-    )
-    
-    # Make sure the .lib file is created
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 endif()

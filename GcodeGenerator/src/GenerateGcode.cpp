@@ -1,10 +1,10 @@
 #include "GenerateGcode.h"
 
-bool generateTestGcode(const std::string& filename) {
-	std::ifstream input(filename);
+bool generateTestGcode(const std::string& inputFilename, const std::string& outputFilename) {
+	std::ifstream input(inputFilename);
 
 	if (input.is_open()) {
-		std::ofstream output("G-code.txt");
+		std::ofstream output(outputFilename);
 		if (output.is_open()) {
 			output << "; Generated test G-code\n";
 			output << "F40\n";
@@ -18,8 +18,8 @@ bool generateTestGcode(const std::string& filename) {
 					continue;
 				}
 				else {
-					std::istringstream String(line);
-					String >> x >> y;
+					std::istringstream string(line);
+					string >> x >> y;
 
 					output << "G0 X" << x / 2 << " Y" << y / 2 << " Z-10\n";
 				}

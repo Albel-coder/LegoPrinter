@@ -6,7 +6,7 @@
 #include <fstream>
 #include <sstream>
 
-bool generateTestGcode(const std::string& filename);
+bool generateTestGcode(const std::string& inputFilename, const std::string& outputFilename);
 
 class SimpleGcodeGenerator
 {
