@@ -1,9 +1,20 @@
 #pragma once
 
+// Automatic compiler detection
+#if defined(_MSC_VER)
+	// MSVC compiler
 #ifdef LEGOPRINTERCORE_EXPORTS
 #define PRINTER_DRIVER_API __declspec(dllexport)
 #else
 #define PRINTER_DRIVER_API __declspec(dllimport)
+#endif
+#elif defined(GNUC) || defined(clang)
+	// GCC or Clang compiler (Android, Linux, macOS)
+#define PRINTER_DRIVER_API attribute((visibility("default")))
+#else
+	// Other compilers
+#define PRINTER_DRIVER_API
+#pragma warning Unknown dynamic link import/export semantics.
 #endif
 
 #include "IPrinter.h"
