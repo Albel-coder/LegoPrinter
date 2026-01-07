@@ -338,7 +338,7 @@ private:
 			return Section::STEPPER_Z;
 		}
 
-		LOG_WARNING("Unknown section in configuration: %s", section);
+		LOG_WARNING("Unknown section in configuration: %s", section.c_str());
 		return Section::UNKNOWN;
 	}
 
@@ -357,7 +357,7 @@ private:
 		auto it = keyMap.find(key);
 		if (it != keyMap.end()) return it->second;
 
-		LOG_WARNING("Unknown configuration key: %s", key);
+		LOG_WARNING("Unknown configuration key: %s", key.c_str());
 		return ConfigKey::UNKNOWN;
 	}
 
@@ -393,6 +393,8 @@ private:
 			return;
 		}
 
+		if (!config) return;
+
 		switch (key) {
 		case ConfigKey::ROTATE_DISTANCE:
 			try	{
@@ -409,10 +411,10 @@ private:
 		case ConfigKey::GEAR_RATIO:
 			try	{
 				config->gearRatio = std::stod(parseValue(value));
-				LOG_CONFIG("Set gear_ratio: %f", value);
+				LOG_CONFIG("Set gear_ratio: %s", value.c_str());
 			}
 			catch (const std::exception& ex) {
-				LOG_ERROR("Invalid gear ratio value: %f", value);
+				LOG_ERROR("Invalid gear ratio value: %s", value.c_str());
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -438,7 +440,7 @@ private:
 				}
 			}
 			catch (const std::exception& ex) {
-				LOG_ERROR("Invalid direction value: %s", value);
+				LOG_ERROR("Invalid direction value: %s", value.c_str());
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -447,7 +449,7 @@ private:
 		case ConfigKey::PORTS:
 			try	{
 				std::vector<uint8_t> ports;
-				LOG_CONFIG("Processing ports configuration: %s", value);
+				LOG_CONFIG("Processing ports configuration: %s", value.c_str());
 
 				std::string processedValue = value;
 				processedValue.erase(std::remove(processedValue.begin(), processedValue.end(), ' '), processedValue.end());
@@ -474,7 +476,7 @@ private:
 						portValue = 0x03;
 						break;
 					default:
-						LOG_WARNING("Warning: unknown port character '%s'", character);
+						LOG_WARNING("Warning: unknown port character '%с'", character);
 						break;
 					}
 
@@ -488,10 +490,10 @@ private:
 
 					if (!isDuplicate) {
 						ports.push_back(portValue);
-						LOG_CONFIG("Added port '%s'", character);
+						LOG_CONFIG("Added port '%с'", character);
 					}
 					else {
-						LOG_WARNING("Duplicate port detected: '%s'", character);
+						LOG_WARNING("Duplicate port detected: '%с'", character);
 					}
 				}				
 
@@ -507,11 +509,11 @@ private:
 						portsList += std::to_string(port) + " ";
 					}
 
-					LOG_CONFIG("%s", portsList);
+					LOG_CONFIG("Ports list: %s", portsList.c_str());
 				}
 			}
 			catch (const std::exception& ex)  {
-				LOG_ERROR("Invalid ports configuration: %s", value);
+				LOG_ERROR("Invalid ports configuration: %s", value.c_str());
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -520,10 +522,10 @@ private:
 		case ConfigKey::MINIMUM_FEEDRATE:
 			try	{
 				config->minimumFeedrate = std::stod(parseValue(value));
-				LOG_CONFIG("Set miminum_feedrate: %s", value);
+				LOG_CONFIG("Set miminum_feedrate: %s", value.c_str());
 			}
 			catch (const std::exception& ex) {
-				LOG_ERROR("Invalid minimum feedrate value: %s", value);
+				LOG_ERROR("Invalid minimum feedrate value: %s", value.c_str());
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -532,10 +534,10 @@ private:
 		case ConfigKey::MAXIMUM_FEEDRATE:
 			try	{
 				config->maximumFeedrate = std::stod(parseValue(value));
-				LOG_CONFIG("Set maximum_feedrate: %s", value);
+				LOG_CONFIG("Set maximum_feedrate: %s", value.c_str());
 			}
 			catch (const std::exception& ex) {
-				LOG_ERROR("Invalid maximum feedrate value: %s", value);
+				LOG_ERROR("Invalid maximum feedrate value: %s", value.c_str());
 				lastError = ex.what();
 				status = ERROR;
 			}
@@ -668,7 +670,7 @@ private:
 			std::copy(pointsWithStop.begin(), pointsWithStop.end(), profile.points);
 
 			profiles.push_back(profile);
-			LOG_DEBUG("Created single speed profile with stop for port %s", profile.port);
+			LOG_DEBUG("Created single speed profile with stop for port %c", profile.port);
 		}
 		else {
 			for (uint8_t port : config.ports) {
@@ -681,7 +683,7 @@ private:
 				std::copy(pointsWithStop.begin(), pointsWithStop.end(), profile.points);
 
 				profiles.push_back(profile);
-				LOG_DEBUG("Created speed profile with stop for port %s", port);
+				LOG_DEBUG("Created speed profile with stop for port %c", port);
 			}
 
 			LOG_DEBUG("Created speed profiles with stop: %d", profiles.size());
@@ -1114,7 +1116,7 @@ private:
 
 		for (uint8_t port : config.ports) {
 			currentPrinter->vtable->printer_set_motor_speed(currentPrinter, port, 0);
-			LOG_DEBUG("Stopped motor on port %s", port);
+			LOG_DEBUG("Stopped motor on port %c", port);
 		}
 	}
 
@@ -1127,10 +1129,10 @@ private:
 			if (points[i].speed != 0) {
 				totalTime += points[i].distance / (std::abs(points[i].speed) / 100.0);
 			}
-			LOG_ARC("%s Point %d: distance = %f, speed = %d", axisName, i, points[i].distance, speed);
+			LOG_ARC("%s Point %d: distance = %f, speed = %d", axisName.c_str(), i, points[i].distance, speed);
 		}
 
-		LOG_ARC("%s Summary: total distance = %f, est time = %f seconds", axisName, totalDistance, totalTime);
+		LOG_ARC("%s Summary: total distance = %f, est time = %f seconds", axisName.c_str(), totalDistance, totalTime);
 	}
 
 	void debugArcCalculation(const ArcParameters& arc, double feedrate) {
@@ -1437,12 +1439,12 @@ public:
 	}
 
 	bool readConfigFile(const std::string& filename) {
-		LOG_CONFIG("Reading interpreter config from: %f", filename);
+		LOG_CONFIG("Reading interpreter config from: %s", filename.c_str());
 
-		try	{
+		try {
 			std::ifstream file(filename);
 			if (!file.is_open()) {
-				LOG_ERROR("Cannot open file: %s", filename);
+				LOG_ERROR("Cannot open file: %s", filename.c_str());
 				return false;
 			}
 
@@ -1478,11 +1480,11 @@ public:
 
 					if (currentSection != Section::UNKNOWN) {
 						processedSections++;
-						LOG_CONFIG("Found interpreter section: %s", sectionName);
+						LOG_CONFIG("Found interpreter section: %s", sectionName.c_str());
 					}
 					else {
 						// Ignore non-interpreter sections
-						LOG_CONFIG("Ignoring non-interpreter section: %s", sectionName);
+						LOG_CONFIG("Ignoring non-interpreter section: %s", sectionName.c_str());
 					}
 					continue;
 				}
@@ -1492,8 +1494,8 @@ public:
 
 				// Process key=value pairs
 				size_t delimiterPosition = line.find('=');
-				if (delimiterPosition == std::string::npos)	{
-					LOG_CONFIG("Invalid config line in interpreter section: %s", line);
+				if (delimiterPosition == std::string::npos) {
+					LOG_CONFIG("Invalid config line in interpreter section: %s", line.c_str());
 					continue;
 				}
 				else {
@@ -1508,21 +1510,21 @@ public:
 
 					ConfigKey configKey = stringToKey(key);
 					if (configKey == ConfigKey::UNKNOWN) {
-						LOG_WARNING("Unknown interpreter config key: %s", key);
+						LOG_WARNING("Unknown interpreter config key: %s", key.c_str());
 					}
 					else {
 						setConfigValue(currentSection, configKey, value);
 
 						// Check status after setting value
 						if (status == ERROR) {
-							LOG_ERROR("Error setting config value for key: %s", key);
+							LOG_ERROR("Error setting config value for key: %s", key.c_str());
 							file.close();
 							return false;
 						}
 					}
 				}
 			}
-			
+
 			file.close();
 
 			// Validate required settings
@@ -1538,14 +1540,14 @@ public:
 			return false;
 		}
 		catch (const std::exception& ex) {
-			LOG_ERROR("Error with read: %s config file: %s", filename, ex.what());
+			LOG_ERROR("Error with read: %s config file: %s", filename.c_str(), ex.what());
 			lastError = ex.what();
 			status = ERROR;
 		}
 	}	
 
 	bool executeLine(const std::string& line, IPrinter* printer) {
-		LOG_EXECUTION("ExecuteLine started: %s", line);
+		LOG_EXECUTION("ExecuteLine started: %s", line.c_str());
 
 		if (status == RUNNING) {
 			LOG_ERROR("Interpreter is already running");
@@ -1676,7 +1678,7 @@ private:
 	}
 
 	void runFileInternal(const std::string& filename) {
-		LOG_INFO("run file started: %s", filename);
+		LOG_INFO("run file started: %s", filename.c_str());
 
 		if (!currentPrinter || !currentPrinter->vtable)	{
 			LOG_ERROR("Printer is not available for execution");
@@ -1689,7 +1691,7 @@ private:
 			status = CHECKING_CODE;
 			std::ifstream file(filename);
 			if (!file.is_open()) {
-				LOG_ERROR("Cannot open file: %s", filename);
+				LOG_ERROR("Cannot open file: %s", filename.c_str());
 				lastError = "Cannot open file: " + filename;
 				status = ERROR;
 				threadRunning = false;
@@ -1733,7 +1735,7 @@ private:
 			status = RUNNING;
 			std::ifstream file2(filename);
 			if (!file2.is_open()) {
-				LOG_ERROR("Cannot open file: %s", filename);
+				LOG_ERROR("Cannot open file: %s", filename.c_str());
 				lastError = "Cannot open file: " + filename;
 				status = ERROR;
 				threadRunning = false;
@@ -1809,13 +1811,13 @@ private:
 		commandStream >> command;
 
 		if (command.empty()) {
-			LOG_EXECUTION("Empty command in line: %s", line);
+			LOG_EXECUTION("Empty command in line: %s", line.c_str());
 			return;
 		}
 
 		if (isTryingInterpret) {
 			try {
-				LOG_EXECUTION("Syntax checking line: %d : %s", linesCount, cleanLine);
+				LOG_EXECUTION("Syntax checking line: %d : %s", linesCount, cleanLine.c_str());
 				if (command[0] == 'G' || command[0] == 'g') {
 					int gCode = std::stoi(command.substr(1));
 
@@ -1836,7 +1838,7 @@ private:
 					case 91:
 						break;
 					default:
-						LOG_ERROR("Unknown G-code: %s at line %d", gCode, linesCount);
+						LOG_ERROR("Unknown G-code: %d at line %d", gCode, linesCount);
 						break;
 					}
 				}
@@ -1846,7 +1848,7 @@ private:
 					case 30:
 						break;
 					default:
-						LOG_ERROR("Unknown M-code: %s at line %d", mCode, linesCount);
+						LOG_ERROR("Unknown M-code: %d at line %d", mCode, linesCount);
 						break;
 					}
 				}
@@ -1854,15 +1856,15 @@ private:
 					try {
 						double newSpeed = std::stoi(command.substr(1));
 						if (newSpeed < 0) {
-							LOG_ERROR("Negative feedrate not allowed: %s", command);
+							LOG_ERROR("Negative feedrate not allowed: %s", command.c_str());
 						}
 					}
 					catch (const std::exception& ex) {
-						LOG_ERROR("Invalid feedrate value: %s", command);
+						LOG_ERROR("Invalid feedrate value: %s", command.c_str());
 					}
 				}
 				else {
-					LOG_ERROR("Unknown processing command '%s' at line %d", command, linesCount);
+					LOG_ERROR("Unknown processing command '%s' at line %d", command.c_str(), linesCount);
 				}
 			}
 			catch (const std::exception& ex) {
@@ -1871,7 +1873,7 @@ private:
 		}
 		else {
 			try {
-				LOG_EXECUTION("Executing line %d : %s", linesCount, cleanLine);
+				LOG_EXECUTION("Executing line %d : %s", linesCount, cleanLine.c_str());
 				if (command[0] == 'G' || command[0] == 'g') {
 					int gCode = std::stoi(command.substr(1));
 
@@ -1941,12 +1943,12 @@ private:
 					case 'J': hasJ = true; break;
 					case 'R': hasR = true; break;
 					default:
-						LOG_ERROR("Invalid axis: %s", axis);
+						LOG_ERROR("Invalid axis: %c", axis);
 						return;
 					}
 				}
 				catch (...) {
-					LOG_ERROR("Invalid number format: %s", token);
+					LOG_ERROR("Invalid number format: %s", token.c_str());
 					return;
 				}
 			}
@@ -1966,7 +1968,7 @@ private:
 		}
 		else {
 			// Execution
-			LOG_EXECUTION("Executing %s", std::string(clockwise ? "G2" : "G3"));
+			LOG_EXECUTION("Executing %s", std::string(clockwise ? "G2" : "G3").c_str());
 
 			std::string token;
 			double x = 0, y = 0, i = 0, j = 0, r = -1;
@@ -2040,7 +2042,7 @@ private:
 				case 'z':
 					break;
 				default:
-					LOG_ERROR("unknown axis: %s at line %d", axis, lineCount);
+					LOG_ERROR("unknown axis: %c at line %d", axis, lineCount);
 					break;
 				}
 			}
@@ -2174,7 +2176,7 @@ private:
 
 						xyCommands.push_back(command);
 
-						LOG_EXECUTION("X axis - Port: %s, Speed: %s, Revolutions: %f", port, calculatedSpeed, revolutionsX);
+						LOG_EXECUTION("X axis - Port: %c, Speed: %f, Revolutions: %f", port, calculatedSpeed, revolutionsX);
 					}
 				}
 
@@ -2208,7 +2210,7 @@ private:
 
 						xyCommands.push_back(command);
 
-						LOG_EXECUTION("Y axis - Port: %s Speed: %s Revolutions: %f", port, calculatedSpeed, revolutionsY);
+						LOG_EXECUTION("Y axis - Port: %c Speed: %f Revolutions: %f", port, calculatedSpeed, revolutionsY);
 					}
 				}
 
@@ -2219,7 +2221,7 @@ private:
 					currentPrinter->vtable->printer_rotate_motor(currentPrinter, finalCommands, xyCommands.size());
 					delete[] finalCommands;
 
-					LOG_EXECUTION("XY movement synchronized. Max time: ", maxTime);
+					LOG_EXECUTION("XY movement synchronized. Max time: %d", maxTime);
 				}
 			}
 
@@ -2332,7 +2334,6 @@ private:
 				maxTime = 1.0;
 			}
 
-
 			// ============ X Axis with synchronized speed =============
 			if (std::abs(xMovement) > 0) {
 				double revolutionsX = (std::abs(xMovement) * stepperX.gearRatio) / stepperX.rotationDistance;
@@ -2363,7 +2364,7 @@ private:
 
 					xyCommands.push_back(command);
 
-					LOG_EXECUTION("X axis - Port: %s Speed: %s Revolutions: %f", port, calculatedSpeed, revolutionsX);
+					LOG_EXECUTION("X axis - Port: %c Speed: %f Revolutions: %f", port, calculatedSpeed, revolutionsX);
 				}
 			}
 
@@ -2397,7 +2398,7 @@ private:
 
 					xyCommands.push_back(command);
 
-					LOG_EXECUTION("Y axis - Port: %s Speed: %s Revolutions: %f", port, calculatedSpeed, revolutionsY);
+					LOG_EXECUTION("Y axis - Port: %c Speed: %f Revolutions: %f", port, calculatedSpeed, revolutionsY);
 				}
 			}
 
