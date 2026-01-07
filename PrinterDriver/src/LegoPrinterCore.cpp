@@ -1,4 +1,26 @@
-﻿#include "LegoPrinterCore.h"
+﻿#if defined(_WIN32)
+    #define FORCE_INLINE __forceinline
+    #define LOCALTIME(tm, time) localtime_s(tm, time)
+    #define STRCPY_SAFE(dest, src, size) strcpy_s(dest, size, src)
+    #define STRNCAT_SAFE(dest, src, size) strncat_s(dest, size, src, _TRUNCATE)
+    #define STRNCMP_SAFE(s1, s2, size) strncmp_s(s1, s2, size)
+    #define STRNCASECMP_SAFE(s1, s2, size) _strnicmp(s1, s2, size)
+    #define STRNCPY_SAFE(dest, src, destSize, count) strncpy_s(dest, destSize, src, count)
+#else
+    #define FORCE_INLINE inline __attribute__((always_inline))
+    #define LOCALTIME(tm, time) localtime_r(time, tm)
+    #define STRCPY_SAFE(dest, src, size) strncpy(dest, src, size)
+    #define STRNCAT_SAFE(dest, src, size) strncat(dest, src, size)
+    #define STRNCMP_SAFE(s1, s2, size) strncmp(s1, s2, size)
+    #define STRNCASECMP_SAFE(s1, s2, size) strncasecmp(s1, s2, size)
+    #define STRNCPY_SAFE(dest, src, destSize, count) do { \
+        size_t n = (count) < (destSize) ? (count) : (destSize)-1; \
+        strncpy(dest, src, n); \
+        dest[n] = '\0'; \
+    } while(0)
+#endif
+
+#include "LegoPrinterCore.h"
 #include <simpleble/SimpleBLE.h>
 #include <string>
 #include <vector>
@@ -338,12 +360,12 @@ public:
 
 private:    
 
-    __forceinline bool isCategoryEnabled(LogCategory category) const {
+    FORCE_INLINE bool isCategoryEnabled(LogCategory category) const {
         return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
     }
 
     template<size_t N>
-    __forceinline void formatToBuffer(char(&buffer)[N], const char* format, va_list args) {
+    FORCE_INLINE void formatToBuffer(char(&buffer)[N], const char* format, va_list args) {
         vsnprintf(buffer, N, format, args);
     }
 
@@ -365,7 +387,7 @@ private:
             now.time_since_epoch()) % 1000;
 
         tm time_info;
-        localtime_s(&time_info, &time_t_now);
+        LOCALTIME(&time_info, &time_t_now);
 
         const char* categoryName = "UNKNOWN";
         switch (category) {
@@ -420,7 +442,8 @@ private:
         }
 
         size_t buffer_idx = write_idx % MAX_LOG_ENTRIES;
-        strncpy_s(logBuffer[buffer_idx].message, finalBuffer, MAX_MESSAGE_LENGTH);
+        STRNCPY_SAFE(logBuffer[buffer_idx].message, finalBuffer, 
+             sizeof(logBuffer[buffer_idx].message), MAX_MESSAGE_LENGTH);
         logBuffer[buffer_idx].category = category;
         logBuffer[buffer_idx].timestamp = now;
 
@@ -818,11 +841,12 @@ public:
             LOG_BLUETOOTH("Checking Bluetooth status:");
 
             bool bleEnabled = SimpleBLE::Adapter::bluetooth_enabled();
-            LOG_BLUETOOTH("  - SimpleBLE::Adapter::bluetooth_enabled(): %s" + bleEnabled ? "true" : "false");
+            LOG_BLUETOOTH("  - SimpleBLE::Adapter::bluetooth_enabled(): %s", 
+              bleEnabled ? "true" : "false");
 
             // Getting a list of adapters
             auto adapters = SimpleBLE::Adapter::get_adapters();
-            LOG_BLUETOOTH("  - Adapters found: %zu" + adapters.size());
+            LOG_BLUETOOTH("  - Adapters found: %zu", adapters.size());
 
             if (adapters.empty()) {
                 LOG_ERROR("Bluetooth adapters not found! Possible reasons:");
@@ -1207,7 +1231,7 @@ public:
         std::lock_guard<std::mutex> lock(operationMutex);
 
         try {
-            std::vector<uint8_t> command(command, command + length);
+            std::vector<uint8_t> commandBuffer(command, command + length);
 
             // Check connection
             if (!peripheral.is_connected()) {
@@ -1217,7 +1241,7 @@ public:
 
             // Logging sending command
             std::string hexCommand = "Command bytes: ";
-            for (auto byte : command) {
+            for (auto byte : commandBuffer) {
                 char hex[4];
                 snprintf(hex, sizeof(hex), "%02X", byte);
                 hexCommand += hex;
@@ -1225,7 +1249,7 @@ public:
             LOG_COMMAND(hexCommand.c_str());
 
             // Sending a command via Bluetooth LE
-            peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, command);
+            peripheral.write_command(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID, commandBuffer);
             LOG_COMMAND("Command sent successfully!");
         }
         catch (const std::exception& e) {
