@@ -16,7 +16,7 @@ set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
 # Импортируем вашу библиотеку
 add_library(printerdriver SHARED IMPORTED)
 set_target_properties(printerdriver PROPERTIES
-    IMPORTED_LOCATION ${LIB_DIR}/libprinterdriver.so
+    IMPORTED_LOCATION ${LIB_DIR}/LegoPrinterCore.so
 )
 
 # Наша JNI библиотека (proxy)
