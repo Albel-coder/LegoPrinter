@@ -2,6 +2,8 @@
 
 #include <jni.h>
 
+#include <JniContext.hpp>
+
 #include <mutex>
 
 namespace SimpleJNI {
@@ -10,24 +12,28 @@ namespace SimpleJNI {
 class VM {
   public:
     // TODO: Make the VM class transparent to the JavaVM pointer.
-    static JavaVM* jvm(JavaVM* jvm_override = nullptr) {
-        static std::mutex mutex;  // Function-local for tied lifecycle
-        static VM instance;       // Function-local for lazy init and auto-cleanup
+	static JavaVM* jvm(JavaVM* jvm_override = nullptr) {
+		static std::mutex mutex;
+		static VM instance;
 
-        std::scoped_lock lock(mutex);  // Lock entire access for safety
-        if (jvm_override != nullptr) {
-            if (instance._jvm != nullptr && instance._jvm != jvm_override) {
-                throw std::runtime_error("JavaVM pointer already set");
-            }
-            instance._jvm = jvm_override;
-        } else if (instance._jvm == nullptr) {
-            jsize count;
-            if (JNI_GetCreatedJavaVMs(&instance._jvm, 1, &count) != JNI_OK || count == 0) {
-                throw std::runtime_error("Failed to retrieve the Java Virtual Machine");
-            }
-        }
-        return instance._jvm;
-    }
+		std::scoped_lock lock(mutex);
+
+		if (jvm_override != nullptr) {
+			instance._jvm = jvm_override;
+		}
+
+	#ifdef __ANDROID__
+		if (instance._jvm == nullptr) {
+			instance._jvm = simpleble_get_jvm();
+			if (!instance._jvm) {
+				throw std::runtime_error("JavaVM not initialized (JNI_OnLoad not called yet)");
+			}
+		}
+	#endif
+	
+		return instance._jvm;
+	}
+
 
     static bool is_jvm_alive() {
         JavaVM* jvm = VM::jvm();

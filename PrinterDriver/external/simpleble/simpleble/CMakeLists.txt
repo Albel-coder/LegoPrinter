@@ -369,7 +369,8 @@ elseif(SIMPLEBLE_BACKEND_ANDROID)
         ${SIMPLEJNI_SOURCES}
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/AdapterAndroid.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/PeripheralAndroid.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/BackendAndroid.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/BackendAndroid.cpp		
+		${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/JniContext.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/bridge/BluetoothGattCallback.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/bridge/ScanCallback.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/types/android/bluetooth/BluetoothAdapter.cpp
@@ -387,7 +388,8 @@ elseif(SIMPLEBLE_BACKEND_ANDROID)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/types/java/util/Iterator.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/types/java/util/List.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/android/types/java/util/Set.cpp)
-    target_link_libraries(simpleble PUBLIC android nativehelper log)
+	# nativehelper is an AOSP-only library and not available in Android NDK
+    target_link_libraries(simpleble PUBLIC android log)
 endif()
 
 target_sources(simpleble PRIVATE
