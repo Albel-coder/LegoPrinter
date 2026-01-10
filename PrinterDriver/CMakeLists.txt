@@ -114,25 +114,3 @@ elseif(WIN32)
             LEGOPRINTERCORE_EXPORTS
     )
 endif()
-
-# For all platforms, we also create a symlink/copy to the root of the architecture
-# (to make it easy to find the latest build)
-if(ANDROID)
-    add_custom_command(TARGET LegoPrinterCore POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${BASE_OUTPUT_DIR}/$<CONFIG>/libLegoPrinterCore.so"
-            "${BASE_OUTPUT_DIR}/libLegoPrinterCore.so"
-        COMMENT "Copying library to architecture root"
-
-)
-elseif(WIN32)
-    add_custom_command(TARGET LegoPrinterCore POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${BASE_OUTPUT_DIR}/$<CONFIG>/LegoPrinterCore.dll"
-            "${BASE_OUTPUT_DIR}/LegoPrinterCore.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${BASE_OUTPUT_DIR}/$<CONFIG>/LegoPrinterCore.lib"
-            "${BASE_OUTPUT_DIR}/LegoPrinterCore.lib"
-        COMMENT "Copying library to architecture root"
-    )
-endif()
