@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary colors -->
+    <color name="purple_500">#6200EE</color>
+    <color name="purple_700">#3700B3</color>
+    <color name="teal_200">#03DAC5</color>
+    <color name="teal_700">#018786</color>
+	
+	<!-- For Device fragment -->
+    <color name="dark_background">#262629</color>
+    <color name="panel_background">#383839</color>
+    <color name="panel_header">#333337</color>
+    
+    <!-- Button colors -->
+    <color name="connect">#1DAF1E</color>
+    <color name="disconnect">#EA5455</color>
+    <color name="connecting">#E3EB0C</color>
+    
+    <color name="execute_button">#4CAF50</color>
+    <color name="browse_button">#2196F3</color>
+    <color name="home_button">#FF9800</color>
+    <color name="movement_button">#4141E0</color>
+    
+    <!-- Text -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#969696</color>
+    <color name="console_text">#96C6FF</color>
+    <color name="edit_text_background">#2D2D30</color>
+    <color name="console_background">#1E1E1E</color>
+    
+    <!-- For bottom navigation -->
+    <color name="bottom_nav_background">#FFFFFF</color>
+    <color name="bottom_nav_selected">#6200EE</color>
+    <color name="bottom_nav_unselected">#757575</color>
+</resources>
