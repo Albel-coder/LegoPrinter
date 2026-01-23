@@ -1,6 +1,7 @@
 package com.example.lpstudio;
 
 import com.example.lpstudio.DeviceFragment;
+import com.example.lpstudio.PreviewFragment;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.View;
@@ -39,6 +40,9 @@ public class MainActivity extends AppCompatActivity {
 
         // Initializing tabs
         tabs.put("DeviceUserControl", new DeviceFragment());
+        tabs.put("PreviewUserControl", new PreviewFragment());
+        tabs.put("PrepareUserControl", new PrepareFragment());
+        tabs.put("CalibrationUserControl", new CalibrationFragment());
 
         // Assigning click handlers
         buttonDevice.setOnClickListener(new View.OnClickListener() {
@@ -73,9 +77,6 @@ public class MainActivity extends AppCompatActivity {
         showTab("DeviceUserControl");
     }
 
-
-
-
     private void showTab(String tabKey) {
         Fragment fragment = tabs.get(tabKey);
         if (fragment == null) return;
@@ -103,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         currentFragment = fragment;
+        transaction.commit();
     }
 
     private void updateButtonStates(String selectedTab) {

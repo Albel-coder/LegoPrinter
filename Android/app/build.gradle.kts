@@ -18,14 +18,17 @@ android {
         
         ndk {
             abiFilters.add("arm64-v8a")
+			abiFilters.add("x86_64")
         }
         
         externalNativeBuild {
             cmake {
-				cppFlags.add("-std=c++17")
-				cppFlags.add("-fexceptions")
-				cppFlags.add("-frtti")
-				arguments.add("-DANDROID_STL=c++_shared")
+                cppFlags.add("-std=c++17")
+                cppFlags.add("-fexceptions")
+                cppFlags.add("-frtti")
+                arguments.add("-DANDROID_STL=c++_static")
+				arguments.add("-DANDROID_ARM_NEON=TRUE")
+                arguments.add("-DANDROID_PLATFORM=android-24")
             }
         }
     }
@@ -65,12 +68,40 @@ android {
             jniLibs.srcDirs("src/main/jniLibs")
         }
     }
+    
+    // WE ADD THIS BLOCK TO SOLVE THE 16KB PROBLEM
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+            // Явно исключите проблемные библиотеки если нужно
+            excludes += listOf(
+                "**/libc++_shared.so",
+                "**/libprinter-jni.so"
+            )
+        }
+        resources {
+            excludes += "/META-INF/**"
+        }
+        // Явно указать pickFirst для конфликтующих библиотек
+        pickFirsts += listOf(
+            "**/libc++_shared.so",
+            "**/libprinter-jni.so"
+        )
+    }
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
+    // Material Design
+    implementation("com.google.android.material:material:1.11.0")
+    
+    // AppCompat
     implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.10.0")
+    
+    // ConstraintLayout
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
+    
+    //Kotlin extensions
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.activity:activity-ktx:1.8.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.1")
 }
