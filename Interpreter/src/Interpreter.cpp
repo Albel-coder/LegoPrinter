@@ -1,6 +1,4 @@
-﻿#define GCODEINTERPRETER_EXPORTS
-
-#include "Interpreter.h"
+﻿#include "Interpreter.h"
 #include <map>
 #include <cstring>
 #include <string>
@@ -344,7 +342,7 @@ private:
 		}
 
 		size_t buffer_idx = write_idx % MAX_LOG_ENTRIES;
-		STRNCPY_SAFE(logBuffer[buffer.idx].message, finalBuffer, sizeof(logBuffer[buffer.idx].message), MAX_MESSAGE_LENGTH);
+		STRNCPY_SAFE(logBuffer[buffer_idx].message, finalBuffer, sizeof(logBuffer[buffer_idx].message), MAX_MESSAGE_LENGTH);
 		logBuffer[buffer_idx].category = category;
 		logBuffer[buffer_idx].timestamp = now;
 

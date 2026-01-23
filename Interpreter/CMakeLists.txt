@@ -77,7 +77,7 @@ if(ANDROID)
     # Remove the "lib" prefix for Android (optional, but usually required)
     set_target_properties(GcodeInterpreter PROPERTIES
         PREFIX ""
-        OUTPUT_NAME "GcodeInterpreter"
+        OUTPUT_NAME "Interpreter"
         LIBRARY_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
         ARCHIVE_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
     )
@@ -94,7 +94,7 @@ elseif(WIN32)
     set(BASE_OUTPUT_DIR "${OUTPUT_ROOT_DIR}/windows/${ARCH_NAME}")
     
     set_target_properties(GcodeInterpreter PROPERTIES
-        OUTPUT_NAME "GcodeInterpreter"
+        OUTPUT_NAME "Interpreter"
         LIBRARY_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
         ARCHIVE_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
         RUNTIME_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
