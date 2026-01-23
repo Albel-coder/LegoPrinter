@@ -22,12 +22,13 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.reflect.KDeclarationContainer
+import java.util.concurrent.atomic.AtomicBoolean
 
 class DeviceFragment : Fragment() {
 
     // UI elements
     private lateinit var connectButton: Button
-    //private lateinit var batteryIndicator: BatteryIndicatorView
+    private lateinit var batteryIndicator: BatteryIndicatorView
     private lateinit var consoleTextView: TextView
     private lateinit var filePathTextView: TextView
     private lateinit var executeButton: Button
@@ -53,12 +54,27 @@ class DeviceFragment : Fragment() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var isConnected = false
-    private var isUpdating = false
+    private var isConsoleUpdating = false
     private var selectedFile: File? = null
-    private var lastLogCount = 0
+
+    // Log tracking
+    private var lastDriverLogCount = 0
+    private var lastInterpreterLogCount = 0
 
     // Coroutine scope
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // Auto scroll
+    private var autoScrollEnabled = true
+
+    // Timer for logs
+    private val logTimer = object : CountDownTimer(Long.MAX_VALUE, 100) {
+        override fun onTick(millisUntilFinished: Long) {
+            // updateConsoleDisplay()
+        }
+
+        override fun onFinish() {}
+    }
 
     // Permissions for Bluetooth
     private val permissions = arrayOf(
@@ -72,10 +88,21 @@ class DeviceFragment : Fragment() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.all { it.value }) {
-            // show toast
+            Toast.makeText(requireContext(), "Разрешения предоставлены", Toast.LENGTH_SHORT).show()
         }
         else {
-            // open app settings
+            Toast.makeText(requireContext(), "Необходимы разрешения для работы с Bluetooth", Toast.LENGTH_LONG).show()
+            // openAppSettings()
+        }
+    }
+
+    private val filePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            val file = File(uri.path ?: "")
+            selectedFile = file
+            filePathTextView.text = file.absolutePath
         }
     }
 
@@ -88,11 +115,143 @@ class DeviceFragment : Fragment() {
         return inflater.inflate(R.layout.fragment_device, container, false)
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         // Initialize your UI elements here
         connectButton = view.findViewById(R.id.connectButton)
-        //...
+        batteryIndicator = view.findViewById(R.id.batteryIndicator)
+        consoleTextView = view.findViewById(R.id.consoleTextView)
+        //consoleScrollView = view.findViewById(R.id.consoleScrollView)
+        filePathTextView = view.findViewById(R.id.filePathTextView)
+        executeButton = view.findViewById(R.id.executeButton)
+        browseButton = view.findViewById(R.id.browseButton)
+
+        // Movement buttons
+        moveXLeftButton = view.findViewById(R.id.moveXLeftButton)
+        moveXRightButton = view.findViewById(R.id.moveXRightButton)
+        moveYUpButton = view.findViewById(R.id.moveYUpButton)
+        moveYDownButton = view.findViewById(R.id.moveYDownButton)
+        moveZUpButton = view.findViewById(R.id.moveZUpButton)
+        moveZDownButton = view.findViewById(R.id.moveZDownButton)
+
+        // Home buttons
+        homeAllButton = view.findViewById(R.id.homeAllButton)
+        homeXYButton = view.findViewById(R.id.homeXYButton)
+        homeXButton = view.findViewById(R.id.homeXButton)
+        homeYButton = view.findViewById(R.id.homeYButton)
+        homeZButton = view.findViewById(R.id.homeZButton)
+
+        // Initialize controllers
+        printerController = PrinterController()
+        // gCodeInterpreter = GCodeInterpreter()
+
+        // Load printer config
+        try {
+            val configFile = File(requireContext().filesDir, "Printer.cfg")
+            // gCodeInterpreter.readConfig(configFile.absolutePath)
+        }
+        catch (e: Exception) {
+            // appendToConsole("[ERROR] Failed to load printer config: ${e.message}")
+        }
+
+        // Setup button listeners
+        setupButtonListeners()
+
+        // Setup console touch listener for scroll control
+        consoleTextView.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    autoScrollEnabled = false
+                }
+                MotionEvent.ACTION_UP -> {
+                    autoScrollEnabled = true
+                }
+            }
+            false
+        }
+
+        // Check permissions
+
+        // Start log timer
+        logTimer.start()
+    }
+
+    private fun setupButtonListeners() {
+        connectButton.setOnClickListener {
+            connectButtonClick()
+        }
+    }
+
+    private fun connectButtonClick() {
+
+    }
+
+    private fun browseButtonClick() {
+
+    }
+
+    private fun executeButtonClick() {
+
+    }
+
+    private fun sendMoveCommand(direction: String) {
+
+    }
+
+    private fun sendHomeCommand(axis: String) {
+
+    }
+
+    private fun updateConsoleDisplay() {
+
+    }
+
+    private fun updateConsoleDisplayInternal() {
+
+    }
+
+    private fun appendDriverLogs(startIndex: Int, count: Int) {
+
+    }
+
+    private fun appendInterpreterLogs(startIndex: Int, count: Int) {
+
+    }
+
+    private fun appendToConsole(text: String) {
+
+    }
+
+    private fun clearConsole() {
+
+    }
+
+    private fun limitLogSize() {
+
+    }
+
+    private fun isAtBottom(scrollView: ScrollView): Boolean {
+        return false
+    }
+
+    private fun hasPermissions(): Boolean {
+        return false
+    }
+
+    private fun openAppSettings() {
+
+    }
+
+    fun clearLogs() {
+
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        logTimer.cancel()
+        scope.cancel()
+        printerController.close()
     }
 }
