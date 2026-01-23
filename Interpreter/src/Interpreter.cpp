@@ -321,6 +321,11 @@ private:
 		case LOG_CATEGORY_PERFORMANCE:
 			categoryName = "PERFORMANCE";
 			break;
+		case LOG_CATEGORY_NONE:
+		case LOG_CATEGORY_DEFAULT:
+		case LOG_CATEGORY_ALL:
+			categoryName = "UNKNOWN";
+			break;
 		}
 
 		char finalBuffer[1024];
@@ -385,6 +390,8 @@ private:
 
 	double evaluateExpression(const std::string& expression) {
 		std::string Processed = expression;
+		// TODO: Implement expression evaluation
+		return 0.0;
 	}
 
 	std::string parseValue(const std::string& value) {
@@ -1311,8 +1318,9 @@ public:
 	bool executeFile(const char* filename, IPrinter* printer) {
 		std::lock_guard<std::mutex> lock(mutex);
 		LOG_EXECUTION("=== ExecuteFile called ===");
-		LOG_EXECUTION("Current status: %f", static_cast<int>(status));
-		LOG_EXECUTION("Printer valid: %f", std::string(printer && printer->vtable ? "YES" : "NO"));
+		
+		const char* printerValid = printer && printer->vtable ? "YES" : "NO";
+		LOG_EXECUTION("Printer valid: %s", printerValid);
 
 		if (!filename) {
 			LOG_ERROR("Filename: NULL");
@@ -1372,7 +1380,7 @@ public:
 		std::string filenameCopy = filename;
 		executionThread = std::make_unique<std::thread>([this, filenameCopy]() {
 				LOG_DEBUG("Execution thread started");
-				LOG_EXECUTION("Thread filename: %f", filenameCopy);
+				LOG_EXECUTION("Thread filename: %s", filenameCopy.c_str());
 				runFile(filenameCopy);
 				LOG_EXECUTION("Execution thread finished");
 				threadRunning = false;
