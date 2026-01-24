@@ -7,14 +7,14 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Включаем ваш header файл
+// Include the header file
 extern "C" {
     #include "LegoPrinterCore.h"
 }
 
-// ========== Вспомогательные функции ==========
+// ========== Helper Functions ==========
 
-// Преобразование Java MotorCommand в C MotorCommand
+// Convert Java MotorCommand to C MotorCommand
 void convertMotorCommand(JNIEnv* env, jobject jCmd, MotorCommand* cmd) {
     jclass cls = env->GetObjectClass(jCmd);
     
@@ -29,7 +29,7 @@ void convertMotorCommand(JNIEnv* env, jobject jCmd, MotorCommand* cmd) {
     env->DeleteLocalRef(cls);
 }
 
-// Преобразование Java SpeedProfilePoint в C SpeedProfilePoint
+// Convert Java SpeedProfilePoint to C SpeedProfilePoint
 void convertSpeedProfilePoint(JNIEnv* env, jobject jPoint, SpeedProfilePoint* point) {
     jclass cls = env->FindClass("com/example/printerapp/PrinterController$SpeedProfilePoint");
     
@@ -44,7 +44,7 @@ void convertSpeedProfilePoint(JNIEnv* env, jobject jPoint, SpeedProfilePoint* po
     env->DeleteLocalRef(cls);
 }
 
-// Преобразование Java SpeedProfile в C SpeedProfile
+// Convert Java SpeedProfile to C SpeedProfile
 SpeedProfile* convertSpeedProfile(JNIEnv* env, jobject jProfile) {
     jclass profileCls = env->FindClass("com/example/printerapp/PrinterController$SpeedProfile");
     
@@ -76,7 +76,7 @@ SpeedProfile* convertSpeedProfile(JNIEnv* env, jobject jProfile) {
     return profile;
 }
 
-// Освобождение памяти SpeedProfile
+// Freeing SpeedProfile memory
 void freeSpeedProfile(SpeedProfile* profile) {
     if (profile) {
         if (profile->points) {
@@ -86,7 +86,7 @@ void freeSpeedProfile(SpeedProfile* profile) {
     }
 }
 
-// ========== JNI методы (чистые прокси) ==========
+// =========== JNI methods (pure proxies) ==========
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_example_lpstudio_PrinterController_createPrinter(JNIEnv* env, jobject /* this */) {
@@ -241,7 +241,7 @@ Java_com_example_lpstudio_PrinterController_printerConnectionInfo(
     
     PrinterConnectionInfo(printer);
     
-    // Возвращаем последнюю запись лога
+    // Return the last log entry
     int count = GetLogCount(printer);
     if (count > 0) {
         const char* lastLog = GetLogEntry(printer, count - 1);
@@ -300,7 +300,7 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfiles(
         env->DeleteLocalRef(jProfile);
     }
     
-    // Создаем массив указателей
+    // Create an array of pointers
     SpeedProfile* profileArray = new SpeedProfile[count];
     for (int i = 0; i < count; i++) {
         profileArray[i] = *profiles[i];
@@ -308,7 +308,7 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfiles(
     
     bool result = PrinterExecuteSpeedProfiles(printer, profileArray, count);
     
-    // Освобождаем память
+    // Free up memory
     for (jint i = 0; i < count; i++) {
         freeSpeedProfile(profiles[i]);
     }
@@ -325,7 +325,7 @@ Java_com_example_lpstudio_PrinterController_printerIsMotorMoving(
     IPrinter* printer = reinterpret_cast<IPrinter*>(printerPtr);
     if (!printer) return JNI_FALSE;
     
-    // Если функция требует count, передаем 1
+    // If the function requires count, pass 1
     bool result = PrinterIsMotorMoving(printer, 1);
     return result ? JNI_TRUE : JNI_FALSE;
 }
@@ -388,7 +388,7 @@ Java_com_example_lpstudio_PrinterController_printerIsBatteryLevelFresh(
     return result ? JNI_TRUE : JNI_FALSE;
 }
 
-// Обязательная функция для JNI
+// Required function for JNI
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /* reserved */) {
     JNIEnv* env;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
