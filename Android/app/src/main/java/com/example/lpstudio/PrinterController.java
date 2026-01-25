@@ -11,6 +11,10 @@ public class PrinterController implements AutoCloseable {
     private long printerHandle = 0;
     private boolean disposed = false;
 
+    static {
+        NativeLib.ensureLoaded();
+    }
+
     // Data structures (correspond to C structures)
     public static class MotorCommand {
         public byte port;
