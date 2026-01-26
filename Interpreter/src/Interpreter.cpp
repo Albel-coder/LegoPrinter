@@ -2580,19 +2580,19 @@ extern "C"
 		return static_cast<Interpreter*>(handle)->getLastError();
 	}
 
-	GCODE_API int GetLogCount(InterpreterHandle handle)	{
+	GCODE_API int GetInterpreterLogCount(InterpreterHandle handle)	{
 		if (!handle) return 0;
 
 		return static_cast<Interpreter*>(handle)->getLogCount();
 	}
 
-	GCODE_API const char* GetLogEntry(InterpreterHandle handle, int index) {
+	GCODE_API const char* GetInterpreterLogEntry(InterpreterHandle handle, int index) {
 		if (!handle) return nullptr;
 
 		return static_cast<Interpreter*>(handle)->getLogEntry(index);
 	}
 
-	GCODE_API void ClearLog(InterpreterHandle handle) {
+	GCODE_API void ClearInterpreterLog(InterpreterHandle handle) {
 		if (handle)	{
 			static_cast<Interpreter*>(handle)->clearLog();
 		}
