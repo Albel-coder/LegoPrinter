@@ -3,15 +3,27 @@ project("printer-jni")
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Флаги для совместимости с 16 KB page size (Android 15+)
+# Необходимо для Google Play с 1 ноября 2025
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
+
 add_library(printer-jni SHARED
+    printer_runtime.cpp
+    converter.cpp
     printer_jni.cpp
     interpreter_jni.cpp
-    jni_onLoad.cpp
+	jni_bridge.cpp
 )
 
 target_include_directories(printer-jni PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Установите свойство для выравнивания сегментов (альтернативный способ)
+set_target_properties(printer-jni PROPERTIES
+    LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
@@ -35,5 +47,13 @@ target_link_libraries(printer-jni
     interpreter
 )
 
-# Для отладки
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wno-unused-parameter")
+# Только необходимые флаги
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -fexceptions")
+
+# Отладочные флаги только для Debug
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_definitions(-DDEBUG)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
+endif()
