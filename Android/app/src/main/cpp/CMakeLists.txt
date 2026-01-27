@@ -4,16 +4,18 @@ project("printer-jni")
 set(CMAKE_CXX_STANDARD 17)
 
 # Флаги для совместимости с 16 KB page size (Android 15+)
-# Необходимо для Google Play с 1 ноября 2025
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 
+# Список исходных файлов
 add_library(printer-jni SHARED
+    jni_globals.cpp      # Добавляем новый файл с глобальными переменными
     printer_runtime.cpp
     converter.cpp
     printer_jni.cpp
     interpreter_jni.cpp
-	jni_bridge.cpp
+    jni_safe_call.cpp
+    jni_bridge.cpp
 )
 
 target_include_directories(printer-jni PRIVATE
@@ -21,7 +23,7 @@ target_include_directories(printer-jni PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Установите свойство для выравнивания сегментов (альтернативный способ)
+# Установите свойство для выравнивания сегментов
 set_target_properties(printer-jni PROPERTIES
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )
