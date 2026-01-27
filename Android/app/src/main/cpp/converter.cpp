@@ -1,4 +1,5 @@
 #include "printer_jni.h"
+#include "jni_globals.h"
 #include <vector>
 
 // Вспомогательная функция для конвертации MotorCommand
@@ -6,6 +7,11 @@ MotorCommand convertMotorCommand(JNIEnv* env, jobject jCmd) {
     MotorCommand cmd{};
     
     jclass cls = env->GetObjectClass(jCmd);
+    if (!cls) {
+        JNI_LOGE("Failed to get MotorCommand class");
+        return cmd;
+    }
+    
     jfieldID portField = env->GetFieldID(cls, "port", "B");
     jfieldID speedField = env->GetFieldID(cls, "speed", "B");
     jfieldID revolutionsField = env->GetFieldID(cls, "revolutions", "D");
@@ -14,6 +20,8 @@ MotorCommand convertMotorCommand(JNIEnv* env, jobject jCmd) {
         cmd.port = env->GetByteField(jCmd, portField);
         cmd.speed = env->GetByteField(jCmd, speedField);
         cmd.revolutions = env->GetDoubleField(jCmd, revolutionsField);
+    } else {
+        JNI_LOGE("Failed to get MotorCommand fields");
     }
     
     env->DeleteLocalRef(cls);
@@ -24,7 +32,10 @@ MotorCommand convertMotorCommand(JNIEnv* env, jobject jCmd) {
 SpeedProfilePoint convertSpeedProfilePoint(JNIEnv* env, jobject jPoint) {
     SpeedProfilePoint point{};
     
-    if (!g_SpeedProfilePointClass) return point;
+    if (!g_SpeedProfilePointClass) {
+        JNI_LOGE("SpeedProfilePoint class not cached");
+        return point;
+    }
     
     jfieldID distanceField = env->GetFieldID(g_SpeedProfilePointClass, "distance", "D");
     jfieldID speedField = env->GetFieldID(g_SpeedProfilePointClass, "speed", "B");
@@ -34,6 +45,8 @@ SpeedProfilePoint convertSpeedProfilePoint(JNIEnv* env, jobject jPoint) {
         point.distance = env->GetDoubleField(jPoint, distanceField);
         point.speed = env->GetByteField(jPoint, speedField);
         point.tolerance = env->GetDoubleField(jPoint, toleranceField);
+    } else {
+        JNI_LOGE("Failed to get SpeedProfilePoint fields");
     }
     
     return point;
@@ -42,7 +55,10 @@ SpeedProfilePoint convertSpeedProfilePoint(JNIEnv* env, jobject jPoint) {
 // Конвертация массива MotorCommand
 std::vector<MotorCommand> convertMotorCommands(JNIEnv* env, jobjectArray commandsArray, jint count) {
     std::vector<MotorCommand> commands;
-    if (!commandsArray || count <= 0) return commands;
+    if (!commandsArray || count <= 0) {
+        JNI_LOGE("Invalid commands array in convertMotorCommands");
+        return commands;
+    }
     
     commands.reserve(count);
     for (jint i = 0; i < count; i++) {
@@ -50,24 +66,33 @@ std::vector<MotorCommand> convertMotorCommands(JNIEnv* env, jobjectArray command
         if (jCmd) {
             commands.push_back(convertMotorCommand(env, jCmd));
             env->DeleteLocalRef(jCmd);
+        } else {
+            JNI_LOGE("Null MotorCommand at index %d", i);
         }
     }
     
+    JNI_LOGD("Converted %zu MotorCommands", commands.size());
     return commands;
 }
 
-// Конвертация SpeedProfile (исправление бага #2 - используем vector)
+// Конвертация SpeedProfile
 SpeedProfileCore convertSpeedProfile(JNIEnv* env, jobject jProfile) {
     SpeedProfileCore profile{};
     
-    if (!jProfile || !g_SpeedProfileClass) return profile;
+    if (!jProfile || !g_SpeedProfileClass) {
+        JNI_LOGE("Invalid profile or class not cached in convertSpeedProfile");
+        return profile;
+    }
     
     jfieldID portField = env->GetFieldID(g_SpeedProfileClass, "port", "B");
     jfieldID pointsField = env->GetFieldID(g_SpeedProfileClass, "points", 
         "[Lcom/example/lpstudio/PrinterController$SpeedProfilePoint;");
     jfieldID timeoutField = env->GetFieldID(g_SpeedProfileClass, "timeoutMs", "I");
     
-    if (!portField || !pointsField || !timeoutField) return profile;
+    if (!portField || !pointsField || !timeoutField) {
+        JNI_LOGE("Failed to get SpeedProfile fields");
+        return profile;
+    }
     
     profile.port = env->GetByteField(jProfile, portField);
     profile.timeoutMs = env->GetIntField(jProfile, timeoutField);
@@ -82,19 +107,28 @@ SpeedProfileCore convertSpeedProfile(JNIEnv* env, jobject jProfile) {
             if (jPoint) {
                 profile.points.push_back(convertSpeedProfilePoint(env, jPoint));
                 env->DeleteLocalRef(jPoint);
+            } else {
+                JNI_LOGE("Null SpeedProfilePoint at index %zu", i);
             }
         }
         
         env->DeleteLocalRef(pointsArray);
+    } else {
+        JNI_LOGD("SpeedProfile has no points array");
     }
     
+    JNI_LOGD("Converted SpeedProfile: port=%d, points=%zu, timeout=%d", 
+            profile.port, profile.points.size(), profile.timeoutMs);
     return profile;
 }
 
 // Конвертация массива SpeedProfile
 std::vector<SpeedProfileCore> convertSpeedProfilesToCore(JNIEnv* env, jobjectArray profilesArray, jint count) {
     std::vector<SpeedProfileCore> profiles;
-    if (!profilesArray || count <= 0) return profiles;
+    if (!profilesArray || count <= 0) {
+        JNI_LOGE("Invalid profiles array in convertSpeedProfilesToCore");
+        return profiles;
+    }
     
     profiles.reserve(count);
     for (jint i = 0; i < count; i++) {
@@ -102,8 +136,11 @@ std::vector<SpeedProfileCore> convertSpeedProfilesToCore(JNIEnv* env, jobjectArr
         if (jProfile) {
             profiles.push_back(convertSpeedProfile(env, jProfile));
             env->DeleteLocalRef(jProfile);
+        } else {
+            JNI_LOGE("Null SpeedProfile at index %d", i);
         }
     }
     
+    JNI_LOGD("Converted %zu SpeedProfiles", profiles.size());
     return profiles;
 }
