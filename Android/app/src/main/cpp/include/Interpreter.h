@@ -47,9 +47,9 @@ extern "C" {
 	GCODE_API double GetProgress(InterpreterHandle handle);
 	GCODE_API const char* GetLastInterpreterError(InterpreterHandle handle);
 	GCODE_API const char* GetError(InterpreterHandle handle, int index);
-	GCODE_API int GetLogCount(InterpreterHandle handle);
-	GCODE_API const char* GetLogEntry(InterpreterHandle handle, int index);
-	GCODE_API void ClearLog(InterpreterHandle handle);
+	GCODE_API int GetInterpreterLogCount(InterpreterHandle handle);
+	GCODE_API const char* GetInterpreterLogEntry(InterpreterHandle handle, int index);
+	GCODE_API void ClearInterpreterLog(InterpreterHandle handle);
 	GCODE_API bool ReadConfig(InterpreterHandle handle, const char* filename);
 	GCODE_API void SetLogCategories(InterpreterHandle handle, unsigned int categories);
 	GCODE_API unsigned int GetLogCategories(InterpreterHandle handle);
