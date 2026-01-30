@@ -66,10 +66,17 @@ public class PrinterController implements AutoCloseable {
 
     // Constructor
     public PrinterController() {
+        NativeLib.ensureLoaded();
+
+        if (!NativeLib.isJNIInitialized()) {
+            throw new RuntimeException("Failed to initialized JNI");
+        }
+
         printerHandle = createPrinter();
         if (printerHandle == 0) {
             throw new RuntimeException("Failed to create printer instance");
         }
+
     }
 
     // ========== Native methods (declarations) ==========
