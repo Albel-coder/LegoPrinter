@@ -15,6 +15,9 @@
     <color name="connect">#1DAF1E</color>
     <color name="disconnect">#EA5455</color>
     <color name="connecting">#E3EB0C</color>
+	
+	<color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
     
     <color name="execute_button">#4CAF50</color>
     <color name="browse_button">#2196F3</color>
