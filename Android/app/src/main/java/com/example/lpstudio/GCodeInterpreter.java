@@ -97,6 +97,13 @@ public class GCodeInterpreter implements AutoCloseable {
 
     // Constructor
     public GCodeInterpreter() {
+        NativeLib.ensureLoaded();
+
+        if (!NativeLib.isJNIInitialized()) {
+            throw new RuntimeException("Failed to initialized JNI");
+        }
+
+
         interpreterHandle = createInterpreter();
         if (interpreterHandle == 0) {
             throw new RuntimeException("Failed to create GCode interpreter instance");
@@ -126,9 +133,9 @@ public class GCodeInterpreter implements AutoCloseable {
     private native int getErrorCount(long interpreterPtr);
 
     // Logging
-    private native int getLogCount(long interpreterPtr);
-    private native String getLogEntry(long interpreterPtr, int index);
-    private native void clearLog(long interpreterPtr);
+    private native int getInterpreterLogCount(long interpreterPtr);
+    private native String getInterpreterLogEntry(long interpreterPtr, int index);
+    private native void clearInterpreterLog(long interpreterPtr);
 
     // Configuration
     private native boolean readConfig(long interpreterPtr, String filename);
@@ -282,7 +289,7 @@ public class GCodeInterpreter implements AutoCloseable {
 
     public String getLog(int index) {
         checkDisposed();
-        String log = getLogEntry(interpreterHandle, index);
+        String log = getInterpreterLogEntry(interpreterHandle, index);
         return log != null ? log : "";
     }
 
@@ -293,12 +300,12 @@ public class GCodeInterpreter implements AutoCloseable {
 
     public int getLogCount() {
         checkDisposed();
-        return getLogCount(interpreterHandle);
+        return getInterpreterLogCount(interpreterHandle);
     }
 
     public void clearLog() {
         checkDisposed();
-        clearLog(interpreterHandle);
+        clearInterpreterLog(interpreterHandle);
     }
 
     public boolean readConfig(String filename) {
