@@ -52,8 +52,9 @@ namespace LPStudio
         private async void MainForm_Shown(object sender, EventArgs e)
         {
             Console.WriteLine("start MainForm_Shown");
-            await Task.Delay(3000);
-            await CheckForUpdatesAsync();
+
+            await CheckForUpdatesAsync(manualCheck: false);
+
             Console.WriteLine("end MainForm_Shown");
         }
 
@@ -88,8 +89,8 @@ namespace LPStudio
                 if (updateInfo != null)
                 {
                     Console.WriteLine($"Доступно обновление: {updateInfo.IsAvailable}");
-                    Console.WriteLine($"Текущая версия: {updateInfo.CurrentVersion}");
-                    Console.WriteLine($"Новая версия: {updateInfo.LatestVersion}");
+                    Console.WriteLine($"Текущая версия: {updateInfo.CurrentVersion}.{updateInfo.CurrentBuild}");
+                    Console.WriteLine($"Новая версия: {updateInfo.LatestVersion}.{updateInfo.CurrentBuild}");
                     Console.WriteLine($"URL для скачивания: {updateInfo.DownloadUrl ?? "null"}");
                     Console.WriteLine($"Имя файла: {updateInfo.AssetName ?? "null"}");
                 }

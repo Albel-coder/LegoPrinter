@@ -69,8 +69,6 @@ Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinterC
 Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\Newtonsoft.Json.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\Newtonsoft.Json.xml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\SharpCompress.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\WindowsForms.exe.config"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\WindowsForms.pdb"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
