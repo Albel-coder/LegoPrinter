@@ -1,112 +1,102 @@
 ﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace LPStudio.Services
 {
-    /// <summary>
-    /// A service for checking and installing updates via GitHub
-    /// </summary>
     public class GitHubUpdateService
     {
-        // Constants
-        private const string GITHUB_API_URL = "https://api.github.com";
-        private const string DEFAULT_USER_AGENT = "LegoPrinter-App-Updater";
+        private const string DEFAULT_MANIFEST_URL = "https://github.com/{owner}/{repo}/releases/latest/download/update.json";
+        private const string USER_AGENT = "LPStudio-Updater";
 
-        // Settings
         private readonly string _owner;
         private readonly string _repo;
-        private readonly string _userAgent;
+        private readonly string _manifestUrl;
         private readonly HttpClient _httpClient;
+        private readonly string _currentPlatform;
 
-        // Cache for storing the last check
         private UpdateInfo _cachedUpdateInfo;
         private DateTime _lastCheckTime = DateTime.MinValue;
-        private readonly TimeSpan _cacheDuration = TimeSpan.FromHours(1);
+        private readonly TimeSpan _cacheDuration = TimeSpan.FromMinutes(30);
 
-        /// <summary>
-        /// Constructor
-        /// </summary>
-        /// <param name="owner">Repository owner</param>
-        /// <param name="repo">Repository name</param>
-        public GitHubUpdateService(string owner, string repo)
+        public GitHubUpdateService(string owner, string repo, string manifestUrl = null)
         {
             _owner = owner ?? throw new ArgumentNullException(nameof(owner));
             _repo = repo ?? throw new ArgumentNullException(nameof(repo));
-            _userAgent = $"{DEFAULT_USER_AGENT}/{UpdateHelper.GetCurrentVersion()}";
+            _manifestUrl = manifestUrl ?? DEFAULT_MANIFEST_URL.Replace("{owner}", owner).Replace("{repo}", repo);
 
-            // Configure HttpClient
+            _currentPlatform = GetCurrentPlatform();
+
             _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(_userAgent);
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"{USER_AGENT}/{UpdateHelper.GetCurrentVersion()}");
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
-
-            // If needed, you can add a GitHub token to increase the limits
-            // if (!string.IsNullOrEmpty(githubToken))
-            // {
-            //     _httpClient.DefaultRequestHeaders.Authorization = 
-            //         new System.Net.Http.Headers.AuthenticationHeaderValue("token", githubToken);
-            // }
         }
 
-        /// <summary>
-        /// Check for updates
-        /// </summary>
-        /// <param name="forceCheck">Force verification (ignore cache)</param>
-        /// <returns>Update information</returns>
         public async Task<UpdateInfo> CheckForUpdatesAsync(bool forceCheck = false)
         {
             try
             {
-                // Use cache if not forced check
                 if (!forceCheck && DateTime.Now - _lastCheckTime < _cacheDuration && _cachedUpdateInfo != null)
                 {
                     return _cachedUpdateInfo;
                 }
 
-                // Get information about the latest release
-                var latestRelease = await GetLatestReleaseAsync();
-
-                if (latestRelease == null)
+                var manifest = await LoadUpdateManifestAsync();
+                if (manifest == null)
                 {
                     return CreateNoUpdateInfo();
                 }
 
-                // Get the current version
-                var currentVersion = UpdateHelper.GetCurrentVersion();
-                var latestVersion = UpdateHelper.CleanVersion(latestRelease.TagName);
+                if (!manifest.Platforms.TryGetValue(_currentPlatform, out var platformInfo))
+                {
+                    Debug.WriteLine($"[UpdateService] Платформа '{_currentPlatform}' не найдена в манифесте");
+                    return CreateNoUpdateInfo();
+                }
 
-                // Check if there is an update
-                bool hasUpdate = UpdateHelper.IsVersionNewer(latestVersion, currentVersion);
+                // Получаем текущую версию и сборку
+                var (currentVersion, currentBuild) = UpdateHelper.ParseVersionAndBuild(
+                    UpdateHelper.GetCurrentVersion()
+                );
 
-                // We are looking for a suitable file for our platform
-                var installerAsset = FindInstallerAsset(latestRelease.Assets);
+                // Проверяем обновление
+                var checkResult = platformInfo.CheckForUpdate(currentVersion, currentBuild);
 
-                // Create update information
                 var updateInfo = new UpdateInfo
                 {
-                    IsAvailable = hasUpdate,
+                    IsAvailable = checkResult.IsUpdateAvailable,
+                    IsRequired = checkResult.IsRequired,
+                    IsDeprecated = checkResult.IsDeprecated,
+                    IsCompatible = checkResult.IsCompatible,
+                    IsCritical = checkResult.IsCritical,
+
                     CurrentVersion = currentVersion,
-                    LatestVersion = latestVersion,
-                    DownloadUrl = installerAsset?.BrowserDownloadUrl,
-                    ReleaseNotes = latestRelease.Body,
-                    ReleaseName = latestRelease.Name,
-                    PublishedAt = latestRelease.PublishedAt,
-                    IsPrerelease = latestRelease.Prerelease,
-                    AssetName = installerAsset?.Name,
-                    FileSize = installerAsset?.Size ?? 0
+                    CurrentBuild = currentBuild,
+                    LatestVersion = platformInfo.AvailableVersion,
+                    LatestBuild = platformInfo.Build,
+                    MinRequiredVersion = platformInfo.MinVersion,
+
+                    DownloadUrl = platformInfo.Url,
+                    ReleaseNotes = platformInfo.Changelog,
+                    GeneralReleaseNotes = manifest.ReleaseNotes,
+                    ProductName = manifest.ProductName,
+                    ProductVersion = manifest.ProductVersion,
+                    PublishedAt = platformInfo.ReleaseDate,
+                    InstallerType = platformInfo.InstallerType,
+                    FileSize = platformInfo.FileSize,
+                    Checksum = platformInfo.Sha256,
+                    Signature = platformInfo.Signature,
+                    ChangelogUrl = manifest.ChangelogUrl,
+                    AssetName = Path.GetFileName(platformInfo.Url)
                 };
 
-                // Cache the result
                 _cachedUpdateInfo = updateInfo;
                 _lastCheckTime = DateTime.Now;
 
@@ -114,153 +104,53 @@ namespace LPStudio.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[GitHubUpdateService] Ошибка проверки обновлений: {ex.Message}");
+                Debug.WriteLine($"[UpdateService] Ошибка проверки обновлений: {ex.Message}");
                 return CreateNoUpdateInfo();
             }
         }
 
-        /// <summary>
-        /// Get information about the latest release
-        /// </summary>
-        private async Task<GitHubRelease> GetLatestReleaseAsync()
+        private async Task<UpdateManifest> LoadUpdateManifestAsync()
         {
             try
             {
-                // Generate a URL to get the latest release
-                string url = $"{GITHUB_API_URL}/repos/{_owner}/{_repo}/releases/latest";
-
-                var response = await _httpClient.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    // If we couldn't get the latest release, we try to get a list of all releases
-                    return await GetLatestReleaseFallbackAsync();
-                }
-
-                var json = await response.Content.ReadAsStringAsync();
-                return JsonConvert.DeserializeObject<GitHubRelease>(json);
-            }
-            catch (HttpRequestException ex)
-            {
-                return null;
+                var json = await _httpClient.GetStringAsync(_manifestUrl);
+                return JsonConvert.DeserializeObject<UpdateManifest>(json);
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[GitHubUpdateService] Ошибка получения релиза: {ex.Message}");
+                Debug.WriteLine($"[UpdateService] Ошибка загрузки манифеста: {ex.Message}");
                 return null;
             }
         }
 
-        /// <summary>
-        /// Fallback method: get a list of all releases and take the first one
-        /// </summary>
-        private async Task<GitHubRelease> GetLatestReleaseFallbackAsync()
+        private string GetCurrentPlatform()
         {
-            try
-            {
-                string url = $"{GITHUB_API_URL}/repo/{_owner}/{_repo}/releases";
-
-                var response = await _httpClient.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-
-                var json = await response.Content.ReadAsStringAsync();
-                var releases = JsonConvert.DeserializeObject<GitHubRelease[]>(json);
-
-                // Looking for the latest stable release
-                var latestStable = releases?.FirstOrDefault(r => !r.Prerelease);
-                return latestStable ?? releases?.FirstOrDefault();
-            }
-            catch
-            {
-                return null;
-            }
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                return "windows";
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                return "linux";
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                return "macos";
+            else
+                return "unknown";
         }
 
-        /// <summary>
-        /// Find the installer among the release files
-        /// </summary>
-        private GitHubAsset FindInstallerAsset(GitHubAsset[] assets)
-        {
-            if (assets == null || assets.Length == 0)
-                return null;
-
-            // Keywords for searching Windows Installer
-            string[] windowsKeywords = { "windows", "win", ".exe", ".msi", "setup", "installer" };
-            string[] excludeKeywords = { "android", "macos", "linux", ".dmg", ".deb", ".rpm", ".apk" };
-
-            // Search in order of priority:
-
-            // 1. We are looking for a file with an explicit indication of Windows and architecture
-            foreach (var asset in assets)
-            {
-                var name = asset.Name.ToLower();
-
-                // Skip files from other platforms
-                if (excludeKeywords.Any(k => name.Contains(k)))
-                    continue;
-
-                // Check the architecture (if specified)
-                bool is64Bit = Environment.Is64BitProcess;
-                bool hasCorrectArchitecture =
-                    (is64Bit && (name.Contains("x64") || name.Contains("64") || name.Contains("x86_64"))) ||
-                    (!is64Bit && (name.Contains("x86") || name.Contains("32") || name.Contains("i386")));
-
-                // If the file contains Windows keywords and the correct architecture (or no architecture is specified)
-                if (windowsKeywords.Any(k => name.Contains(k)) &&
-                    (hasCorrectArchitecture || !name.Contains("x64") && !name.Contains("x86")))
-                {
-                    return asset;
-                }
-            }
-
-            // 2. Search for any .exe or .msi file
-            foreach (var asset in assets)
-            {
-                var name = asset.Name.ToLower();
-
-                if (excludeKeywords.Any(k => name.Contains(k)))
-                    continue;
-
-                if (name.EndsWith(".exe") || name.EndsWith(".msi"))
-                {
-                    return asset;
-                }
-            }
-
-            // 3. Look for a ZIP archive with Windows in the name
-            foreach (var asset in assets)
-            {
-                var name = asset.Name.ToLower();
-
-                if (excludeKeywords.Any(k => name.Contains(k)))
-                    continue;
-
-                if ((name.Contains("windows") || name.Contains("win")) && name.EndsWith(".zip"))
-                {
-                    return asset;
-                }
-            }
-
-            // 4. Return the first file if nothing was found
-            return assets.FirstOrDefault();
-        }
-
-        /// <summary>
-        /// Create information about the lack of updates
-        /// </summary>
         private UpdateInfo CreateNoUpdateInfo()
         {
+            var versionInfo = UpdateHelper.ParseVersionAndBuild(UpdateHelper.GetCurrentVersion());
+
             return new UpdateInfo
             {
                 IsAvailable = false,
-                CurrentVersion = UpdateHelper.GetCurrentVersion(),
-                LatestVersion = UpdateHelper.GetCurrentVersion()
+                IsRequired = false,
+                IsCompatible = true,
+                CurrentVersion = versionInfo.Version,
+                CurrentBuild = versionInfo.Build,
+                LatestVersion = versionInfo.Version,
+                LatestBuild = versionInfo.Build
             };
         }
 
-        /// <summary>
-        /// Start the update process
-        /// </summary>
         public void StartUpdateProcess(UpdateInfo updateInfo)
         {
             if (updateInfo == null)
@@ -272,7 +162,6 @@ namespace LPStudio.Services
             if (string.IsNullOrEmpty(updateInfo.DownloadUrl))
                 throw new InvalidOperationException("URL для скачивания не указан");
 
-            // Check the existence of Updater
             if (!UpdateHelper.UpdaterExists())
             {
                 MessageBox.Show(
@@ -288,33 +177,18 @@ namespace LPStudio.Services
                 Console.WriteLine($"=== Запуск процесса обновления ===");
                 Console.WriteLine($"Current PID: {Process.GetCurrentProcess().Id}");
 
-                // Generate command line arguments for Updater
-                var arguments = BuildUpdaterArguments(updateInfo);
+                // Получаем текущий исполняемый файл и директорию
+                var currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                var currentDir = Path.GetDirectoryName(currentExe);
+
+                // Собираем аргументы с точными путями
+                var arguments = BuildUpdaterArguments(updateInfo, currentExe, currentDir);
                 Console.WriteLine($"Аргументы Updater: {arguments}");
 
-                // Launch Updater
                 var updaterPath = UpdateHelper.GetUpdaterPath();
                 Console.WriteLine($"Путь к Updater: {updaterPath}");
                 Console.WriteLine($"Exists: {File.Exists(updaterPath)}");
 
-                // Check the arguments in more detail
-                Console.WriteLine($"\nДетали аргументов:");
-                Console.WriteLine($"App Exe: {Application.ExecutablePath}");
-                Console.WriteLine($"App Dir: {Application.StartupPath}");
-                Console.WriteLine($"Download URL: {updateInfo.DownloadUrl}");
-                Console.WriteLine($"Version: {updateInfo.LatestVersion}");
-                Console.WriteLine($"Asset Name: {updateInfo.AssetName}");
-
-                // Create a temporary file with logs
-                var tempLogFile = Path.Combine(Path.GetTempPath(), $"updater_launch_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
-                File.WriteAllText(tempLogFile,
-                    $"Updater Path: {updaterPath}\n" +
-                    $"Arguments: {arguments}\n" +
-                    $"Time: {DateTime.Now}");
-
-                Console.WriteLine($"Log file created: {tempLogFile}");
-
-                // Run Updater with detailed logging
                 var process = UpdateHelper.StartProcess(updaterPath, arguments, false);
 
                 if (process == null)
@@ -324,10 +198,8 @@ namespace LPStudio.Services
                 }
 
                 Console.WriteLine($"Updater запущен, PID: {process.Id}");
-                Console.WriteLine($"Process HasExited: {process.HasExited}");
 
-                // Give Updater some time to start
-                Thread.Sleep(1000);
+                System.Threading.Thread.Sleep(1000);
 
                 if (process.HasExited)
                 {
@@ -337,46 +209,46 @@ namespace LPStudio.Services
 
                 Console.WriteLine("Updater успешно запущен, закрываю основное приложение...");
 
-                // Close the current application
                 Application.Exit();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Ошибка запуска Updater: {ex.Message}");
-                Console.WriteLine($"StackTrace: {ex.StackTrace}");
-
                 MessageBox.Show(
-                    $"Не удалось запустить процесс обновления: {ex.Message}\n\nПроверьте консоль для деталей.",
+                    $"Не удалось запустить процесс обновления: {ex.Message}",
                     "Ошибка",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
         }
 
-        /// <summary>
-        /// Generate arguments for Updater
-        /// </summary>
-        private string BuildUpdaterArguments(UpdateInfo updateInfo)
+        private string BuildUpdaterArguments(UpdateInfo updateInfo, string currentExe, string currentDir)
         {
             var args = new StringBuilder();
 
-            // Basic parameters
-            args.Append($"--app-exe \"{Application.ExecutablePath}\" ");
-            args.Append($"--app-dir \"{Application.StartupPath}\" ");
+            // Обязательные параметры
+            args.Append($"--app-exe \"{currentExe}\" ");
+            args.Append($"--app-dir \"{currentDir}\" ");
             args.Append($"--download-url \"{updateInfo.DownloadUrl}\" ");
-            args.Append($"--version \"{updateInfo.LatestVersion}\" ");
-            args.Append($"--wait-pid {Process.GetCurrentProcess().Id} ");
 
-            // Additional parameters
             if (!string.IsNullOrEmpty(updateInfo.AssetName))
                 args.Append($"--asset-name \"{updateInfo.AssetName}\" ");
 
-            return args.ToString();
+            args.Append($"--version \"{updateInfo.CurrentVersion}\" ");
+            args.Append($"--build {updateInfo.CurrentBuild} ");
+
+            if (!string.IsNullOrEmpty(updateInfo.Checksum))
+                args.Append($"--checksum \"{updateInfo.Checksum}\" ");
+
+            args.Append($"--wait-pid {Process.GetCurrentProcess().Id} ");
+
+            //if (updateInfo.Silent)
+            //    args.Append("--silent ");
+
+            return args.ToString().Trim();
         }
 
-        /// <summary>
-        /// Download the update file directly (without Updater)
-        /// </summary>
+
         public async Task<string> DownloadUpdateAsync(UpdateInfo updateInfo, IProgress<double> progress = null)
         {
             if (updateInfo == null || string.IsNullOrEmpty(updateInfo.DownloadUrl))
@@ -419,46 +291,38 @@ namespace LPStudio.Services
                 }
             }
 
+            if (!string.IsNullOrEmpty(updateInfo.Checksum))
+            {
+                if (!VerifyChecksum(filePath, updateInfo.Checksum))
+                {
+                    File.Delete(filePath);
+                    throw new Exception("Контрольная сумма файла не совпадает");
+                }
+            }
+
             return filePath;
         }
 
-        #region Вложенные классы для десериализации JSON
-        private class GitHubRelease
+        public bool VerifyChecksum(string filePath, string expectedHash)
         {
-            [JsonProperty("tag_name")]
-            public string TagName { get; set; }
+            if (string.IsNullOrEmpty(expectedHash))
+                return true;
 
-            [JsonProperty("name")]
-            public string Name { get; set; }
-
-            [JsonProperty("body")]
-            public string Body { get; set; }
-
-            [JsonProperty("prerelease")]
-            public bool Prerelease { get; set; }
-
-            [JsonProperty("published_at")]
-            public DateTime PublishedAt { get; set; }
-
-            [JsonProperty("assets")]
-            public GitHubAsset[] Assets { get; set; }
+            try
+            {
+                using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                using (var stream = File.OpenRead(filePath))
+                {
+                    var hashBytes = sha256.ComputeHash(stream);
+                    var actualHash = BitConverter.ToString(hashBytes).Replace("-", "").ToLower();
+                    var cleanExpectedHash = expectedHash.ToLower().Replace("sha256:", "");
+                    return actualHash == cleanExpectedHash;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
-
-        private class GitHubAsset
-        {
-            [JsonProperty("name")]
-            public string Name { get; set; }
-
-            [JsonProperty("browser_download_url")]
-            public string BrowserDownloadUrl { get; set; }
-
-            [JsonProperty("size")]
-            public long Size { get; set; }
-
-            [JsonProperty("content_type")]
-            public string ContentType { get; set; }
-        }
-
-        #endregion
     }
 }
