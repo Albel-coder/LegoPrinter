@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "LPStudio"
-#define MyAppVersion "1.0.0.0"
+#define MyAppVersion "1.0.0.14"
 #define MyAppPublisher "Albel-coder"
 #define MyAppURL "https://github.com/Albel-coder/LegoPrinter"
 #define MyAppExeName "LPStudio.exe"
