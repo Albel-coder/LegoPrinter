@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val versionMajor = 1
+val versionMinor = 0
+val versionPatch = 0
+val versionBuild = 2
+
 android {
     namespace = "com.example.lpstudio"
     compileSdk = 34
@@ -11,8 +16,8 @@ android {
         applicationId = "com.example.lpstudio"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = versionMajor * 10000000 + versionMinor * 100000 + versionPatch * 1000 + versionBuild
+        versionName = "${versionMajor}.${versionMinor}.${versionPatch}.${versionBuild}"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -104,4 +109,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.activity:activity-ktx:1.8.0")
     implementation("androidx.fragment:fragment-ktx:1.6.1")
+	
+	implementation("com.squareup.okhttp3:okhttp:4.12.0")
+	implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }
