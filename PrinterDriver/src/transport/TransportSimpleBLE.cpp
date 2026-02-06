@@ -36,7 +36,6 @@ bool TransportSimpleBLE::open() {
 
     // Проверяем состояние
     if (currentState_ != State::Disconnected && currentState_ != State::Error) {
-        std::cerr << "TransportSimpleBLE: Already connecting or connected" << std::endl;
         return false;
     }
 
@@ -56,7 +55,6 @@ bool TransportSimpleBLE::open() {
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "TransportSimpleBLE: Failed to start worker thread: " << e.what() << std::endl;
         setState(State::Error);
         return false;
     }
@@ -69,7 +67,7 @@ void TransportSimpleBLE::workerFunction() {
         // Инициализация адаптера
         auto adapters = SimpleBLE::Adapter::get_adapters();
         if (adapters.empty()) {
-            throw std::runtime_error("No Bluetooth adapters found");
+
         }
 
         adapter_ = adapters[0];
@@ -114,7 +112,7 @@ void TransportSimpleBLE::workerFunction() {
         peripheral_.connect();
 
         if (!peripheral_.is_connected()) {
-            throw std::runtime_error("Failed to connect to peripheral");
+
         }
 
         // Настройка уведомлений
@@ -138,7 +136,6 @@ void TransportSimpleBLE::workerFunction() {
 
     }
     catch (const std::exception& e) {
-        std::cerr << "TransportSimpleBLE worker error: " << e.what() << std::endl;
         setState(State::Error);
 
         if (connectionCallback_) {
@@ -164,7 +161,6 @@ void TransportSimpleBLE::close() {
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "TransportSimpleBLE close error: " << e.what() << std::endl;
     }
 
     setState(State::Disconnected);
@@ -189,7 +185,6 @@ bool TransportSimpleBLE::write(const uint8_t* data, size_t length) {
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "TransportSimpleBLE write failed: " << e.what() << std::endl;
         return false;
     }
 }
