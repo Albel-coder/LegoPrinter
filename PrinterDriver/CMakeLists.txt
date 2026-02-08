@@ -53,27 +53,46 @@ if(MSVC AND NOT ANDROID)
     add_compile_options(/Zc:__cplusplus)
 endif()
 
-# Add a subdirectory with SimpleBLE
-add_subdirectory(external/simpleble/simpleble)
-
 # Create a library
 add_library(LegoPrinterCore SHARED
-    src/LegoPrinterCore.cpp
-    src/LegoPrinterCore.h
-    src/IPrinter.h 
+	src/api/LegoDriverAPI.h
+	src/api/LegoDriverAPI.cpp
+	src/core/IPrinter.h
+	src/core/PrinterImplementation.h
+	src/core/PrinterImplementation.cpp
+	src/logging/Logger.h
+	src/logging/Logger.cpp
+	src/transport/ITransport.h	
+	src/platform/PrinterFactory.h
 )
 
 # Include directories
 target_include_directories(LegoPrinterCore
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/src
+		${CMAKE_CURRENT_SOURCE_DIR}/src/core
+		${CMAKE_CURRENT_SOURCE_DIR}/src/transport
+	PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/src/platform
 )
 
-# Linking
-target_link_libraries(LegoPrinterCore
-    PUBLIC
-        simpleble::simpleble 
-)
+if(WIN32)
+	# Include SimpleBLE only in Windows
+	add_subdirectory(external/simpleble/simpleble)
+	
+	target_sources(LegoPrinterCore PRIVATE
+		src/transport/TransportSimpleBLE.cpp
+		src/platform/PrinterFactory.cpp
+	)
+	
+	# Linking with SimpleBLE only in Windows
+	target_link_libraries(LegoPrinterCore
+		PRIVATE
+			simpleble::simpleble
+	)
+	
+endif()
+	
 
 # Set up output directories INSIDE the project's root directory
 # Create a convenient structure: <project root>/build/<platform>/<architecture>/<configuration>/
