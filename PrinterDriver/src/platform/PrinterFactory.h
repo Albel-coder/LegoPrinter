@@ -1,21 +1,17 @@
+#pragma once
+
 #include <memory>
 #include "../transport/ITransport.h"
-#include "../core/PrinterImplementation.h"
-#include "../core/IPrinter.h"
+
+class PrinterImplementation;
 
 /**
-* @brief Factory for creating an IPrinter from a pre-existing transport
-*
-* Core doesn't know HOW the transport works.
-* It only accepts it.
-*/
+ * @brief Platform factory for creating transports
+ *
+ * Core logic owns PrinterImplementation.
+ * Factory only creates transport.
+ */
 class PrinterFactory {
 public:
-    /**
-    * @brief Create a printer with the given transport
-    *
-    * @param transport The prepared transport (BLE, mock, replay, etc.)
-    * @return IPrinter C interface
-    */
-    static IPrinter* Create(TransportPtr transport);
+    static TransportPtr CreateTransport();
 };
