@@ -2,33 +2,33 @@
 
 // Automatic platform and compiler detection
 #if defined(_WIN32) || defined(_WIN64)
-#define LEGOPRINTER_WINDOWS 1
-#define LEGOPRINTER_ANDROID 0
+    #define LEGOPRINTER_WINDOWS 1
+    #define LEGOPRINTER_ANDROID 0
 #elif defined(__ANDROID__)
-#define LEGOPRINTER_WINDOWS 0
-#define LEGOPRINTER_ANDROID 1
+    #define LEGOPRINTER_WINDOWS 0
+    #define LEGOPRINTER_ANDROID 1
 #else
-#define LEGOPRINTER_WINDOWS 0
-#define LEGOPRINTER_ANDROID 0
+    #define LEGOPRINTER_WINDOWS 0
+    #define LEGOPRINTER_ANDROID 0
 #endif
 
 // Export/Import settings
 #if LEGOPRINTER_WINDOWS
-#ifdef LEGOPRINTERCORE_EXPORTS
-#define PRINTER_DRIVER_API __declspec(dllexport)
+    #ifdef LEGOPRINTERCORE_EXPORTS
+    #define PRINTER_DRIVER_API __declspec(dllexport)
 #else
-#define PRINTER_DRIVER_API __declspec(dllimport)
+    #define PRINTER_DRIVER_API __declspec(dllimport)
 #endif
 #elif LEGOPRINTER_ANDROID
     // For Android with GCC/Clang
 #if defined(__GNUC__) || defined(__clang__)
-#define PRINTER_DRIVER_API __attribute__((visibility("default")))
+    #define PRINTER_DRIVER_API __attribute__((visibility("default")))
 #else
-#define PRINTER_DRIVER_API
+    #define PRINTER_DRIVER_API
 #endif
 #else
     // For other platforms (Linux/macOS)
-#define PRINTER_DRIVER_API
+    #define PRINTER_DRIVER_API
 #endif
 
 #include "../core/IPrinter.h"
