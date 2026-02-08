@@ -2,6 +2,8 @@
 #include <iomanip>
 #include <sstream>
 
+std::atomic<uint32_t> Logger::enabledCategories{ 0 };
+
 #if defined(_WIN32)
     #define LOCALTIME(tm, time) localtime_s(tm, time)
     #define STRCPY_SAFE(dest, src, size) strcpy_s(dest, size, src)
@@ -10,66 +12,6 @@
     #define LOCALTIME(tm, time) localtime_r(time, tm)
     #define STRCPY_SAFE(dest, src, size) strncpy(dest, src, size)
     #define VSNPRINTF(buffer, size, format, args) vsnprintf(buffer, size, format, args)
-#endif
-
-#ifdef _DEBUG
-#define LOG_ENABLED 1
-#define LOG_DEBUG_ENABLED 1
-#else
-#define LOG_ENABLED 1
-#define LOG_DEBUG_ENABLED 0
-#endif
-
-#define LOG_ERROR(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_ERROR)) \
-        addLogInternal(LOG_CATEGORY_ERROR, format, ##__VA_ARGS__)
-
-#define LOG_WARNING(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_WARNING)) \
-        addLogInternal(LOG_CATEGORY_WARNING, format, ##__VA_ARGS__)
-
-#define LOG_INFO(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_INFO)) \
-        addLogInternal(LOG_CATEGORY_INFO, format, ##__VA_ARGS__)
-
-#define LOG_DEBUG(format, ...) \
-    if (LOG_DEBUG_ENABLED && isCategoryEnabled(LOG_CATEGORY_DEBUG)) \
-        addLogInternal(LOG_CATEGORY_DEBUG, format, ##__VA_ARGS__)
-
-#define LOG_MOTOR(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_MOTOR)) \
-        addLogInternal(LOG_CATEGORY_MOTOR, format, ##__VA_ARGS__)
-
-#define LOG_ENCODER(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_ENCODER)) \
-        addLogInternal(LOG_CATEGORY_ENCODER, format, ##__VA_ARGS__)
-
-#define LOG_BLUETOOTH(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_BLUETOOTH)) \
-        addLogInternal(LOG_CATEGORY_BLUETOOTH, format, ##__VA_ARGS__)
-
-#define LOG_PROFILE(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_PROFILE)) \
-        addLogInternal(LOG_CATEGORY_PROFILE, format, ##__VA_ARGS__)
-
-#define LOG_PERFORMANCE(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_PERFORMANCE)) \
-        addLogInternal(LOG_CATEGORY_PERFORMANCE, format, ##__VA_ARGS__)
-
-#define LOG_COMMAND(format, ...) \
-    if (isCategoryEnabled(LOG_CATEGORY_COMMAND)) \
-        addLogInternal(LOG_CATEGORY_COMMAND, format, ##__VA_ARGS__)
-
-#ifdef _DEBUG
-#define LOG_PERFORMANCE_START() auto performanceStartTime = std::chrono::high_resolution_clock::now()
-#define LOG_PERFORMANCE_END(category, operation) \
-        auto performanceEndTime = std::chrono::high_resolution_clock::now(); \
-        auto performanceDuration = std::chrono::duration_cast<std::chrono::microseconds>(performanceEndTime - performanceStartTime); \
-        if (isCategoryEnabled(LOG_CATEGORY_PERFORMANCE)) \
-            addLogInternal(LOG_CATEGORY_PERFORMANCE, "%s took %lld µs", operation, performanceDuration.count())
-#else
-#define LOG_PERFORMANCE_START() 
-#define LOG_PERFORMANCE_END(category, operation)
 #endif
 
 // Singleton implementation
@@ -164,7 +106,7 @@ void Logger::addLogInternal(LogCategory category, const char* format, ...) {
 
 // Manage categories
 void Logger::setEnabledCategories(uint32_t categories) {
-    enabledCategories_.store(categories);
+    enabledCategories.store(categories);
 
     // Logging changes in categories
     char buffer[128];
@@ -173,11 +115,7 @@ void Logger::setEnabledCategories(uint32_t categories) {
 }
 
 uint32_t Logger::getEnabledCategories() const {
-    return enabledCategories_.load();
-}
-
-bool Logger::isCategoryEnabled(LogCategory category) const {
-    return (enabledCategories_.load() & category) != 0;
+    return enabledCategories.load();
 }
 
 // Working with the log buffer
@@ -193,7 +131,7 @@ int Logger::getLogCount() const {
     }
 }
 
-const char* Logger::getLogEntry(int index, LogCategory* outCategory = nullptr) {
+const char* Logger::getLogEntry(int index, LogCategory* outCategory) {
     size_t readIndex = logReadIndex.load(std::memory_order_acquire);
     size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
 
