@@ -12,7 +12,7 @@ public:
     TransportSimpleBLE();
     ~TransportSimpleBLE() override;
 
-    // Запрещаем копирование и перемещение
+    // Disable copying and moving
     TransportSimpleBLE(const TransportSimpleBLE&) = delete;
     TransportSimpleBLE& operator=(const TransportSimpleBLE&) = delete;
     TransportSimpleBLE(TransportSimpleBLE&&) = delete;
@@ -38,7 +38,7 @@ private:
         Error
     };
 
-    void scanAndConnect();
+    //void scanAndConnect();
     void onNotification(const std::vector<uint8_t>& data);
     void setState(State newState);
     State getState() const;
@@ -51,21 +51,21 @@ private:
     std::function<void(const uint8_t*, size_t)> dataCallback_;
     std::function<void(bool)> connectionCallback_;
 
-    // Синхронизация
+    // Synchronization
     mutable std::mutex stateMutex_;
     std::condition_variable stateCV_;
     State currentState_ = State::Disconnected;
 
-    // Рабочий поток
+    // Worker thread
     std::thread workerThread_;
     std::atomic<bool> stopRequested_{ false };
     std::atomic<bool> threadRunning_{ false };
 
-    // Константы
+    // Constants
     static const std::string LEGO_HUB_SERVICE_UUID;
     static const std::string LEGO_HUB_CHARACTERISTIC_UUID;
 
-    // Вспомогательные методы
+    // Helper methods
     void cleanup();
     void workerFunction();
     bool waitForState(State state, std::chrono::milliseconds timeout);

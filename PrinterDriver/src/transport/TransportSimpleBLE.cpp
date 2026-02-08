@@ -194,6 +194,14 @@ bool TransportSimpleBLE::isConnected() {
     return currentState_ == State::Connected && peripheral_.is_connected();
 }
 
+void TransportSimpleBLE::setDataCallback(std::function<void(const uint8_t*, size_t)> callback) {
+    dataCallback_ = std::move(callback);
+}
+
+void TransportSimpleBLE::setConnectionCallback(std::function<void(bool)> callback) {
+    connectionCallback_ = std::move(callback);
+}
+
 void TransportSimpleBLE::onNotification(const std::vector<uint8_t>& data) {
     if (dataCallback_) {
         dataCallback_(data.data(), data.size());
