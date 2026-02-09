@@ -4,7 +4,212 @@
 #include <mutex>
 #include <map>
 
-extern IPrinterVirtualTable PrinterVTable;
+namespace {
+    inline PrinterImplementation* getImplementation(IPrinter* self) {
+        if (!self) return nullptr;
+        return PrinterImplementation::from(self);
+    }
+}
+
+// Main context and virtual table
+namespace
+{  
+    // Virtual table functions - a bridge between C++ and C-INTERFACE
+    bool printer_connect(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        return implementation ? implementation->connect() : false;
+    }
+
+    bool printer_disconnect(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        return implementation ? implementation->disconnect() : false;
+    }
+
+    bool printer_is_connected(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        return implementation ? implementation->isConnected() : false;
+    }
+
+    void printer_destroy(IPrinter* self) {
+        if (!self) return;
+
+        PrinterImplementation* implementation = PrinterImplementation::from(self);
+        delete implementation;
+    }
+
+    void printer_set_motor_speed(IPrinter* self, unsigned char port, signed char speed) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // implementation->setMotorSpeed(port, speed);
+        }
+    }
+
+    void printer_rotate_motor(IPrinter* self, const MotorCommand* commands, int count) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation && commands && count > 0) {
+            // TODO: Implement
+            // implementation->rotateMotor(commands, count);
+        }
+    }
+
+    bool printer_printer_execute_speed_profile(IPrinter* self, const SpeedProfile* profile) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation && profile) {
+            // TODO: Implement
+            // implementation->executeSpeedProfile(profile);
+        }
+        return false;
+    }
+
+    void printer_send_command(IPrinter* self, const unsigned char* command, int length) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation && command && length > 0) {
+            // TODO: Implement
+            // Implementation->sendCommand(command, length);
+        }
+    }
+
+    bool printer_is_motor_moving(IPrinter* self, unsigned char port) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // implementation->isMotorMoving(port);
+        }
+        return false;
+    }
+
+    double printer_get_motor_position(IPrinter* self, unsigned char port) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // return implementation->getMotorPosition(port);
+        }
+        return 0.0;
+    }
+
+    int printer_get_log_count(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        return implementation ? implementation->getLogCount() : 0;
+    }
+
+    const char* printer_get_log_entry(IPrinter* self, int index) {
+        PrinterImplementation* implementation = getImplementation(self);
+        return implementation ? implementation->getLogEntry(index) : "";
+    }
+
+    void printer_printer_connection_info(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // implementation->printConnectionInfo();
+        }
+    }
+
+    void printer_clear_log(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            implementation->clearLog();
+        }
+    }
+
+    const char* printer_get_last_error(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: implement
+            // return implementation->getLastErrorMessage();
+        }
+        return "";
+    }
+
+    bool printer_test_encoder_functionality(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // return implementation->testEncoderFunctionality(self);
+        }
+        return false;
+    }
+
+    bool printer_execute_speed_profiles(IPrinter* self, const SpeedProfile* profiles, int count) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation && profiles && count > 0) {
+            // TODO: Implement
+            // return implemenation->executeSpeedProfiles(profiles, count);
+        }
+        return false;
+    }
+
+    bool printer_request_battery_level(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // implementation->requestBatteryLevel();
+        }
+        return false;
+    }
+
+    unsigned char printer_get_battery_level(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // return implemenatation->getBatteryLevel();
+        }
+        return 0;
+    }
+
+    bool printer_is_battery_fresh(IPrinter* self, int maxAgeSeconds) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // return implementation->isBatteryLevelFresh(maxAgeSeconds);
+        }
+        return false;
+    }
+
+    void printer_set_log_categories(IPrinter* self, uint32_t categories) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: implement
+            // implementation->setLogCategories(categories);
+        }
+    }
+
+    unsigned int printer_get_log_categories(IPrinter* self) {
+        PrinterImplementation* implementation = getImplementation(self);
+        if (implementation) {
+            // TODO: Implement
+            // return implementation->getLogCategories();
+        }
+        return 0;
+    }
+}
+
+// Virtual Method Table - C-INTERFACE
+static IPrinterVirtualTable PrinterVTable = {
+    printer_connect,
+    printer_disconnect,
+    printer_is_connected,
+    printer_destroy,
+    printer_rotate_motor,
+    printer_set_motor_speed,
+    printer_send_command,
+    printer_printer_execute_speed_profile,
+    printer_is_motor_moving,
+    printer_get_motor_position,
+    printer_get_log_count,
+    printer_get_log_entry,
+    printer_clear_log,
+    printer_get_last_error,
+    printer_printer_connection_info,
+    printer_set_log_categories,
+    printer_get_log_categories,
+    printer_test_encoder_functionality,
+    printer_execute_speed_profiles,
+    printer_request_battery_level,
+    printer_get_battery_level,
+    printer_is_battery_fresh
+};
 
 // Tested function - remove after deep testing
 
@@ -31,28 +236,28 @@ extern "C"
     PRINTER_DRIVER_API IPrinter* CreatePrinter() {
         auto transport = PrinterFactory::CreateTransport();
 
-        if (!transport) return nullptr;
-
-        auto implementation = std::make_unique<PrinterImplementation>(std::move(transport));
-        implementation->interface.vtable = &PrinterVTable;
-
-        auto* handle = implementation.get();
-        contexts[handle] = std::move(implementation);
-
-        return &handle->interface;
-    }
-
-    PRINTER_DRIVER_API void DestroyPrinter(IPrinter* printer)
-    {
-        if (!printer) return;
+        if (!transport) {
+            return nullptr;
+        }
 
         try {
-            if (printer->vtable && printer->vtable->printer_destroy) {
-                printer->vtable->printer_destroy(printer);
-            }
+            auto* implementation = new PrinterImplementation(std::move(transport));
+
+            implementation->interface.vtable = &PrinterVTable;
+
+            return &implementation->interface;
         }
-        catch (...) {
-            // Ignore all errors
+        catch (const std::exception& ex) {
+            return nullptr;
+        }
+    }
+
+    PRINTER_DRIVER_API void DestroyPrinter(IPrinter* printer) {
+        if (!printer) return;
+
+        // This will properly clean up thought the virtual table
+        if (printer->vtable && printer->vtable->printer_destroy) {
+            printer->vtable->printer_destroy(printer);
         }
     }
 
