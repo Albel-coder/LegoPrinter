@@ -11,17 +11,23 @@ public:
     IPrinter interface;
 
     /**
-     * @brief Конструктор с внедрением зависимости транспорта
-     * @param transport Умный указатель на транспорт
+     * @brief Constructor with transport dependency injection
+     * @param transport Smart transport pointer
      */
     explicit PrinterImplementation(TransportPtr transport);
     ~PrinterImplementation();
 
-    // === Публичные методы (через C-интерфейс) ===
+    static PrinterImplementation* from(IPrinter* self) {
+        return reinterpret_cast<PrinterImplementation*>(self);
+    }
+
+    // === Public methods (via C interface) ===
     bool connect();
     bool disconnect();
-    //bool isConnected() const;
+    bool isConnected() const;
 
+    // TODO: Implement these methods later
+    
     //void rotateMotor(const MotorCommand* commands, int count);
     //void setMotorSpeed(uint8_t port, int8_t speed);
     //bool executeSpeedProfile(const SpeedProfile* profile);
@@ -32,9 +38,14 @@ public:
     void clearLog();
     int getLogCount();
 
+    /**
+    * @brief Gets the underlying transport (for internal use)
+    */
+    ITransport* getTransport() {
+        return transport_.get();
+    }
+
 private:
 
     TransportPtr transport_;
-
-
 };
