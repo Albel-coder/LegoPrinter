@@ -60,10 +60,12 @@ add_library(LegoPrinterCore SHARED
 	src/core/IPrinter.h
 	src/core/PrinterImplementation.h
 	src/core/PrinterImplementation.cpp
+	src/core/IPrinterInternal.h
+	src/core/IPrinterVTable.h
 	src/logging/Logger.h
 	src/logging/Logger.cpp
 	src/transport/ITransport.h	
-	src/platform/PrinterFactory.h
+	src/platform/PrinterFactory.h	
 )
 
 # Include directories
