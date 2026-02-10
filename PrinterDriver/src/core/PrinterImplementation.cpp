@@ -4,10 +4,8 @@
 #include <map>
 #include <windows.h>
 
-PrinterImplementation::PrinterImplementation(TransportPtr transport) : transport_(std::move(transport)) {
-#ifdef _WIN32
-    OutputDebugStringA("CreatePrinterENTER\n");
-#endif
+PrinterImplementation::PrinterImplementation(std::unique_ptr<ITransport> transport) : transport_(std::move(transport)) {
+    LOG_INFO("PrinterImplementation created");
 }
 
 PrinterImplementation::~PrinterImplementation() {
