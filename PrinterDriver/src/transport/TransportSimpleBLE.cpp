@@ -32,30 +32,28 @@ void TransportSimpleBLE::cleanup() {
 }
 
 bool TransportSimpleBLE::open() {
-    std::lock_guard<std::mutex> lock(stateMutex_);
-
-    // Проверяем состояние
-    if (currentState_ != State::Disconnected && currentState_ != State::Error) {
-        return false;
-    }
-
-    // Очищаем предыдущее состояние
-    if (workerThread_.joinable()) {
-        workerThread_.join();
-    }
-
-    // Сбрасываем флаги
-    stopRequested_ = false;
-    threadRunning_ = false;
-
-    // Запускаем новый поток
     try {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+
+        // Проверяем состояние
+        if (currentState_ != State::Disconnected && currentState_ != State::Error) {
+            return false;
+        }
+
+        // Очищаем предыдущее состояние
+        if (workerThread_.joinable()) {
+            workerThread_.join();
+        }
+
+        // Сбрасываем флаги
+        stopRequested_ = false;
+        threadRunning_ = false;
+
         workerThread_ = std::thread(&TransportSimpleBLE::workerFunction, this);
         setState(State::Scanning);
         return true;
     }
-    catch (const std::exception& e) {
-        setState(State::Error);
+    catch (...) {        
         return false;
     }
 }
