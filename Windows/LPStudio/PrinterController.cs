@@ -12,14 +12,7 @@ using static PrinterController;
 // Class for managing a printer
 public class PrinterController : IDisposable
 {
-
-    // Data structures for interfacing with C++ DLLs
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct IPrinter
-    {
-        public IntPtr VirtualTable;
-    }
+    // Data structures for interfacing with C++ DLLs  
 
     [StructLayout(LayoutKind.Sequential)]
     public struct MotorCommand
@@ -104,12 +97,12 @@ public class PrinterController : IDisposable
     public delegate void EncoderCallback(byte Port, EncoderEventType EventType, double Position, IntPtr UserData);
 
     private bool Disposed = false;
-    private IPrinter PrinterHandle;
+    private IntPtr PrinterHandle;
     private readonly object SyncRoot = new object();
     public PrinterController()
     {
         PrinterHandle = CreatePrinter();
-        if (PrinterHandle.VirtualTable == IntPtr.Zero)
+        if (PrinterHandle == IntPtr.Zero)
         {
             throw new InvalidOperationException("Failed to create printer instance");
         }
@@ -334,20 +327,6 @@ public class PrinterController : IDisposable
             }
         }
     }
-    public IPrinter GetPrinterHandle()
-    {
-        if (Disposed)
-        {
-            throw new ObjectDisposedException("PrinterController", "Cannot access printer after disposal");
-        }
-
-        if (PrinterHandle.VirtualTable == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("Printer handle is not valid");
-        }
-
-        return PrinterHandle;
-    }
 
     public int GetLogCount() => SafeCall(() => GetLogCount(PrinterHandle), 0);
 
@@ -467,109 +446,113 @@ public class PrinterController : IDisposable
     // Importing functions from DLL
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IPrinter CreatePrinter();
+    private static extern IntPtr CreatePrinter();
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void DestroyPrinter(IPrinter printer);
+    private static extern void DestroyPrinter(IntPtr printer);
 
     // Connection functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterConnect(IPrinter printer);
+    private static extern bool PrinterConnect(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterDisconnect(IPrinter printer);
+    private static extern bool PrinterDisconnect(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool IsConnected(IPrinter printer);
+    private static extern bool IsConnected(IntPtr printer);
 
     // Functions for controlling motors
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterRotateMotor(IPrinter printer,
+    private static extern void PrinterRotateMotor(IntPtr printer,
         [MarshalAs(UnmanagedType.LPArray)] MotorCommand[] commands, int count);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterSetMotorSpeed(IPrinter printer, byte port, sbyte speed);
+    private static extern void PrinterSetMotorSpeed(IntPtr printer, byte port, sbyte speed);
 
     // Command stream functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterStartCommandStream(IPrinter printer, ref CommandStream stream);
+    private static extern void PrinterStartCommandStream(IntPtr printer, ref CommandStream stream);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterUpdateCommandStream(IPrinter printer, ref CommandStream stream);
+    private static extern void PrinterUpdateCommandStream(IntPtr printer, ref CommandStream stream);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterStopCommandStream(IPrinter printer);
+    private static extern void PrinterStopCommandStream(IntPtr printer);
 
     // Speed profile functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterExecuteSpeedProfile(IPrinter printer, ref SpeedProfile profile);
+    private static extern bool PrinterExecuteSpeedProfile(IntPtr printer, ref SpeedProfile profile);
 
     // Encoder event functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterSubscribeToEncoderEvents(IPrinter printer,
+    private static extern bool PrinterSubscribeToEncoderEvents(IntPtr printer,
         [MarshalAs(UnmanagedType.LPArray)] EncoderEvent[] events, int count);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterUnsubscribeFromEncoderEvents(IPrinter printer, byte port);
+    private static extern bool PrinterUnsubscribeFromEncoderEvents(IntPtr printer, byte port);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterWaitForEncoderEvent(IPrinter printer, byte port,
+    private static extern bool PrinterWaitForEncoderEvent(IntPtr printer, byte port,
         EncoderEventType eventType, double targetPosition, double tolerance, int timeoutMs);
 
     // Monitoring functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterIsMotorMoving(IPrinter printer, byte port);
+    private static extern bool PrinterIsMotorMoving(IntPtr printer, byte port);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern double PrinterGetMotorPosition(IPrinter printer, byte port);
+    private static extern double PrinterGetMotorPosition(IntPtr printer, byte port);
 
     // Commands
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterSendCommand(IPrinter printer,
+    private static extern void PrinterSendCommand(IntPtr printer,
         [MarshalAs(UnmanagedType.LPArray)] byte[] data, int length);
 
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool RunPrinterTest(IPrinter printer, string TestName);
+    private static extern bool RunPrinterTest(IntPtr printer, string TestName);
 
     // System Logging
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int GetLogCount(IPrinter printer);
+    private static extern int GetLogCount(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetLogEntry(IPrinter printer, int index);
+    private static extern IntPtr GetLogEntry(IntPtr printer, int index);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void ClearLog(IPrinter printer);
+    private static extern void ClearLog(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetLastErrorMessage(IPrinter printer);
+    private static extern IntPtr GetLastErrorMessage(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PrinterConnectionInfo(IPrinter printer);
+    private static extern void PrinterConnectionInfo(IntPtr printer);
 
     // Battery functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterRequestBatteryLevel(IPrinter printer);
+    private static extern bool PrinterRequestBatteryLevel(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern byte PrinterGetBatteryLevel(IPrinter printer);
+    private static extern byte PrinterGetBatteryLevel(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterIsBatteryLevelFresh(IPrinter printer, int maxAgeSeconds);
+    private static extern bool PrinterIsBatteryLevelFresh(IntPtr printer, int maxAgeSeconds);
 
+    public IntPtr GetPrinterHandle()
+    {
+        return PrinterHandle;
+    }
 
     // To properly release resources
     public void Dispose()
@@ -582,11 +565,7 @@ public class PrinterController : IDisposable
 
                 System.Threading.Thread.Sleep(100);
 
-                if (PrinterHandle.VirtualTable != IntPtr.Zero)
-                {
-                    DestroyPrinter(PrinterHandle);
-                    PrinterHandle.VirtualTable = IntPtr.Zero;
-                }
+                DestroyPrinter(PrinterHandle);
 
                 Disposed = true;
                 Console.WriteLine("PrinterController disposed successfully");
@@ -594,264 +573,6 @@ public class PrinterController : IDisposable
             catch (Exception ex)
             {
                 Console.WriteLine($"Error during printer disposal: {ex}");
-            }
-        }
-    }
-}
-
-public class GCodeInterpreter : IDisposable
-{
-    private IntPtr InterpreterHandle;
-    private bool Disposed = false;
-
-    public enum Status
-    {
-        IDLE = 0,
-        CHECKING_CODE = 1,
-        RUNNING = 2,
-        PAUSED = 3,
-        COMPLETED = 4,
-        ERROR = 5
-    }
-
-    public enum ErrorCode
-    {
-        IDENTIFIER_NOT_DEFINED = 0,
-        VALUE_NOT_DEFINED = 1,
-        OUT_OF_RANGE = 2,
-        FILE_ERROR = 3,
-        CONFIG_ERROR = 4,
-        PRINTER_ERROR = 5,
-        SYNTAX_ERROR = 6,
-        MOVEMENT_ERROR = 7,
-        NO_ERROR = 8
-    }
-
-    public GCodeInterpreter()
-    {
-        InterpreterHandle = CreateInterpreter();
-        if (InterpreterHandle == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("Failed to create GCode interpreter");
-        }
-    }
-
-    // Basic methods
-    public bool Test(IPrinter printer) => TestCode(InterpreterHandle, printer);
-
-    // CORRECTED method - correct order of parameters
-    public bool ExecuteFile(string filename, IPrinter printer)
-    {
-        if (string.IsNullOrEmpty(filename))
-        {
-            Console.WriteLine("C#: ERROR - Filename is null or empty");
-            return false;
-        }
-
-        if (printer.VirtualTable == IntPtr.Zero)
-        {
-            Console.WriteLine("C#: ERROR - Printer VirtualTable is zero");
-            return false;
-        }
-
-        try
-        {
-            string fullPath = Path.GetFullPath(filename);
-            Console.WriteLine($"C#: Executing file '{fullPath}'");
-            Console.WriteLine($"C#: File exists: {File.Exists(fullPath)}");
-
-            // CORRECT ORDER OF PARAMETERS: interpreter, filename, printer
-            return ExecuteGcode(InterpreterHandle, fullPath, printer);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"C#: Exception in ExecuteFile: {ex}");
-            return false;
-        }
-    }
-
-    public bool ExecuteLine(string Line, IPrinter printer)
-    {
-        if (string.IsNullOrEmpty(Line))
-        {
-            Console.WriteLine("C#: ERROR - Line is null or empty");
-            return false;
-        }
-
-        if (printer.VirtualTable == IntPtr.Zero)
-        {
-            Console.WriteLine("C#: ERROR - Printer VirtualTable is zero");
-            return false;
-        }
-
-        try
-        {
-            return ExecuteLine(InterpreterHandle, Line, printer);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"C#: Exception in ExecuteLine: {ex}");
-            throw;
-        }
-    }
-    public void Pause() => PauseExecution(InterpreterHandle);
-    public void Resume() => ResumeExecution(InterpreterHandle);
-    public Status GetStatus() => (Status)GetStatus(InterpreterHandle);
-    public double GetProgress() => GetProgress(InterpreterHandle);
-    public string GetLastError()
-    {
-        IntPtr errorPtr = GetLastInterpreterError(InterpreterHandle);
-        return errorPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(errorPtr) : string.Empty;
-    }
-
-    public string GetError(int index)
-    {
-        IntPtr errorPtr = GetError(InterpreterHandle, index);
-        return errorPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(errorPtr) : string.Empty;
-    }
-
-    public string GetLog(int index)
-    {
-        IntPtr logPtr = GetLogEntry(InterpreterHandle, index);
-        return logPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(logPtr) : string.Empty;
-    }
-
-    public int GetErrorCount() => GetErrorCount(InterpreterHandle);
-    public int GetLogCount() => GetLogCount(InterpreterHandle);
-    public void ClearLog() => ClearLog(InterpreterHandle);
-    public bool ReadConfig(string filename) => ReadConfig(InterpreterHandle, filename);
-
-    // Helper methods for C#
-    public List<string> GetAllErrors()
-    {
-        var Errors = new List<string>();
-        int Count = GetErrorCount();
-        for (int i = 0; i < Count; i++)
-        {
-            string error = GetError(i);
-            if (!string.IsNullOrEmpty(error))
-            {
-                Errors.Add(error);
-            }
-        }
-        return Errors;
-    }
-
-    public List<string> GetAllLogs()
-    {
-        var Logs = new List<string>();
-        int Count = GetLogCount();
-        for (int i = 0; i < Count; i++)
-        {
-            string log = GetLog(i);
-            if (!string.IsNullOrEmpty(log))
-            {
-                Logs.Add(log);
-            }
-        }
-        return Logs;
-    }
-
-    public bool HasErrors => GetErrorCount() > 0;
-    public bool IsRunning => GetStatus() == Status.RUNNING;
-    public bool IsCompleted => GetStatus() == Status.COMPLETED;
-    public bool IsError => GetStatus() == Status.ERROR;
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr CreateInterpreter();
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void DestroyInterpreter(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool TestCode(IntPtr interpreter, IPrinter printer);
-
-    // FIXED DllImport with correct order of parameters
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool ExecuteGcode(IntPtr interpreter, string filename, IPrinter printer);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool ExecuteLine(IntPtr interpreter, string line, IPrinter printer);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PauseExecution(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void ResumeExecution(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int GetStatus(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern double GetProgress(IntPtr interpreter);
-
-    // CHANGED: Now returns IntPtr instead of string
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetLastInterpreterError(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int GetErrorCount(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetError(IntPtr interpreter, int index);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int GetLogCount(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetLogEntry(IntPtr interpreter, int index);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void ClearLog(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool ReadConfig(IntPtr interpreter, string filename);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void SetLogCategories(IntPtr interpreter, ulong categories);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern ulong GetLogCategories(IntPtr interpreter);
-
-    [DllImport("Interpreter.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int GetFilterLogCount(IntPtr interpreter, ulong categoryMask);
-
-    public void Dispose()
-    {
-        if (!Disposed && InterpreterHandle != IntPtr.Zero)
-        {
-            try
-            {
-                Console.WriteLine("Disposing GCodeInterpreter...");
-
-                // We give time for proper completion
-                for (int i = 0; i < 10; i++) // 10 attempts of 100 ms = 1 second
-                {
-                    if (!IsRunning)
-                    {
-                        break;
-                    }
-
-                    System.Threading.Thread.Sleep(100);
-                }
-
-                // Destroying the interpreter
-                DestroyInterpreter(InterpreterHandle);
-                InterpreterHandle = IntPtr.Zero;
-                Disposed = true;
-
-                Console.WriteLine("GCodeInterpreter disposed successfully");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-
-                // We'll mark it as disposed anyway.
-                Disposed = true;
             }
         }
     }

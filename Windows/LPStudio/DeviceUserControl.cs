@@ -18,7 +18,6 @@ namespace LPStudio
     public partial class DeviceUserControl : UserControl
     {
         private PrinterController printerController;
-        private GCodeInterpreter interpreter;
         private BatteryLabel batteryLabel;
 
         private int lastDriverLogCount = 0;
@@ -51,10 +50,10 @@ namespace LPStudio
             try
             {
                 printerController = new PrinterController();
-                interpreter = new GCodeInterpreter();
+                //interpreter = new GCodeInterpreter();
                 InitializeComponent();
 
-                interpreter.ReadConfig("Printer.cfg");
+                //interpreter.ReadConfig("Printer.cfg");
 
                 batteryLabel = new BatteryLabel();
                 batteryLabel.Location = this.labelBattery.Location;
@@ -218,7 +217,7 @@ namespace LPStudio
                     lastDriverLogCount = currentDriverLogCount;
                 }
 
-                // 2. Обновляем логи интерпретатора
+                /*// 2. Обновляем логи интерпретатора
                 if (interpreter != null)
                 {
                     int currentInterpreterLogCount = interpreter.GetLogCount();
@@ -235,7 +234,7 @@ namespace LPStudio
                         AppendInterpreterLogs(lastInterpreterLogCount, newInterpreterLogs);
                         lastInterpreterLogCount = currentInterpreterLogCount;
                     }
-                }
+                }*/
             }
             catch (Exception)
             {
@@ -271,7 +270,7 @@ namespace LPStudio
             }
         }
 
-        private void AppendInterpreterLogs(int startIndex, int count)
+        /*private void AppendInterpreterLogs(int startIndex, int count)
         {
             if (count < 1 || interpreter == null) return;
 
@@ -305,7 +304,7 @@ namespace LPStudio
             {
                 AppendTextSafe(stringBuilder.ToString());
             }
-        }
+        }*/
 
         private void AppendTextSafe(string text)
         {
@@ -416,7 +415,7 @@ namespace LPStudio
 
             try
             {
-                string filePath = showCodeFile.Text;
+                /*string filePath = showCodeFile.Text;
                 string fullPath = Path.GetFullPath(filePath);
 
                 if (!File.Exists(fullPath))
@@ -426,14 +425,6 @@ namespace LPStudio
                 }
 
                 var printerHandle = printerController.GetPrinterHandle();
-
-                Console.WriteLine($"C#: Printer handle: VirtualTable={printerHandle.VirtualTable}");
-
-                if (printerHandle.VirtualTable == IntPtr.Zero)
-                {
-                    Console.WriteLine("Printer handle is invalid!");
-                    return;
-                }
 
                 var status = interpreter.GetStatus();
                 Console.WriteLine($"C#: Current interpreter status: {status}");
@@ -471,7 +462,7 @@ namespace LPStudio
                     string error = interpreter.GetLastError();
                     Console.WriteLine($"C#: ExecuteFile failed: {error}");
                     Console.WriteLine($"Failed to execute G-code: {error}");
-                }
+                }*/
             }
             catch (Exception ex)
             {
