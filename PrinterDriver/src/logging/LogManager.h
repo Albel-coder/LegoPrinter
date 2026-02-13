@@ -1,8 +1,8 @@
-#include <cstdarg>
-#include <string>
+#include "ILogger.h"
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <atomic>
 
 #if defined(_WIN32)
 #define FORCE_INLINE __forceinline
@@ -26,62 +26,24 @@
     } while(0)
 #endif
 
-enum LogCategory {
-    LOG_CATEGORY_NONE = 0,
-    LOG_CATEGORY_ERROR = 1 << 0,
-    LOG_CATEGORY_WARNING = 1 << 1,
-    LOG_CATEGORY_INFO = 1 << 2,
-    LOG_CATEGORY_DEBUG = 1 << 3,
-    LOG_CATEGORY_MOTOR = 1 << 4,
-    LOG_CATEGORY_ENCODER = 1 << 5,
-    LOG_CATEGORY_BLUETOOTH = 1 << 6,
-    LOG_CATEGORY_PROFILE = 1 << 7,
-    LOG_CATEGORY_PERFORMANCE = 1 << 8,
-    LOG_CATEGORY_COMMAND = 1 << 9,
-
-    LOG_CATEGORY_ALL = 0xFFFFFFFF,
-    LOG_CATEGORY_DEFAULT = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING |
-    LOG_CATEGORY_INFO | LOG_CATEGORY_MOTOR |
-    LOG_CATEGORY_ENCODER,
-
-#ifdef _DEBUG
-    LOG_CATEGORY_RELEASE = LOG_CATEGORY_ALL,
-#else
-    LOG_CATEGORY_RELEASE = LOG_CATEGORY_ERROR | LOG_CATEGORY_WARNING | LOG_CATEGORY_INFO,
-#endif
-};
-
-class LogManager {
+class LogManager : public ILogger {
 public:
-
     LogManager();
     ~LogManager() = default;
 
-	void setLogCategories(uint32_t categories);
-    uint32_t getLogCategories() const {
-        return enabledCategories.load(std::memory_order_relaxed);
-    }
-
-    void addLogInternal(LogCategory category, const char* format, ...);
-
-    int getLogCount();
-    const char* getLogEntry(int index, LogCategory* outCategory = nullptr);
-    int getFilteredLogCount(uint32_t categoryMask);
+    // ILogger implementation
+    void log(LogCategory category, const char* format, ...);
+    void logV(LogCategory category, const char* format, va_list args) override;
+    bool isEnabled(LogCategory category) const override;
 
     void clearLog();
+    int getLogCount() const;
+    const char* getLogEntry(int index, LogCategory* outCategory = nullptr) const;
+    
+    void setLogCategories(uint32_t categories);
+    uint32_t getLogCategories() const;
 
-    FORCE_INLINE bool isCategoryEnabled(LogCategory category) const {
-        return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
-    }
-
-    template<size_t N>
-    FORCE_INLINE void formatToBuffer(char(&buffer)[N], const char* format, va_list args) {
-        vsnprintf(buffer, N, format, args);
-    }
-
-    std::atomic<uint32_t> enabledCategories;
 private:
-
     struct LogEntry {
         char message[1024];
         LogCategory category;
@@ -91,5 +53,8 @@ private:
     std::unique_ptr<LogEntry[]> logBuffer;
     std::atomic<size_t> logWriteIndex{ 0 };
     std::atomic<size_t> logReadIndex{ 0 };
+    std::atomic<uint32_t> enabledCategories;
     std::mutex logBufferMutex;
+
+    static constexpr size_t MAX_LOG_ENTRIES = 10000;
 };

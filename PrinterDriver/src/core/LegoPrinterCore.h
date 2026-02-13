@@ -23,7 +23,6 @@ public:
 	void clearLog();
 	const char* getLogEntry(int index);
 
-
 	ITransport* getTransport() { return transport_.get(); }
 
 	LogManager logger;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../transport/ITransport.h"
+#include "../logging/ILogger.h"
 #include <simpleble/SimpleBLE.h>
 #include <mutex>
 #include <atomic>
@@ -9,7 +10,7 @@
 
 class TransportSimpleBLE : public ITransport {
 public:
-    TransportSimpleBLE();
+    TransportSimpleBLE(ILogger& logger);
     ~TransportSimpleBLE() override;
 
     // Disable copying and moving
@@ -69,4 +70,6 @@ private:
     void cleanup();
     void workerFunction();
     bool waitForState(State state, std::chrono::milliseconds timeout);
+
+    ILogger& logger;
 };

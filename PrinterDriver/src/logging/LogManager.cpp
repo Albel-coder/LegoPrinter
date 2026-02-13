@@ -1,27 +1,5 @@
 #include "LogManager.h"
 
-#if defined(_WIN32)
-#define FORCE_INLINE __forceinline
-#define LOCALTIME(tm, time) localtime_s(tm, time)
-#define STRCPY_SAFE(dest, src, size) strcpy_s(dest, size, src)
-#define STRNCAT_SAFE(dest, src, size) strncat_s(dest, size, src, _TRUNCATE)
-#define STRNCMP_SAFE(s1, s2, size) strncmp_s(s1, s2, size)
-#define STRNCASECMP_SAFE(s1, s2, size) _strnicmp(s1, s2, size)
-#define STRNCPY_SAFE(dest, src, destSize, count) strncpy_s(dest, destSize, src, count)
-#else
-#define FORCE_INLINE inline __attribute__((always_inline))
-#define LOCALTIME(tm, time) localtime_r(time, tm)
-#define STRCPY_SAFE(dest, src, size) strncpy(dest, src, size)
-#define STRNCAT_SAFE(dest, src, size) strncat(dest, src, size)
-#define STRNCMP_SAFE(s1, s2, size) strncmp(s1, s2, size)
-#define STRNCASECMP_SAFE(s1, s2, size) strncasecmp(s1, s2, size)
-#define STRNCPY_SAFE(dest, src, destSize, count) do { \
-        size_t n = (count) < (destSize) ? (count) : (destSize)-1; \
-        strncpy(dest, src, n); \
-        dest[n] = '\0'; \
-    } while(0)
-#endif
-
 static constexpr size_t MAX_LOG_ENTRIES = 10000;
 static constexpr size_t MAX_MESSAGE_LENGTH = 1023;
 
@@ -30,22 +8,18 @@ LogManager::LogManager() {
     enabledCategories.store(LOG_CATEGORY_DEFAULT, std::memory_order_relaxed);
 }
 
-void LogManager::setLogCategories(uint32_t categories) {
-    enabledCategories.store(categories, std::memory_order_relaxed);
-    addLogInternal(LOG_CATEGORY_INFO, "Log categories updated: 0x%08X", categories);
-}
-
-void LogManager::addLogInternal(LogCategory category, const char* format, ...) {
-    if (!isCategoryEnabled(category)) {
-        return;
-    }
-
-    char formatted[1024];
+void LogManager::log(LogCategory category, const char* format, ...) {
+    if (!isEnabled(category)) return;
     va_list args;
     va_start(args, format);
+    logV(category, format, args);
+    va_end(args);
+}
+
+void LogManager::logV(LogCategory category, const char* format, va_list args) {
+    char formatted[1024];
     vsnprintf(formatted, sizeof(formatted), format, args);
     formatted[sizeof(formatted) - 1] = '\0';
-    va_end(args);
 
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
@@ -116,7 +90,7 @@ void LogManager::addLogInternal(LogCategory category, const char* format, ...) {
     logWriteIndex.store(next_write, std::memory_order_release);
 }
 
-int LogManager::getLogCount() {
+int LogManager::getLogCount() const {
     size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
     size_t readIndex = logReadIndex.load(std::memory_order_acquire);
 
@@ -130,7 +104,7 @@ int LogManager::getLogCount() {
     }
 }
 
-const char* LogManager::getLogEntry(int index, LogCategory* outCategory) {
+const char* LogManager::getLogEntry(int index, LogCategory* outCategory) const {
     size_t readIndex = logReadIndex.load(std::memory_order_acquire);
     size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
 
@@ -157,27 +131,22 @@ const char* LogManager::getLogEntry(int index, LogCategory* outCategory) {
     return logBuffer[bufferIndex].message;
 }
 
-int LogManager::getFilteredLogCount(uint32_t categoryMask) {
-    size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
-    size_t readIndex = logReadIndex.load(std::memory_order_relaxed);
-
-    int count = 0;
-
-    std::lock_guard<std::mutex> lock(logBufferMutex);
-
-    for (size_t i = readIndex; i < writeIndex; i++) {
-        size_t index = i % MAX_LOG_ENTRIES;
-        if (logBuffer[index].category & categoryMask) {
-            count++;
-        }
-    }
-
-    return count;
-}
-
 void LogManager::clearLog() {
     logWriteIndex.store(0, std::memory_order_release);
     logReadIndex.store(0, std::memory_order_relaxed);
 
-    addLogInternal(LOG_CATEGORY_INFO, "Log buffer cleared");
+    log(LOG_CATEGORY_INFO, "Log buffer cleared");
+}
+
+void LogManager::setLogCategories(uint32_t categories) {
+    enabledCategories.store(categories, std::memory_order_relaxed);
+    log(LOG_CATEGORY_INFO, "Log categories updated: 0x%08X", categories);
+}
+
+uint32_t LogManager::getLogCategories() const {
+    return enabledCategories.load(std::memory_order_relaxed);
+}
+
+bool LogManager::isEnabled(LogCategory category) const {
+    return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
 }

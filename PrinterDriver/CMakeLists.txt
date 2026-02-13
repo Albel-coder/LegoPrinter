@@ -59,6 +59,7 @@ add_library(LegoPrinterCore SHARED
 	src/api/LegoDriverAPI.cpp
 	src/core/LegoPrinterCore.h
 	src/core/LegoPrinterCore.cpp
+	src/logging/ILogger.h
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
 	src/platform/DriverFactory.h

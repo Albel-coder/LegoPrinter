@@ -8,8 +8,8 @@ using namespace std::chrono_literals;
 const std::string TransportSimpleBLE::LEGO_HUB_SERVICE_UUID = "00001623-1212-efde-1623-785feabcd123";
 const std::string TransportSimpleBLE::LEGO_HUB_CHARACTERISTIC_UUID = "00001624-1212-efde-1623-785feabcd123";
 
-TransportSimpleBLE::TransportSimpleBLE() {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+TransportSimpleBLE::TransportSimpleBLE(ILogger& logger) : logger(logger) {
+    std::lock_guard<std::mutex> lock(stateMutex_);  
     currentState_ = State::Disconnected;
 }
 
@@ -21,7 +21,7 @@ TransportSimpleBLE::~TransportSimpleBLE() {
 void TransportSimpleBLE::cleanup() {
     stopRequested_ = true;
 
-    // Ожидаем завершения рабочего потока
+    // Wait for the worker thread to complete
     if (workerThread_.joinable()) {
         workerThread_.join();
     }
@@ -35,17 +35,17 @@ bool TransportSimpleBLE::open() {
     try {
         std::lock_guard<std::mutex> lock(stateMutex_);
 
-        // Проверяем состояние
+        // Check the state
         if (currentState_ != State::Disconnected && currentState_ != State::Error) {
             return false;
         }
 
-        // Очищаем предыдущее состояние
+        // Clear the previous state
         if (workerThread_.joinable()) {
             workerThread_.join();
         }
 
-        // Сбрасываем флаги
+        // Reset flags
         stopRequested_ = false;
         threadRunning_ = false;
 
@@ -62,83 +62,147 @@ void TransportSimpleBLE::workerFunction() {
     threadRunning_ = true;
 
     try {
-        // Инициализация адаптера
+
+        // Checking Bluetooth Status
+        logger.bluetooth("Checking Bluetooth status:");
+
+        bool bleEnabled = SimpleBLE::Adapter::bluetooth_enabled();
+        logger.bluetooth("  - SimpleBLE::Adapter::bluetooth_enabled(): %s",
+            bleEnabled ? "true" : "false");
+
+        // Getting a list of adapters
         auto adapters = SimpleBLE::Adapter::get_adapters();
+        logger.bluetooth("  - Adapters found: %zu", adapters.size());
+
         if (adapters.empty()) {
-
-        }
-
-        adapter_ = adapters[0];
-
-        // Сканирование
-        setState(State::Scanning);
-        adapter_.scan_start();
-
-        const auto scanTimeout = 10000ms;
-        auto scanStart = std::chrono::steady_clock::now();
-        bool found = false;
-
-        while (!stopRequested_ &&
-            std::chrono::steady_clock::now() - scanStart < scanTimeout) {
-
-            auto peripherals = adapter_.scan_get_results();
-            for (auto& p : peripherals) {
-                std::string name = p.identifier();
-                std::transform(name.begin(), name.end(), name.begin(), ::toupper);
-
-                if (name.find("LEGO") != std::string::npos ||
-                    name.find("HUB") != std::string::npos) {
-                    peripheral_ = p;
-                    found = true;
-                    break;
-                }
-            }
-
-            if (found) break;
-            std::this_thread::sleep_for(500ms);
-        }
-
-        adapter_.scan_stop();
-
-        if (!found || stopRequested_) {
-            setState(State::Error);
+            logger.error("Bluetooth adapters not found! Possible reasons:");
+            logger.error("1. The Bluetooth adapter is disabled or not working");
+            logger.error("2. Drivers not installed");
+            logger.error("3. Hardware problem");
+            if (connectionCallback_) connectionCallback_(false);
             return;
         }
 
-        // Подключение
-        setState(State::Connecting);
-        peripheral_.connect();
+        // We use the first adapter
+        SimpleBLE::Adapter adapter = adapters[0];
+        logger.bluetooth("Adapter used: %s [%s]",
+            adapter.identifier().c_str(),
+            adapter.address().c_str());
 
-        if (!peripheral_.is_connected()) {
+        // Setting up callbacks
+        adapter.set_callback_on_scan_start([]() {});
 
-        }
+        logger.bluetooth("Scanning started...");
 
-        // Настройка уведомлений
-        peripheral_.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
-            [this](const std::vector<uint8_t>& data) {
-                this->onNotification(data);
+        adapter.set_callback_on_scan_stop([]() {});
+
+        logger.bluetooth("Scanning stopped");
+
+        adapter.set_callback_on_scan_found([this](SimpleBLE::Peripheral peripheral) {
+            std::string name = peripheral.identifier();
+            std::string address = peripheral.address();
+            int rssi = peripheral.rssi();
+
+            // Convert the name to uppercase for universality
+            std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+
+            // Check by name
+            bool isLego = (name.find("LEGO") != std::string::npos) ||
+                (name.find("HUB") != std::string::npos) ||
+                (name.find("CONTROL") != std::string::npos);
+
+            // Check with manufacturer data (LEGO Company ID: 0x0397)
+            auto manufacturer_data = peripheral.manufacturer_data();
+            for (const auto& data : manufacturer_data) {
+                // LEGO Company ID: 0x0397 (little-endian: 97 03)
+                if (data.first == 0x0397) {
+                    isLego = true;
+                    logger.bluetooth("[LEGO Manufacturer Data Found]");
+                }
+            }
+
+            if (isLego) {
+                logger.bluetooth("LEGO HUB DISCOVERED!");
+            }
             });
 
-        // Успех
-        setState(State::Connected);
+        // Start scanning
+        adapter.scan_start();
+        logger.bluetooth("Starting Bluetooth scan for 10 seconds...");
+        std::this_thread::sleep_for(10s);
+        adapter.scan_stop();
 
-        // Вызываем callback из рабочего потока
-        if (connectionCallback_) {
-            connectionCallback_(true);
+        // We get a list of found devices
+        auto peripherals = adapter.scan_get_results();
+        logger.bluetooth("Scan completed. Found %d devices", peripherals.size());
+
+        // Search LEGO Hub
+        for (auto& scannedPeripheral : peripherals) {
+            std::string name = scannedPeripheral.identifier();
+            std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+
+            if (name.find("LEGO") != std::string::npos ||
+                name.find("HUB") != std::string::npos ||
+                name.find("CONTROL") != std::string::npos) {
+
+                logger.bluetooth("Attempting to connect to LEGO Hub: %s", name.c_str());
+
+                // Connection attempt
+                try {
+                    scannedPeripheral.connect();
+
+                    // In the main function, after connection:               
+                    if (scannedPeripheral.is_connected()) {
+                        logger.bluetooth("Successfully connected to LEGO Hub");
+                                 
+                        // Looking for LEGO Hub service and features
+                        SimpleBLE::Service legoService;
+                        SimpleBLE::Characteristic legoChar;
+
+                        for (auto& service : scannedPeripheral.services()) {
+                            if (service.uuid() == LEGO_HUB_SERVICE_UUID) {
+                                legoService = service;
+                                for (auto& characteristic : service.characteristics()) {
+                                    if (characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
+                                        legoChar = characteristic;
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        if (legoChar.uuid().empty()) {
+                            if (connectionCallback_) connectionCallback_(false);
+                            return;
+                        }
+
+                        peripheral_ = std::move(scannedPeripheral);
+                        
+                        if (connectionCallback_) connectionCallback_(true);
+
+                        peripheral_.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
+                            [this](const std::vector<uint8_t>& data) {
+                                this->onNotification(data);
+                            });
+                    }
+                }
+                catch (const std::exception& e) {
+                    logger.error("Connection error: %s", e.what());
+                }
+            }
         }
 
-        // Ждем завершения
-        while (!stopRequested_ && getState() == State::Connected) {
-            std::this_thread::sleep_for(100ms);
-        }
-
+        logger.error("No LEGO Hub found or connection failed");
+        if (connectionCallback_) connectionCallback_(false);
     }
     catch (const std::exception& e) {
-        setState(State::Error);
-
-        if (connectionCallback_) {
-            connectionCallback_(false);
-        }
+        logger.error("Worker thread exception: %s", e.what());
+        if (connectionCallback_) connectionCallback_(false);
+    }
+    catch (...) {
+        logger.error("Worker thread unknown exception");
+        if (connectionCallback_) connectionCallback_(false);
     }
 
     threadRunning_ = false;

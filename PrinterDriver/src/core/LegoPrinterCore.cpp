@@ -4,27 +4,27 @@
 #include <windows.h>
 
 PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) : transport_(std::move(transport)) {
-    logger.addLogInternal(LogCategory::LOG_CATEGORY_INFO, "PrinterImplementation created");
+    logger.info("PrinterImplementation created");
 }
 
 PrinterDriver::~PrinterDriver() {
-    logger.addLogInternal(LogCategory::LOG_CATEGORY_INFO, "PrinterImplementation destroyed");
+    logger.info("PrinterImplementation destroyed");
 }
 
 bool PrinterDriver::connect() {
 	if (!transport_) {
-        logger.addLogInternal(LogCategory::LOG_CATEGORY_ERROR, "Transport not initialized");
+        logger.error("Transport not initialized");
 		return false;
 	}
 
-    logger.addLogInternal(LogCategory::LOG_CATEGORY_INFO, "Connecting using transport: %s", transport_->getName());
+    logger.info("Connecting using transport: %s", transport_->getName());
 
 	bool result = transport_->open();
     if (result) {
-        logger.addLogInternal(LogCategory::LOG_CATEGORY_INFO, "Connection successful!");
+        logger.info("Connection successful!");
     }
     else {
-        logger.addLogInternal(LogCategory::LOG_CATEGORY_INFO, "Connection failed");
+        logger.info("Connection failed");
     }
 
     return result;
@@ -32,11 +32,11 @@ bool PrinterDriver::connect() {
 
 bool PrinterDriver::disconnect() {
     if (!transport_) {
-        logger.addLogInternal(LogCategory::LOG_CATEGORY_ERROR, "Transport not initialized");
+        logger.error("Transport not initialized");
         return false;
     }
 
-    logger.addLogInternal(LogCategory::LOG_CATEGORY_INFO, "Disconnecting using transport: %s", transport_->getName());
+    logger.info("Disconnecting using transport: %s", transport_->getName());
 
     transport_->close();
     return true;

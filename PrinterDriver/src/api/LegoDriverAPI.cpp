@@ -4,14 +4,12 @@
 #include <Windows.h>
 
 extern "C" {
-	extern "C" PRINTER_DRIVER_API DriverHandle CreatePrinter()
+	PRINTER_DRIVER_API DriverHandle CreatePrinter()
 	{
-		MessageBoxA(NULL, "CreatePrinter called", "DEBUG", MB_OK);
 		auto ble = createBleDriver();
 		auto* driver = new PrinterDriver(std::move(ble));
 		return driver;
 	}
-
 
 	PRINTER_DRIVER_API void DestroyPrinter(DriverHandle printer) {
 		delete static_cast<PrinterDriver*>(printer);
