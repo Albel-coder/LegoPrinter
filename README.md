@@ -2,7 +2,7 @@
 
 A multifunctional system for controlling a homemade LEGO-based 2D printer with image and text processing and G-code generation for printing.
 
-## 🚀 Project overview
+## Project overview
 
 This is a comprehensive solution consisting of several interconnected modules:
 - Printer driver - low-level control of LEGO HUB via Bluetooth
@@ -11,56 +11,56 @@ This is a comprehensive solution consisting of several interconnected modules:
 - Font system - support for custom and built-in fonts
 - Handwriting emulator - intelligent character connection
 
-## 📋 Current status
+## Current status
 
-### ✅ Implemented
+### Implemented
 
 Printer Driver (LegoPrinterCore)
-- [x] Connecting to LEGO HUB via Bluetooth LE
-- [x] Motor Control (Speed, Direction, Rotation Angles)
-- [x] Logging and Error Handling
-- [x] Thread-Safe Operations
-- [x] Wait for Operation Completion Commands
+- Connecting to LEGO HUB via Bluetooth LE
+- Motor Control (Speed, Direction, Rotation Angles)
+- Logging and Error Handling
+- Thread-Safe Operations
+- Wait for Operation Completion Commands
 
 G-code interpreter
-- [x] Parsing and execution of basic G-codes (G0, G1, G28, G90, G91)
-- [x] M-code support (M30 - stop)
-- [x] Stepper configuration via files
-- [x] Two-pass processing (check + execute)
-- [x] Progress and execution status system
-- [x] Detailed logging and error handling
+- Parsing and execution of basic G-codes (G0, G1, G28, G90, G91)
+- M-code support (M30 - stop)
+- Stepper configuration via files
+- Two-pass processing (check + execute)
+- Progress and execution status system
+- Detailed logging and error handling
 
 Text Processing
-- [x] Edge Detection
-- [x] Filtering and Analysis of Geometric Properties
-- [x] Generating Test G-Code Sequences for Text Printing
+- Edge Detection
+- Filtering and Analysis of Geometric Properties
+- Generating Test G-Code Sequences for Text Printing
 
-### 🚧 In active development
+### In active development
 
 G-code generation for any image, text with any font, and underscores
-- [ ] Convert vector contours to G-code
-- [ ] Optimize motion paths
+- Convert vector contours to G-code
+- Optimize motion paths
 
 Font System
-- [ ] Loading custom fonts from PNG
-- [ ] Text rendering with Unicode support
-- [ ] Cursive emulation
-- [ ] Automatic character joining
+- Loading custom fonts from PNG
+- Text rendering with Unicode support
+- Cursive emulation
+- Automatic character joining
 
 User Interfaces
-- [ ] Windows Forms Application
-- [ ] Android Application
+- Windows Forms Application
+- Android Application
 
-### 📅 Planned
+### Planned
 
 Kernel Improvements
-- [ ] Crash Stop and Pause
-- [ ] Interruptible Operations
-- [ ] Caching and Preview
-- [ ] Batch Job Processing
+- Crash Stop and Pause
+- Interruptible Operations
+- Caching and Preview
+- Batch Job Processing
 
 Advanced Features
-- [ ] Automatic Axis Calibration
-- [ ] Software Backlash Compensation
-- [ ] Multi-Color Printing Support
-- [ ] Multi-Page Printing Support
+- Automatic Axis Calibration
+- Software Backlash Compensation
+- Multi-Color Printing Support
+- Multi-Page Printing Support
