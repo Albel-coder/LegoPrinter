@@ -64,27 +64,37 @@ void TransportSimpleBLE::workerFunction() {
     try {
 
         // Checking Bluetooth Status
+        LOG_BLUETOOTH("Checking Bluetooth status:");
 
         bool bleEnabled = SimpleBLE::Adapter::bluetooth_enabled();
+        LOG_BLUETOOTH("  - SimpleBLE::Adapter::bluetooth_enabled(): %s",
+            bleEnabled ? "true" : "false");
 
         // Getting a list of adapters
         auto adapters = SimpleBLE::Adapter::get_adapters();
+        LOG_BLUETOOTH("  - Adapters found: %zu", adapters.size());
 
         if (adapters.empty()) {
-
+            LOG_ERROR("Bluetooth adapters not found! Possible reasons:");
+            LOG_ERROR("1. The Bluetooth adapter is disabled or not working");
+            LOG_ERROR("2. Drivers not installed");
+            LOG_ERROR("3. Hardware problem");
             if (connectionCallback_) connectionCallback_(false);
             return;
         }
 
         // We use the first adapter
         SimpleBLE::Adapter adapter = adapters[0];
+        LOG_BLUETOOTH("Adapter used: %s [%s]",
+            adapter.identifier().c_str(),
+            adapter.address().c_str());
 
         // Setting up callbacks
         adapter.set_callback_on_scan_start([]() {});
-
+        LOG_BLUETOOTH("Scanning started...");
 
         adapter.set_callback_on_scan_stop([]() {});
-
+        LOG_BLUETOOTH("Scanning stopped");
 
         adapter.set_callback_on_scan_found([this](SimpleBLE::Peripheral peripheral) {
             std::string name = peripheral.identifier();
@@ -105,20 +115,24 @@ void TransportSimpleBLE::workerFunction() {
                 // LEGO Company ID: 0x0397 (little-endian: 97 03)
                 if (data.first == 0x0397) {
                     isLego = true;
+                    LOG_BLUETOOTH("[LEGO Manufacturer Data Found]");
                 }
             }
 
             if (isLego) {
+                LOG_BLUETOOTH("LEGO HUB DISCOVERED!");
             }
             });
 
         // Start scanning
         adapter.scan_start();
+        LOG_BLUETOOTH("Starting Bluetooth scan for 10 seconds...");
         std::this_thread::sleep_for(10s);
         adapter.scan_stop();
 
         // We get a list of found devices
         auto peripherals = adapter.scan_get_results();
+        LOG_BLUETOOTH("Scan completed. Found %d devices", peripherals.size());
 
         // Search LEGO Hub
         for (auto& scannedPeripheral : peripherals) {
@@ -129,7 +143,7 @@ void TransportSimpleBLE::workerFunction() {
                 name.find("HUB") != std::string::npos ||
                 name.find("CONTROL") != std::string::npos) {
 
-                
+                LOG_BLUETOOTH("Attempting to connect to LEGO Hub: %s", name.c_str());
 
                 // Connection attempt
                 try {
@@ -137,7 +151,7 @@ void TransportSimpleBLE::workerFunction() {
 
                     // In the main function, after connection:               
                     if (scannedPeripheral.is_connected()) {
-                        
+                        LOG_BLUETOOTH("Successfully connected to LEGO Hub");
                                  
                         // Looking for LEGO Hub service and features
                         SimpleBLE::Service legoService;
@@ -172,18 +186,21 @@ void TransportSimpleBLE::workerFunction() {
                     }
                 }
                 catch (const std::exception& e) {
-
+                    LOG_ERROR("Connection error: %s", e.what());
                 }
             }
         }
 
+        LOG_ERROR("No LEGO Hub found or connection failed");
 
         if (connectionCallback_) connectionCallback_(false);
     }
     catch (const std::exception& e) {
+        LOG_ERROR("Worker thread exception: %s", e.what());
         if (connectionCallback_) connectionCallback_(false);
     }
     catch (...) {
+        LOG_ERROR("Worker thread unknown exception");
         if (connectionCallback_) connectionCallback_(false);
     }
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../transport/ITransport.h"
-#include "../logging/ILogger.h"
+#include "../logging/LogManager.h"
 #include <simpleble/SimpleBLE.h>
 #include <mutex>
 #include <atomic>

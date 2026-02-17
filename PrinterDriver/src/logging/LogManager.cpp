@@ -1,156 +1,93 @@
 #include "LogManager.h"
+#include <cstdio>
 
-static constexpr size_t MAX_LOG_ENTRIES = 10000;
-static constexpr size_t MAX_MESSAGE_LENGTH = 1023;
+// Define the global object exactly once
+LogManager gLog;
 
-LogManager::LogManager() {
-    logBuffer = std::make_unique<LogEntry[]>(MAX_LOG_ENTRIES);
-    enabledCategories.store(LOG_CATEGORY_DEFAULT, std::memory_order_relaxed);
+LogManager::LogManager() = default;
+
+void LogManager::setLogCategories(uint32_t categories) noexcept {
+    enabledCategories_.store(categories, std::memory_order_relaxed);
 }
 
-void LogManager::log(LogCategory category, const char* format, ...) {
-    if (!isEnabled(category)) return;
-    va_list args;
-    va_start(args, format);
-    logV(category, format, args);
-    va_end(args);
+uint32_t LogManager::getLogCategories() const noexcept {
+    return enabledCategories_.load(std::memory_order_relaxed);
 }
 
-void LogManager::logV(LogCategory category, const char* format, va_list args) {
-    std::lock_guard<std::mutex> lock(logBufferMutex);
-    char formatted[1024];
-    vsnprintf(formatted, sizeof(formatted), format, args);
-    formatted[sizeof(formatted) - 1] = '\0';
+bool LogManager::isEnabled(LogCategory category) const noexcept {
+    return (enabledCategories_.load(std::memory_order_relaxed) & category) != 0;
+}
 
+void LogManager::logV(LogCategory category, const char* format, va_list args) noexcept {
+    // Buffer for pre-formatting
+    char temp[256];
+    vsnprintf(temp, sizeof(temp), format, args);
+    temp[sizeof(temp) - 1] = '\0';  // completion guarantee
+
+    // Get the current time
     auto now = std::chrono::system_clock::now();
-    auto time_t_now = std::chrono::system_clock::to_time_t(now);
-    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+    auto tt = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         now.time_since_epoch()) % 1000;
 
-    tm time_info;
-    LOCALTIME(&time_info, &time_t_now);
+    tm tm_buf;
+    LOCALTIME(&tm_buf, &tt);   // platform-dependent macro
 
-    const char* categoryName = "UNKNOWN";
-    switch (category) {
-    case LOG_CATEGORY_ERROR:
-        categoryName = "ERROR";
-        break;
-    case LOG_CATEGORY_WARNING:
-        categoryName = "WARNING";
-        break;
-    case LOG_CATEGORY_INFO:
-        categoryName = "INFO";
-        break;
-    case LOG_CATEGORY_DEBUG:
-        categoryName = "DEBUG";
-        break;
-    case LOG_CATEGORY_MOTOR:
-        categoryName = "MOTOR";
-        break;
-    case LOG_CATEGORY_ENCODER:
-        categoryName = "ENCODER";
-        break;
-    case LOG_CATEGORY_BLUETOOTH:
-        categoryName = "BLUETOOTH";
-        break;
-    case LOG_CATEGORY_PROFILE:
-        categoryName = "PROFILE";
-        break;
-    case LOG_CATEGORY_PERFORMANCE:
-        categoryName = "PERFORMANCE";
-        break;
-    case LOG_CATEGORY_COMMAND:
-        categoryName = "COMMAND";
-        break;
-    }
+    // Determine the category name using the bit index
+    int bitIndex = CTTZ(category);   // category must be a power of two
+    const char* catName = (bitIndex >= 0 && bitIndex < 10) ? CATEGORY_NAMES[bitIndex] : "UNKNOWN";
 
-    char finalBuffer[1024];
-    snprintf(finalBuffer, sizeof(finalBuffer),
-        "[%s][%02d:%02d:%02d.%03d] %s",
-        categoryName,
-        time_info.tm_hour, time_info.tm_min, time_info.tm_sec,
-        (int)milliseconds.count(),
-        formatted);
+    // Final message with prefix
+    char finalBuffer[256];
+    int len = snprintf(finalBuffer, sizeof(finalBuffer),
+        "[%s][%02d:%02d:%02d.%03lld] %s",
+        catName,
+        tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec,
+        (long long)ms.count(),
+        temp);
+    if (len <= 0) return;   // formatting error
 
-    size_t write_idx = logWriteIndex.load(std::memory_order_relaxed);
-    size_t read_idx = logReadIndex.load(std::memory_order_relaxed);
+    // Reserve a slot in the ring buffer (atomically)
+    size_t writeIdx = writeIndex_.fetch_add(1, std::memory_order_acq_rel);
+    size_t idx = writeIdx % MAX_ENTRIES;
 
-    size_t next_write = (write_idx + 1) % MAX_LOG_ENTRIES;
+    // Copy data to the slot
+    STRNCPY_SAFE(buffer_[idx].message, finalBuffer, sizeof(buffer_[idx].message));
+    buffer_[idx].category = category;
+    buffer_[idx].timestamp = now;
 
-    if (next_write == read_idx % MAX_LOG_ENTRIES) {
-        logReadIndex.store((read_idx + 1) % MAX_LOG_ENTRIES,
-            std::memory_order_relaxed);
-    }
-
-    size_t buffer_idx = write_idx % MAX_LOG_ENTRIES;
-    STRNCPY_SAFE(logBuffer[buffer_idx].message, finalBuffer,
-        sizeof(logBuffer[buffer_idx].message), MAX_MESSAGE_LENGTH);
-    logBuffer[buffer_idx].category = category;
-    logBuffer[buffer_idx].timestamp = now;
-
-    logWriteIndex.store(next_write, std::memory_order_release);
-}
-
-int LogManager::getLogCount() const {
-    std::lock_guard<std::mutex> lock(logBufferMutex);
-    size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
-    size_t readIndex = logReadIndex.load(std::memory_order_acquire);
-
-    if (writeIndex >= readIndex) {
-        size_t count = writeIndex - readIndex;
-        return static_cast<int>(std::min(count, MAX_LOG_ENTRIES));
-    }
-    else {
-        size_t count = (writeIndex + MAX_LOG_ENTRIES) - readIndex;
-        return static_cast<int>(std::min(count, MAX_LOG_ENTRIES));
+    // Update readIndex if the buffer is full
+    size_t readIdx = readIndex_.load(std::memory_order_acquire);
+    if (writeIdx - readIdx >= MAX_ENTRIES) {
+        // Shift readIndex forward to "lose" the oldest entry
+        readIndex_.store(writeIdx - MAX_ENTRIES + 1, std::memory_order_release);
     }
 }
 
-const char* LogManager::getLogEntry(int index, LogCategory* outCategory) const {
-    std::lock_guard<std::mutex> lock(logBufferMutex);
+int LogManager::getLogCount() const noexcept {
+    size_t writeIdx = writeIndex_.load(std::memory_order_acquire);
+    size_t readIdx = readIndex_.load(std::memory_order_acquire);
+    size_t count = writeIdx - readIdx;
+    return static_cast<int>(count > MAX_ENTRIES ? MAX_ENTRIES : count);
+}
 
-    size_t readIndex = logReadIndex.load(std::memory_order_acquire);
-    size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
+const char* LogManager::getLogEntry(int index, LogCategory* outCategory) const noexcept {
+    size_t readIdx = readIndex_.load(std::memory_order_acquire);
+    size_t writeIdx = writeIndex_.load(std::memory_order_acquire);
+    size_t available = writeIdx - readIdx;
+    if (available > MAX_ENTRIES) available = MAX_ENTRIES;
 
-    size_t available;
-    if (writeIndex >= readIndex) {
-        available = writeIndex - readIndex;
-    }
-    else {
-        available = (writeIndex + MAX_LOG_ENTRIES) - readIndex;
-    }
-
-    available = std::min(available, MAX_LOG_ENTRIES);
-
-    if (index < 0 || static_cast<size_t>(index) >= available) {
+    if (index < 0 || static_cast<size_t>(index) >= available)
         return "";
-    }
 
-    size_t bufferIndex = (readIndex + index) % MAX_LOG_ENTRIES;
-
-    if (outCategory) {
-        *outCategory = logBuffer[bufferIndex].category;
-    }
-
-    return logBuffer[bufferIndex].message;
+    size_t idx = (readIdx + index) % MAX_ENTRIES;
+    if (outCategory)
+        *outCategory = buffer_[idx].category;
+    return buffer_[idx].message;
 }
 
-void LogManager::clearLog() {
-    logWriteIndex.store(0, std::memory_order_release);
-    logReadIndex.store(0, std::memory_order_relaxed);
-
-    log(LOG_CATEGORY_INFO, "Log buffer cleared");
-}
-
-void LogManager::setLogCategories(uint32_t categories) {
-    enabledCategories.store(categories, std::memory_order_relaxed);
-    log(LOG_CATEGORY_INFO, "Log categories updated: 0x%08X", categories);
-}
-
-uint32_t LogManager::getLogCategories() const {
-    return enabledCategories.load(std::memory_order_relaxed);
-}
-
-bool LogManager::isEnabled(LogCategory category) const {
-    return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
+void LogManager::clearLog() noexcept {
+    // Reset indexes (old records become unavailable)
+    writeIndex_.store(0, std::memory_order_release);
+    readIndex_.store(0, std::memory_order_release);
 }
