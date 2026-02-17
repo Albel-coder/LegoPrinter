@@ -31,6 +31,11 @@ public:
     LogManager();
     ~LogManager() = default;
 
+    LogManager(const LogManager&) = delete;
+    LogManager& operator=(const LogManager&) = delete;
+    LogManager(LogManager&&) = delete;
+    LogManager& operator=(LogManager&&) = delete;
+
     // ILogger implementation
     void log(LogCategory category, const char* format, ...);
     void logV(LogCategory category, const char* format, va_list args) override;
@@ -44,6 +49,7 @@ public:
     uint32_t getLogCategories() const;
 
 private:
+
     struct LogEntry {
         char message[1024];
         LogCategory category;
@@ -54,7 +60,7 @@ private:
     std::atomic<size_t> logWriteIndex{ 0 };
     std::atomic<size_t> logReadIndex{ 0 };
     std::atomic<uint32_t> enabledCategories;
-    std::mutex logBufferMutex;
+    mutable std::mutex logBufferMutex;
 
     static constexpr size_t MAX_LOG_ENTRIES = 10000;
 };

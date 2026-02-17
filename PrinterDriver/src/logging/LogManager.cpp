@@ -17,6 +17,7 @@ void LogManager::log(LogCategory category, const char* format, ...) {
 }
 
 void LogManager::logV(LogCategory category, const char* format, va_list args) {
+    std::lock_guard<std::mutex> lock(logBufferMutex);
     char formatted[1024];
     vsnprintf(formatted, sizeof(formatted), format, args);
     formatted[sizeof(formatted) - 1] = '\0';
@@ -91,6 +92,7 @@ void LogManager::logV(LogCategory category, const char* format, va_list args) {
 }
 
 int LogManager::getLogCount() const {
+    std::lock_guard<std::mutex> lock(logBufferMutex);
     size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
     size_t readIndex = logReadIndex.load(std::memory_order_acquire);
 
@@ -105,6 +107,8 @@ int LogManager::getLogCount() const {
 }
 
 const char* LogManager::getLogEntry(int index, LogCategory* outCategory) const {
+    std::lock_guard<std::mutex> lock(logBufferMutex);
+
     size_t readIndex = logReadIndex.load(std::memory_order_acquire);
     size_t writeIndex = logWriteIndex.load(std::memory_order_acquire);
 

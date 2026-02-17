@@ -28,7 +28,13 @@ enum LogCategory {
 
 class ILogger {
 public:
+    ILogger() = default;
     virtual ~ILogger() = default;
+
+    ILogger(const ILogger&) = delete;
+    ILogger& operator=(const ILogger&) = delete;
+    ILogger(ILogger&&) = delete;
+    ILogger& operator=(ILogger&&) = delete;
 
     virtual void log(LogCategory category, const char* format, ...) = 0;
 
