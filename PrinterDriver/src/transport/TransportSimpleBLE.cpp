@@ -8,7 +8,7 @@ using namespace std::chrono_literals;
 const std::string TransportSimpleBLE::LEGO_HUB_SERVICE_UUID = "00001623-1212-efde-1623-785feabcd123";
 const std::string TransportSimpleBLE::LEGO_HUB_CHARACTERISTIC_UUID = "00001624-1212-efde-1623-785feabcd123";
 
-TransportSimpleBLE::TransportSimpleBLE(ILogger& logger) : logger(logger) {
+TransportSimpleBLE::TransportSimpleBLE() {
     std::lock_guard<std::mutex> lock(stateMutex_);  
     currentState_ = State::Disconnected;
 }
@@ -64,39 +64,27 @@ void TransportSimpleBLE::workerFunction() {
     try {
 
         // Checking Bluetooth Status
-        logger.bluetooth("Checking Bluetooth status:");
 
         bool bleEnabled = SimpleBLE::Adapter::bluetooth_enabled();
-        logger.bluetooth("  - SimpleBLE::Adapter::bluetooth_enabled(): %s",
-            bleEnabled ? "true" : "false");
 
         // Getting a list of adapters
         auto adapters = SimpleBLE::Adapter::get_adapters();
-        logger.bluetooth("  - Adapters found: %zu", adapters.size());
 
         if (adapters.empty()) {
-            logger.error("Bluetooth adapters not found! Possible reasons:");
-            logger.error("1. The Bluetooth adapter is disabled or not working");
-            logger.error("2. Drivers not installed");
-            logger.error("3. Hardware problem");
+
             if (connectionCallback_) connectionCallback_(false);
             return;
         }
 
         // We use the first adapter
         SimpleBLE::Adapter adapter = adapters[0];
-        logger.bluetooth("Adapter used: %s [%s]",
-            adapter.identifier().c_str(),
-            adapter.address().c_str());
 
         // Setting up callbacks
         adapter.set_callback_on_scan_start([]() {});
 
-        logger.bluetooth("Scanning started...");
 
         adapter.set_callback_on_scan_stop([]() {});
 
-        logger.bluetooth("Scanning stopped");
 
         adapter.set_callback_on_scan_found([this](SimpleBLE::Peripheral peripheral) {
             std::string name = peripheral.identifier();
@@ -117,24 +105,20 @@ void TransportSimpleBLE::workerFunction() {
                 // LEGO Company ID: 0x0397 (little-endian: 97 03)
                 if (data.first == 0x0397) {
                     isLego = true;
-                    logger.bluetooth("[LEGO Manufacturer Data Found]");
                 }
             }
 
             if (isLego) {
-                logger.bluetooth("LEGO HUB DISCOVERED!");
             }
             });
 
         // Start scanning
         adapter.scan_start();
-        logger.bluetooth("Starting Bluetooth scan for 10 seconds...");
         std::this_thread::sleep_for(10s);
         adapter.scan_stop();
 
         // We get a list of found devices
         auto peripherals = adapter.scan_get_results();
-        logger.bluetooth("Scan completed. Found %d devices", peripherals.size());
 
         // Search LEGO Hub
         for (auto& scannedPeripheral : peripherals) {
@@ -145,7 +129,7 @@ void TransportSimpleBLE::workerFunction() {
                 name.find("HUB") != std::string::npos ||
                 name.find("CONTROL") != std::string::npos) {
 
-                logger.bluetooth("Attempting to connect to LEGO Hub: %s", name.c_str());
+                
 
                 // Connection attempt
                 try {
@@ -153,7 +137,7 @@ void TransportSimpleBLE::workerFunction() {
 
                     // In the main function, after connection:               
                     if (scannedPeripheral.is_connected()) {
-                        logger.bluetooth("Successfully connected to LEGO Hub");
+                        
                                  
                         // Looking for LEGO Hub service and features
                         SimpleBLE::Service legoService;
@@ -188,20 +172,18 @@ void TransportSimpleBLE::workerFunction() {
                     }
                 }
                 catch (const std::exception& e) {
-                    logger.error("Connection error: %s", e.what());
+
                 }
             }
         }
 
-        logger.error("No LEGO Hub found or connection failed");
+
         if (connectionCallback_) connectionCallback_(false);
     }
     catch (const std::exception& e) {
-        logger.error("Worker thread exception: %s", e.what());
         if (connectionCallback_) connectionCallback_(false);
     }
     catch (...) {
-        logger.error("Worker thread unknown exception");
         if (connectionCallback_) connectionCallback_(false);
     }
 

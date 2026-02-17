@@ -10,7 +10,7 @@
 
 class TransportSimpleBLE : public ITransport {
 public:
-    TransportSimpleBLE(ILogger& logger);
+    TransportSimpleBLE();
     ~TransportSimpleBLE() override;
 
     // Disable copying and moving
@@ -70,6 +70,4 @@ private:
     void cleanup();
     void workerFunction();
     bool waitForState(State state, std::chrono::milliseconds timeout);
-
-    ILogger& logger;
 };
