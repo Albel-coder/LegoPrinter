@@ -60,6 +60,7 @@ bool TransportSimpleBLE::open() {
 
 void TransportSimpleBLE::workerFunction() {
     threadRunning_ = true;
+    bool connected = false;
 
     try {
 
@@ -154,15 +155,13 @@ void TransportSimpleBLE::workerFunction() {
                         LOG_BLUETOOTH("Successfully connected to LEGO Hub");
                                  
                         // Looking for LEGO Hub service and features
-                        SimpleBLE::Service legoService;
-                        SimpleBLE::Characteristic legoChar;
 
+                        bool foundChar = false;
                         for (auto& service : scannedPeripheral.services()) {
                             if (service.uuid() == LEGO_HUB_SERVICE_UUID) {
-                                legoService = service;
                                 for (auto& characteristic : service.characteristics()) {
                                     if (characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
-                                        legoChar = characteristic;
+                                        foundChar = true;
                                         break;
                                     }
                                 }
@@ -170,19 +169,23 @@ void TransportSimpleBLE::workerFunction() {
                             }
                         }
 
-                        if (legoChar.uuid().empty()) {
-                            if (connectionCallback_) connectionCallback_(false);
-                            return;
-                        }
+                        if (!foundChar) {                            
+                            continue;
+                        }                        
 
                         peripheral_ = std::move(scannedPeripheral);
-                        
-                        if (connectionCallback_) connectionCallback_(true);
+
+                        setState(State::Connected);
 
                         peripheral_.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
                             [this](const std::vector<uint8_t>& data) {
                                 this->onNotification(data);
                             });
+
+                        if (connectionCallback_) connectionCallback_(true);
+
+                        connected = true;
+                        break;
                     }
                 }
                 catch (const std::exception& e) {
@@ -191,9 +194,11 @@ void TransportSimpleBLE::workerFunction() {
             }
         }
 
-        LOG_ERROR("No LEGO Hub found or connection failed");
-
-        if (connectionCallback_) connectionCallback_(false);
+        if (!connected) {
+            LOG_ERROR("No LEGO Hub found or connection failed");
+            setState(State::Error);
+            if (connectionCallback_) connectionCallback_(false);
+        }
     }
     catch (const std::exception& e) {
         LOG_ERROR("Worker thread exception: %s", e.what());

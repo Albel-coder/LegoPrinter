@@ -1,7 +1,7 @@
 #include "LegoPrinterCore.h"
 #include <cstdarg>
 #include <map>
-#include <windows.h>
+#include <thread>
 
 PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) : transport_(std::move(transport)) {
     gLog.setLogCategories(LOG_CATEGORY_ALL);
@@ -13,22 +13,30 @@ PrinterDriver::~PrinterDriver() {
 }
 
 bool PrinterDriver::connect() {
-	if (!transport_) {
+    if (!transport_) {
         LOG_ERROR("Transport not initialized");
-		return false;
-	}
-
-    LOG_INFO("Connecting using transport: %s", transport_->getName());
-
-	bool result = transport_->open();
-    if (result) {
-        LOG_INFO("Connection successful!");
-    }
-    else {
-        LOG_INFO("Connection failed");
+        return false;
     }
 
-    return result;
+    LOG_INFO("Starting connection...");
+    if (!transport_->open()) {
+        LOG_ERROR("Failed to open transport");
+        return false;
+    }
+
+    const auto timeout = std::chrono::seconds(30);
+    auto start = std::chrono::steady_clock::now();
+
+    while (std::chrono::steady_clock::now() - start < timeout) {
+        if (!transport_->isConnected()) {
+            LOG_INFO("Connection established");
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+
+    LOG_ERROR("Connection timeout");
+    return false;
 }
 
 bool PrinterDriver::disconnect() {
