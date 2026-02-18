@@ -34,7 +34,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=D:\aleksey\programming\C++\LegoPrinter\Build\Debug
 OutputBaseFilename=LPStudioSetup
-SetupIconFile=C:\Users\aleksey\Downloads\Icon32x32.ico
+SetupIconFile=D:\aleksey\programming\C++\LegoPrinter\Build\Debug\MainLogo32x32.ico
 SolidCompression=yes
 WizardStyle=modern dark
 ; Important for updating
@@ -57,18 +57,17 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\CommandLine.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\Interpreter.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinter.Updater.deps.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinter.Updater.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinter.Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinter.Updater.pdb"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinter.Updater.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\LegoPrinterCore.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\Newtonsoft.Json.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\Newtonsoft.Json.xml"; DestDir: "{app}"; Flags: ignoreversion
-Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\project\SharpCompress.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\CommandLine.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\LegoPrinter.Updater.deps.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\LegoPrinter.Updater.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\LegoPrinter.Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\LegoPrinter.Updater.pdb"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\LegoPrinter.Updater.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\LegoPrinterCore.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\Newtonsoft.Json.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\Newtonsoft.Json.xml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "D:\aleksey\programming\C++\LegoPrinter\Build\Debug\LegoPrinter\SharpCompress.dll"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
