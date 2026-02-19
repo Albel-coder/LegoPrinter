@@ -1,7 +1,6 @@
 #include "LegoDriverAPI.h"
 #include "../core/LegoPrinterCore.h"
 #include "../platform/DriverFactory.h"
-#include <Windows.h>
 
 extern "C" {
 	PRINTER_DRIVER_API DriverHandle CreatePrinter()
