@@ -9,13 +9,12 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x400
 
 # Список исходных файлов
 add_library(printer-jni SHARED
-    jni_globals.cpp      # Добавляем новый файл с глобальными переменными
-    printer_runtime.cpp
+    jni_globals.cpp
     converter.cpp
     printer_jni.cpp
     interpreter_jni.cpp
     jni_safe_call.cpp
-    jni_bridge.cpp
+	include/TransportAndroid.cpp
 )
 
 target_include_directories(printer-jni PRIVATE
@@ -23,7 +22,6 @@ target_include_directories(printer-jni PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Установите свойство для выравнивания сегментов
 set_target_properties(printer-jni PROPERTIES
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )
