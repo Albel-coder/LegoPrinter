@@ -62,10 +62,7 @@ add_library(LegoPrinterCore SHARED
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
 	src/platform/DriverFactory.h
-	src/platform/DriverFactory.cpp
-	src/transport/ITransport.h
-	src/transport/TransportSimpleBLE.h
-	src/transport/TransportSimpleBLE.cpp
+	src/transport/ITransport.h	
 )
 
 # Include directories
@@ -83,8 +80,9 @@ if(WIN32)
 	add_subdirectory(external/simpleble/simpleble)
 	
 	target_sources(LegoPrinterCore PRIVATE
+		src/transport/TransportSimpleBLE.h
 		src/transport/TransportSimpleBLE.cpp
-		src/platform/PrinterFactory.cpp
+		src/platform/DriverFactoryWindows.cpp
 	)
 	
 	# Linking with SimpleBLE only in Windows
@@ -93,6 +91,10 @@ if(WIN32)
 			simpleble::simpleble
 	)
 	
+elseif (ANDROID)
+	target_sources(LegoPrinterCore PRIVATE
+		src/platform/DriverFactoryAndroid.cpp
+	)
 endif()
 	
 
