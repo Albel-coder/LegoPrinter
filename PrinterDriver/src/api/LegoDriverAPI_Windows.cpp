@@ -1,12 +1,12 @@
 #include "LegoDriverAPI.h"
 #include "../core/LegoPrinterCore.h"
-#include "../platform/DriverFactory.h"
+#include "../transport/TransportSimpleBLE.h"
 
 extern "C" {
 	PRINTER_DRIVER_API DriverHandle CreatePrinter()
 	{
-		auto ble = createBleDriver();
-		auto* driver = new PrinterDriver(std::move(ble));
+		auto transport = std::make_unique<TransportSimpleBLE>();
+		auto* driver = new PrinterDriver(std::move(transport));
 		return driver;
 	}
 

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../transport/ITransport.h"
-#include "../logging/LogManager.h"
 #include <memory>
 #include <atomic>
 

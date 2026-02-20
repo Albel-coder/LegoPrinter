@@ -1,4 +1,5 @@
 #include "LegoPrinterCore.h"
+#include "../logging/LogManager.h"
 #include <cstdarg>
 #include <map>
 #include <thread>
