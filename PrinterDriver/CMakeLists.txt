@@ -57,8 +57,11 @@ endif()
 add_library(LegoPrinterCore SHARED
 	src/api/LegoDriverAPI.h
 	src/api/LegoDriverAPI.cpp
+	src/api/InterpreterAPI.h
+	src/api/InterpreterAPI.cpp
 	src/core/LegoPrinterCore.h
 	src/core/LegoPrinterCore.cpp
+	src/core/Interpreter.h
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
 	src/platform/DriverFactory.h
