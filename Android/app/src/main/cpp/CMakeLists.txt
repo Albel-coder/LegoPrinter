@@ -3,17 +3,15 @@ project("printer-jni")
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Флаги для совместимости с 16 KB page size (Android 15+)
+# Flags for compatibility with 16 KB page size (Android 15+)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 
-# Список исходных файлов
+# List of source files
 add_library(printer-jni SHARED
-    jni_globals.cpp
     converter.cpp
     printer_jni.cpp
-    interpreter_jni.cpp
-    jni_safe_call.cpp
+	interpreter_jni.cpp
 	include/TransportAndroid.cpp
 )
 
@@ -33,11 +31,6 @@ set_target_properties(printerdriver PROPERTIES
     IMPORTED_LOCATION ${LIB_DIR}/LegoPrinterCore.so
 )
 
-add_library(interpreter SHARED IMPORTED)
-set_target_properties(interpreter PROPERTIES
-    IMPORTED_LOCATION ${LIB_DIR}/Interpreter.so
-)
-
 find_library(log-lib log)
 
 target_link_libraries(printer-jni
@@ -47,10 +40,10 @@ target_link_libraries(printer-jni
     interpreter
 )
 
-# Только необходимые флаги
+# Only necessary flags
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -fexceptions")
 
-# Отладочные флаги только для Debug
+# Debug flags for debugging only
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDEBUG)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
