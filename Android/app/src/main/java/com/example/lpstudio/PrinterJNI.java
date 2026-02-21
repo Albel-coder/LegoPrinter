@@ -5,7 +5,6 @@ package com.example.lpstudio;
 public class PrinterJNI {
     static {
         // Loading libraries in the correct order
-        System.loadLibrary("LegoPrinterCore");
         System.loadLibrary("printer_jni");
     }
 

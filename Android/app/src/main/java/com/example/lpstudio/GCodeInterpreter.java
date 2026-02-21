@@ -11,11 +11,8 @@ public class GCodeInterpreter implements AutoCloseable {
 
     // Pointer to the native interpreter object (stored as long)
     private long interpreterHandle = 0;
+    private long printerHandle = 0;
     private boolean disposed = false;
-
-    static {
-        NativeLib.ensureLoaded();
-    }
 
     // Status enum
     public enum Status {
@@ -96,15 +93,13 @@ public class GCodeInterpreter implements AutoCloseable {
     }
 
     // Constructor
-    public GCodeInterpreter() {
+    public GCodeInterpreter(PrinterController printer) {
         NativeLib.ensureLoaded();
+        if (printer == null) throw new IllegalArgumentException("Printer cannot be null");
+        this.printerHandle = printer.getPrinterHandle();
+        if (this.printerHandle == 0) throw new RuntimeException("Invalid printer handle");
 
-        if (!NativeLib.isJNIInitialized()) {
-            throw new RuntimeException("Failed to initialized JNI");
-        }
-
-
-        interpreterHandle = createInterpreter();
+        interpreterHandle = createInterpreter(this.printerHandle);
         if (interpreterHandle == 0) {
             throw new RuntimeException("Failed to create GCode interpreter instance");
         }
@@ -113,11 +108,10 @@ public class GCodeInterpreter implements AutoCloseable {
     // ========== Native methods (declarations) ==========
 
     // Lifecycle management
-    private native long createInterpreter();
+    private native long createInterpreter(long printerHandle);
     private native void destroyInterpreter(long interpreterHandle);
 
     // Execution
-    private native boolean testCode(long interpreterPtr, long printerPtr);
     private native boolean executeGCode(long interpreterPtr, String filename, long printerHandle);
     private native boolean executeLine(long interpreterPtr, String line, long printerHandle);
 
@@ -129,33 +123,10 @@ public class GCodeInterpreter implements AutoCloseable {
     private native int getStatus(long interpreterPtr);
     private native double getProgress(long interpreterPtr);
     private native String getLastInterpreterError(long interpreterPtr);
-    private native String getError(long interpreterPtr, int index);
-    private native int getErrorCount(long interpreterPtr);
-
-    // Logging
-    private native int getInterpreterLogCount(long interpreterPtr);
-    private native String getInterpreterLogEntry(long interpreterPtr, int index);
-    private native void clearInterpreterLog(long interpreterPtr);
-
     // Configuration
     private native boolean readConfig(long interpreterPtr, String filename);
 
-    // Log categories
-    private native void setLogCategories(long interpreterPtr, int categories);
-    private native int getLogCategories(long interpreterPtr);
-    private native int getFilterLogCount(long interpreterPtr, int categoryMask);
-
     // ========== Public API (similar to C#) ==========
-
-    public boolean test(PrinterController printer) {
-        checkDisposed();
-        if (printer == null) {
-            throw new IllegalArgumentException("Printer cannot be null");
-        }
-        long printerHandle = printer.getPrinterHandle();
-        return testCode(interpreterHandle, printerHandle);
-    }
-
     public boolean executeFile(String filename, PrinterController printer) {
         checkDisposed();
         if (filename == null || filename.isEmpty()) {
@@ -281,33 +252,6 @@ public class GCodeInterpreter implements AutoCloseable {
         return error != null ? error : "";
     }
 
-    public String getError(int index) {
-        checkDisposed();
-        String error = getError(interpreterHandle, index);
-        return error != null ? error : "";
-    }
-
-    public String getLog(int index) {
-        checkDisposed();
-        String log = getInterpreterLogEntry(interpreterHandle, index);
-        return log != null ? log : "";
-    }
-
-    public int getErrorCount() {
-        checkDisposed();
-        return getErrorCount(interpreterHandle);
-    }
-
-    public int getLogCount() {
-        checkDisposed();
-        return getInterpreterLogCount(interpreterHandle);
-    }
-
-    public void clearLog() {
-        checkDisposed();
-        clearInterpreterLog(interpreterHandle);
-    }
-
     public boolean readConfig(String filename) {
         checkDisposed();
         if (filename == null || filename.isEmpty()) {
@@ -315,38 +259,6 @@ public class GCodeInterpreter implements AutoCloseable {
         }
         return readConfig(interpreterHandle, filename);
     }
-
-    // Helper methods
-    public List<String> getAllErrors() {
-        List<String> errors = new ArrayList<>();
-        int count = getErrorCount();
-
-        for (int i = 0; i < count; i++) {
-            String error = getError(i);
-            if (error != null && !error.isEmpty()) {
-                errors.add(error);
-            }
-        }
-        return errors;
-    }
-
-    public List<String> getAllLogs() {
-        List<String> logs = new ArrayList<>();
-        int count = getLogCount();
-
-        for (int i = 0; i < count; i++) {
-            String log = getLog(i);
-            if (log != null && !log.isEmpty()) {
-                logs.add(log);
-            }
-        }
-        return logs;
-    }
-
-    public boolean hasErrors() {
-        return getErrorCount() > 0;
-    }
-
     public boolean isRunning() {
         return getStatus() == Status.RUNNING;
     }
@@ -361,22 +273,6 @@ public class GCodeInterpreter implements AutoCloseable {
 
     public boolean isIdle() {
         return getStatus() == Status.IDLE;
-    }
-
-    // Log categories management
-    public void setLogCategories(int categories) {
-        checkDisposed();
-        setLogCategories(interpreterHandle, categories);
-    }
-
-    public int getLogCategories() {
-        checkDisposed();
-        return getLogCategories(interpreterHandle);
-    }
-
-    public int getFilterLogCount(int categoryMask) {
-        checkDisposed();
-        return getFilterLogCount(interpreterHandle, categoryMask);
     }
 
     // Get interpreter handle for direct native calls

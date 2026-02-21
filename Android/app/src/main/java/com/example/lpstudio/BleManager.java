@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 
 import android.annotation.SuppressLint;
 
+@SuppressLint("MissingPermission")
 public class BleManager {
     private static final String TAG = "BleManager";
     private static final String LEGO_HUB_SERVICE_UUID = "00001623-1212-efde-1623-785feabcd123";
@@ -264,11 +265,13 @@ public class BleManager {
         return isConnected;
     }
 
-    @SuppressLint("MissingPermission")
     private void stopScan() {
         if (scanCallback != null) {
             bleScanner.stopScan(scanCallback);
             scanCallback = null;
         }
     }
+
+    private native void nativeOnDataReceived(long nativeTransportPtr, byte[] data);
+    private native void nativeOnConnectionStateChanged(long nativeTransportPtr, boolean connected);
 }

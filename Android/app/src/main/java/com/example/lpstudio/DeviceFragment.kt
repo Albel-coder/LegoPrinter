@@ -173,8 +173,8 @@ class DeviceFragment : Fragment() {
         scope.launch(Dispatchers.IO) {
             try {
                 // Initialize controllers
-                printerController = PrinterController()
-                gCodeInterpreter = GCodeInterpreter()
+                printerController = PrinterController(context)
+                gCodeInterpreter = GCodeInterpreter(printerController)
 
                 withContext(Dispatchers.Main) {
                     // Setup button listeners
@@ -558,19 +558,6 @@ class DeviceFragment : Fragment() {
                 appendDriverLogs(lastDriverLogCount, newDriverLogs)
                 lastDriverLogCount = currentDriverLogCount
             }
-
-            // 2. Update interpreter logs
-            val currentInterpreterLogCount = gCodeInterpreter.logCount
-
-            if (currentInterpreterLogCount < lastInterpreterLogCount) {
-                lastInterpreterLogCount = 0
-            }
-
-            if (currentInterpreterLogCount > lastInterpreterLogCount) {
-                val newInterpreterLogs = currentInterpreterLogCount - lastInterpreterLogCount
-                appendInterpreterLogs(lastInterpreterLogCount, newInterpreterLogs)
-                lastInterpreterLogCount = currentInterpreterLogCount
-            }
         } catch (e: Exception) {
             // Игнорируем ошибки обновления консоли
         }
@@ -585,36 +572,6 @@ class DeviceFragment : Fragment() {
             try {
                 val logEntry = printerController.getLogEntry(startIndex + i)
                 if (logEntry != null && logEntry.isNotEmpty()) {
-                    stringBuilder.appendLine(logEntry)
-                }
-            } catch (e: Exception) {
-                // Игнорируем ошибки получения одной записи
-            }
-        }
-
-        if (stringBuilder.isNotEmpty()) {
-            appendToConsole(stringBuilder.toString())
-        }
-    }
-
-    private fun appendInterpreterLogs(startIndex: Int, count: Int) {
-        if (count < 1) return
-
-        val stringBuilder = StringBuilder()
-
-        for (i in 0 until count) {
-            try {
-                val logEntry = gCodeInterpreter.getLog(startIndex + i)
-                if (logEntry != null && logEntry.isNotEmpty()) {
-
-                    // Определяем префикс в зависимости от содержания лога
-                    val prefix = when {
-                        logEntry.contains("ERROR", ignoreCase = true) -> "[Interpreter ERROR]"
-                        logEntry.contains("WARN", ignoreCase = true) -> "[Interpreter WARN]"
-                        logEntry.contains("INFO", ignoreCase = true) -> "[Interpreter INFO]"
-                        else -> "[Interpreter]"
-                    }
-
                     stringBuilder.appendLine(logEntry)
                 }
             } catch (e: Exception) {
@@ -751,7 +708,6 @@ class DeviceFragment : Fragment() {
         scope.launch(Dispatchers.IO) {
             try {
                 printerController.clearLog()
-                gCodeInterpreter.clearLog()
             } catch (e: Exception) {
                 // Игнорируем ошибки очистки
             }

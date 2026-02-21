@@ -1,5 +1,6 @@
 package com.example.lpstudio;
 
+import android.content.Context;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -65,14 +66,10 @@ public class PrinterController implements AutoCloseable {
     }
 
     // Constructor
-    public PrinterController() {
+    public PrinterController(Context context) {
         NativeLib.ensureLoaded();
 
-        if (!NativeLib.isJNIInitialized()) {
-            throw new RuntimeException("Failed to initialized JNI");
-        }
-
-        printerHandle = createPrinter();
+        printerHandle = createPrinter(context);
         if (printerHandle == 0) {
             throw new RuntimeException("Failed to create printer instance");
         }
@@ -82,7 +79,7 @@ public class PrinterController implements AutoCloseable {
     // ========== Native methods (declarations) ==========
 
     // Lifecycle management
-    private native long createPrinter();
+    private native long createPrinter(android.content.Context context);
     private native void destroyPrinter(long printerPtr);
 
     // Connection
@@ -100,7 +97,7 @@ public class PrinterController implements AutoCloseable {
     private native String getLogEntry(long printerPtr, int index);
     private native void clearLog(long printerPtr);
     private native String getLastErrorMessage(long printerPtr);
-    private native String printerConnectionInfo(long printerPtr);
+    private native void printerConnectionInfo(long printerPtr);
 
     // Log categories
     private native void printerSetLogCategories(long printerPtr, int categories);
@@ -193,9 +190,9 @@ public class PrinterController implements AutoCloseable {
         return getLastErrorMessage(printerHandle);
     }
 
-    public String getConnectionInfo() {
+    public void getConnectionInfo() {
         checkDisposed();
-        return printerConnectionInfo(printerHandle);
+        printerConnectionInfo(printerHandle);
     }
 
     public void setLogCategories(int categories) {
