@@ -7,37 +7,37 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=0x4000")
 
+set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
+
+set(CORE_STATIC_LIB ${LIB_DIR}/LegoPrinterCore.a)
+
 # List of source files
 add_library(printer-jni SHARED
     converter.cpp
     printer_jni.cpp
 	interpreter_jni.cpp
 	include/TransportAndroid.cpp
+	include/Interpreter.h
+	include/ITransport.h
+	include/LegoPrinterCore.h
+	include/LegoDriverAPI.h
 )
 
 target_include_directories(printer-jni PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/../include
+	${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_link_libraries(printer-jni
+	${CORE_STATIC_LIB}
+	log
+	android
 )
 
 set_target_properties(printer-jni PROPERTIES
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
-)
-
-set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
-
-add_library(printerdriver SHARED IMPORTED)
-set_target_properties(printerdriver PROPERTIES
-    IMPORTED_LOCATION ${LIB_DIR}/LegoPrinterCore.so
-)
-
-find_library(log-lib log)
-
-target_link_libraries(printer-jni
-    android
-    ${log-lib}
-    printerdriver
-    interpreter
 )
 
 # Only necessary flags
