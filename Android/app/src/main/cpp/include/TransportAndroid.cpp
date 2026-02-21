@@ -3,8 +3,8 @@
 #include <cassert>
 
 #define LOG_TAG "TransportAndroid"
-#define LOGI(...) android_log_print(ANDROID_LOG_INFO, LOG_TAG, VA_ARGS__)
-#define LOGE(...) android_log_print(ANDROID_LOG_ERROR, LOG_TAG, VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 // Helper RAII class for JNIEnv (similar to JNISafeCall, but local)
 class ScopedJNIEnv {
@@ -31,7 +31,12 @@ private:
 };
 
 TransportAndroid::TransportAndroid(JavaVM* jvm, jobject context)
-    : jvm_(jvm) {
+    : jvm_(jvm),
+    bleManager_(nullptr),
+    openMethod_(nullptr),
+    closeMethod_(nullptr),
+    writeMethod_(nullptr),
+    connected_(false) {
     ScopedJNIEnv env(jvm_);
     if (!env) {
         LOGE("Failed to get JNIEnv");
@@ -40,7 +45,7 @@ TransportAndroid::TransportAndroid(JavaVM* jvm, jobject context)
 
     // Create a BleManager instance in Kotlin
 	jclass contextClass = env->GetObjectClass(context);
-    jclass bleManagerClass = env->FindClass("com/example/lpstudio/ble/BleManager");
+    jclass bleManagerClass = env->FindClass("com/example/lpstudio/BleManager");
     if (!bleManagerClass) {
         LOGE("BleManager class not found");
         return;
@@ -57,14 +62,14 @@ TransportAndroid::TransportAndroid(JavaVM* jvm, jobject context)
     env->DeleteLocalRef(bleManagerClass);
 
     // Get methods
-    connectMethod_ = env->GetMethodID(env->GetObjectClass(bleManager_), "connect", "(Ljava/lang/String;)Z");
-	if (!connectMethod_) {
-		LOGE("BleManager connectMethod_ not found");
+    openMethod_ = env->GetMethodID(env->GetObjectClass(bleManager_), "open", "()Z");
+	if (!openMethod_) {
+		LOGE("BleManager openMethod_ not found");
 		return;
 	}
-    disconnectMethod_ = env->GetMethodID(env->GetObjectClass(bleManager_), "disconnect", "()V");
-	if (!disconnectMethod_) {
-		LOGE("BleManager disconnectMethod_ not found");
+    closeMethod_ = env->GetMethodID(env->GetObjectClass(bleManager_), "close", "()V");
+	if (!closeMethod_) {
+		LOGE("BleManager closeMethod_ not found");
 		return;
 	}
     writeMethod_ = env->GetMethodID(env->GetObjectClass(bleManager_), "write", "([B)Z");
@@ -87,41 +92,17 @@ void TransportAndroid::cleanup() {
 }
 
 bool TransportAndroid::open() {
-	std::string addressCopy;
-	
-	{
-		std::lock_guard<std::mutex> lock(mutex_);
-		if(deviceAddress_.empty())
-			return false;
-		addressCopy = deviceAddress_;
-	}
-	
 	ScopedJNIEnv env(jvm_);
-	if (!env || !bleManager_ || !connectMethod_)
-		return false;
-	
-	jstring jAddress = env->NewStringUTF(addressCopy.c_str());
-	if (!jAddress)
-		return false;
-	
-	jboolean result = env->CallBooleanMethod(bleManager_, connectMethod_, jAddress);
-	
-	if (env->ExceptionCheck()) {
-		env->ExceptionDescribe();
-		env->ExceptionClear();
-		result = JNI_FALSE;
-	}
-	
-	env->DeleteLocalRef(jAddress);
-	
-	return result == JNI_TRUE;
+    if (!env || !bleManager_ || !openMethod_) return false;
+    jboolean result = env->CallBooleanMethod(bleManager_, openMethod_);
+    return result == JNI_TRUE;
 }
 
 void TransportAndroid::close() {
     std::lock_guard<std::mutex> lock(mutex_);
     ScopedJNIEnv env(jvm_);
     if (env && bleManager_) {
-        env->CallVoidMethod(bleManager_, disconnectMethod_);
+        env->CallVoidMethod(bleManager_, closeMethod_);
     }
     connected_ = false;
 }
@@ -142,7 +123,7 @@ bool TransportAndroid::write(const uint8_t* data, size_t length) {
     return result;
 }
 
-bool TransportAndroid::isConnected() const {
+bool TransportAndroid::isConnected() {
     return connected_.load();
 }
 
@@ -184,7 +165,21 @@ void TransportAndroid::onConnectionStateChanged(JNIEnv* env, jboolean connected)
     }
 }
 
-void setDeviceAddress(const std::string& address) {
-	std::lock_guard<std::mutex> lock(mutex_);
-	deviceAddress_ = address;
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_lpstudio_BleManager_nativeOnDataReceived(JNIEnv* env, jobject /*thiz*/, jlong transportPtr, jbyteArray data) {
+    auto* transport = reinterpret_cast<TransportAndroid*>(transportPtr);
+    if (!transport) return;
+    jsize len = env->GetArrayLength(data);
+    jbyte* bytes = env->GetByteArrayElements(data, nullptr);
+    if (bytes) {
+        transport->onDataReceived(env, data);
+    }
 }
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_lpstudio_BleManager_nativeOnConnectionStateChanged(JNIEnv* env, jobject /*thiz*/, jlong transportPtr, jboolean connected) {
+    auto* transport = reinterpret_cast<TransportAndroid*>(transportPtr);
+    if (!transport) return;
+    transport->onConnectionStateChanged(env, connected);
+}
+

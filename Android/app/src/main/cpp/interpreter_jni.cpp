@@ -1,6 +1,6 @@
 #include "interpreter_jni.h"
-#include "../include/InterpreterAPI.h"
-#include "../include/LegoDriverAPI.h"
+#include "../include/LegoPrinterCore.h"
+#include "../include/Interpreter.h"
 #include <android/log.h>
 
 #define LOG_TAG "InterpreterJNI"
@@ -9,15 +9,21 @@
 
 using Printer = PrinterDriver;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 JNIEXPORT jlong JNICALL
-Java_com_example_GCodeInterpreter_createInterpreter(JNIEnv* env, jobject) {
-	auto* interpreter = new Interpreter();
+Java_com_example_lpstudio_GCodeInterpreter_createInterpreter(JNIEnv * env, jobject /*thiz*/, jlong printerHandle) {
+	auto *printer = reinterpret_cast<Printer *>(printerHandle);
+	auto *interpreter = new Interpreter(*printer);
 	LOGI("Interpreter created: %p", interpreter);
-	return reinterpret_cast<jlong>(interpreter);
+	return reinterpret_cast <jlong>(interpreter);
 }
 
-Java_com_example_GCodeInterpreter_destroyInterpreter(JNIEnv* env, jobject, jlong handle) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
+JNIEXPORT void JNICALL
+Java_com_example_lpstudio_GCodeInterpreter_destroyInterpreter(JNIEnv* env, jobject,jlong handle) {
+auto *interpreter = reinterpret_cast<Interpreter *>(handle);
 	if (interpreter) {
 		delete interpreter;
 		LOGI("Interpreter destroyed: %p", interpreter);
@@ -25,80 +31,80 @@ Java_com_example_GCodeInterpreter_destroyInterpreter(JNIEnv* env, jobject, jlong
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_executeGCode(JNIEnv* env, jobject, 
-    jlong interpreterHandle, jstring filename, jlong printerHandle) {
-	
-	auto* interpreter = reinterpret_cast<Interpreter*>(interpreterHandle);
-	auto* printer = reinterpret_cast<Printer*>(printerHandle);
-	if (!interpreter || !printer || !filename) return JNI_FALSE;
-	
-	const char* c_filename = env->GetStringUTFChars(filename, nullptr);
+        Java_com_example_lpstudio_GCodeInterpreter_executeGCode(JNIEnv * env, jobject, jlong interpreterHandle, jstring filename, jlong printerHandle) {
+
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
+	if (!interpreter || !filename) return JNI_FALSE;
+
+	const char *c_filename = env->GetStringUTFChars(filename, nullptr);
 	if (!c_filename) return JNI_FALSE;
-	
-	bool result = interpreter->executeFile(c_filename, printer);
+
+	bool result = interpreter->executeGCode(c_filename);
 	env->ReleaseStringUTFChars(filename, c_filename);
 	return result ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_executeLine(JNIEnv* env, jobject, 
-    jlong interpreterHandle, jstring line, jlong printerHandle) {
-	
-	auto* interpreter = reinterpret_cast<Interpreter*>(interpreterHandle);
-	auto* printer = reinterpret_cast<Printer*>(printerHandle);
-	if (!interpreter || !printer || !line) return JNI_FALSE;
-	
-	const char* c_line = env->GetStringUTFChars(line, nullptr);
+Java_com_example_lpstudio_GCodeInterpreter_executeLine(JNIEnv * env, jobject, jlong interpreterHandle, jstring line, jlong printerHandle) {
+
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
+	if (!interpreter || !line) return JNI_FALSE;
+
+	const char *c_line = env->GetStringUTFChars(line, nullptr);
 	if (!c_line) return JNI_FALSE;
-	
-	bool result = interpreter->executeLine(c_line, printer);
+
+	bool result = interpreter->executeLine(c_line);
 	env->ReleaseStringUTFChars(line, c_line);
 	return result ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_pauseExecution(JNIEnv* env, jobject, jlong interpreterHandle) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
-	if (interpreter) interpreter->pause();
+Java_com_example_lpstudio_GCodeInterpreter_pauseExecution(JNIEnv * env, jobject, jlong interpreterHandle) {
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
+	if (interpreter) interpreter->pauseExecution();
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_resumeExecution(JNIEnv* env, jobject, jlong interpreterHandle) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
+Java_com_example_lpstudio_GCodeInterpreter_resumeExecution(JNIEnv * env, jobject, jlong interpreterHandle) {
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
 	if (interpreter) interpreter->resumeExecution();
 }
 
 JNIEXPORT jint JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_getStatus(JNIEnv* env, jobject, jlong interpreterHandle) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
+Java_com_example_lpstudio_GCodeInterpreter_getStatus(JNIEnv * env, jobject, jlong interpreterHandle) {
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
 	if (!interpreter) return 0;
 	return static_cast<jint>(interpreter->getStatus());
 }
 
 JNIEXPORT jdouble JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_getProgress(JNIEnv*, jobject, jlong interpreterHandle) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
+Java_com_example_lpstudio_GCodeInterpreter_getProgress(JNIEnv * , jobject, jlong interpreterHandle) {
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
 	if (!interpreter) return 0.0;
 	return interpreter->getProgress();
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_getLastInterpreterError(JNIEnv* env, jobject, jlong interpreterHandle) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
+Java_com_example_lpstudio_GCodeInterpreter_getLastInterpreterError(JNIEnv * env, jobject, jlong interpreterHandle) {
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
 	if (!interpreter) return env->NewStringUTF("");
-	const char* err = interpreter->getLastInterpreterError();
+	const char *err = interpreter->getLastInterpreterError();
 	return err ? env->NewStringUTF(err) : env->NewStringUTF("");
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_GCodeInterpreter_readConfig(JNIEnv* env, jobject, jlong interpreterHandle, jstring filename) {
-	auto* interpreter = reinterpret_cast<Interpreter*>(handle);
+Java_com_example_lpstudio_GCodeInterpreter_readConfig(JNIEnv * env, jobject, jlong interpreterHandle, jstring filename) {
+	auto *interpreter = reinterpret_cast<Interpreter *>(interpreterHandle);
 	if (!interpreter || !filename) return JNI_FALSE;
-	
-	const char* c_filename = env->GetStringUTFChars(filename, nullptr);
+
+	const char *c_filename = env->GetStringUTFChars(filename, nullptr);
 	if (c_filename) return JNI_FALSE;
-	
+
 	bool result = interpreter->readConfig(c_filename);
 	env->ReleaseStringUTFChars(filename, c_filename);
 	return result ? JNI_TRUE : JNI_FALSE;
 }
+
+#ifdef __cplusplus
+}
+#endif

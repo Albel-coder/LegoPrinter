@@ -46,7 +46,7 @@ Java_com_example_lpstudio_PrinterController_clearLog(JNIEnv*, jobject, jlong han
 JNIEXPORT jstring JNICALL
 Java_com_example_lpstudio_PrinterController_getLastErrorMessage(JNIEnv* env, jobject, jlong handle);
 
-JNIEXPORT jstring JNICALL
+JNIEXPORT void JNICALL
 Java_com_example_lpstudio_PrinterController_printerConnectionInfo(JNIEnv* env, jobject, jlong handle);
 
 JNIEXPORT void JNICALL
@@ -61,7 +61,7 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfile(JNIEnv* e
  
 JNIEXPORT jboolean JNICALL
 Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfiles(JNIEnv* env, jobject, jlong handle, 
-    jobjectArray profilesArray, jint count)
+    jobjectArray profilesArray, jint count);
 	
 JNIEXPORT jboolean JNICALL
 Java_com_example_lpstudio_PrinterController_printerIsMotorMoving(JNIEnv*, jobject, jlong handle);

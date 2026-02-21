@@ -10,6 +10,6 @@ std::vector<MotorCommand> convertMotorCommands(JNIEnv* env, jobjectArray command
 
 SpeedProfilePoint convertSpeedProfilePoint(JNIEnv* env, jobject jPoint);
 
-SpeedProfilePoint convertSpeedProfile(JNIEnv* env, jobject jProfile);
+SpeedProfile convertSpeedProfile(JNIEnv* env, jobject jProfile);
 
 std::vector<SpeedProfile> convertSpeedProfiles(JNIEnv* env, jobjectArray profilesArray);

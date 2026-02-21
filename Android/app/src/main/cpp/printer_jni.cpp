@@ -1,6 +1,5 @@
 #include "printer_jni.h"
 #include "converter.h"
-#include "../include/LegoDriverAPI.h"
 #include "../include/TransportAndroid.h"
 #include "../include/LegoPrinterCore.h"
 #include <android/log.h>
@@ -8,6 +7,8 @@
 #define LOG_TAG "PrinterJNI"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+
+using Printer = PrinterDriver;
 
 #ifdef __cplusplus
 extern "C" {
@@ -127,13 +128,13 @@ Java_com_example_lpstudio_PrinterController_getLastErrorMessage(JNIEnv *env, job
     return err ? env->NewStringUTF(err) : env->NewStringUTF("");
 }
 
-JNIEXPORT jstring JNICALL
+JNIEXPORT void JNICALL
 Java_com_example_lpstudio_PrinterController_printerConnectionInfo(JNIEnv *env, jobject,
                                                                   jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
-    if (!printer) return env->NewStringUTF("");
-    const char *info = printer->printerConnectionInfo();
-    return info ? env->NewStringUTF(info) : env->NewStringUTF("");
+    if (printer) {
+        printer->printerConnectionInfo();
+    }
 }
 
 JNIEXPORT void JNICALL
@@ -160,8 +161,8 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfile(JNIEnv *e
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer || !jProfile) return JNI_FALSE;
     auto profile = convertSpeedProfile(env, jProfile);
-    if (!profile) return JNI_FALSE;
-    return printer->printerExecuteSpeedProfile(profile.data()) ? JNI_TRUE : JNI_FALSE;
+    if (profile.points == nullptr) return JNI_FALSE;
+    return printer->printerExecuteSpeedProfile(&profile) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
@@ -173,7 +174,7 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfiles(JNIEnv *
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer || !profilesArray || count < 1) return JNI_FALSE;
     auto profiles = convertSpeedProfiles(env, profilesArray);
-    if (!profiles) return JNI_FALSE;
+    if (profiles.empty()) return JNI_FALSE;
     return printer->printerExecuteSpeedProfiles(profiles.data(), profiles.size()) ? JNI_TRUE
                                                                                   : JNI_FALSE;
 }
@@ -182,7 +183,7 @@ JNIEXPORT jboolean JNICALL
 Java_com_example_lpstudio_PrinterController_printerIsMotorMoving(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return JNI_FALSE;
-    return printer->printerIsMotorMoving() ? JNI_TRUE : JNI_FALSE;
+    return printer->printerIsMotorMoving(0) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jdouble JNICALL
@@ -193,12 +194,19 @@ Java_com_example_lpstudio_PrinterController_printerGetMotorPosition(JNIEnv *, jo
     return printer->printerGetMotorPosition(static_cast<uint8_t>(port)) ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_runPrinterTest(JNIEnv *env, jobject, jlong handle,
-                                                           jstring testName) {
+JNIEXPORT jboolean JNICALL Java_com_example_lpstudio_PrinterController_runPrinterTest(
+        JNIEnv *env, jobject thiz, jlong handle, jstring testName) {
+
     auto *printer = reinterpret_cast<Printer *>(handle);
-    if (!printer) return JNI_FALSE;
-    return printer->runPrinterTest(static_cast<const char *>(testName)) ? JNI_TRUE : JNI_FALSE;
+    if (!printer || !testName) return JNI_FALSE;
+
+    const char *nativeString = env->GetStringUTFChars(testName, nullptr);
+    if (!nativeString) return JNI_FALSE;
+
+    bool result = printer->runPrinterTest(nativeString);
+    env->ReleaseStringUTFChars(testName, nativeString);
+
+    return result ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

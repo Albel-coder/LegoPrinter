@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../transport/ITransport.h"
-#include "../logging/LogManager.h"
+#include "ITransport.h"
+#include "LegoDriverAPI.h"
 #include <memory>
 #include <atomic>
 
@@ -16,12 +16,31 @@ public:
 	bool connect();
 	bool disconnect();
 	bool isConnected() const;
-	//void rotateMotor(const MotorCommand* commands, int count);
-	//void setMotorSpeed(uint8_t port, int8_t speed);
+	void rotateMotor(const MotorCommand* commands, int count);
+	void sendCommand(const unsigned char* command, int length);
+	void setMotorSpeed(uint8_t port, int8_t speed);
 
 	int getLogCount();
 	void clearLog();
 	const char* getLogEntry(int index);
+	
+	const char* getLastErrorMessage();
+	void printerConnectionInfo();
+	
+	void printerSetLogCategories(unsigned int categories);
+	unsigned int printerGetLogCategories();	
+	
+	bool printerExecuteSpeedProfile(const SpeedProfile* profile);
+	bool printerExecuteSpeedProfiles(const SpeedProfile* profiles, int count);
+	
+	bool printerIsMotorMoving(int count);
+	double printerGetMotorPosition(unsigned char port);
+	
+	bool runPrinterTest(const char* testName);
+	
+	bool printerRequestBatteryLevel();
+    unsigned char printerGetBatteryLevel();
+    bool printerIsBatteryLevelFresh(int maxAgeSeconds);
 
 	ITransport* getTransport() { return transport_.get(); }
 };

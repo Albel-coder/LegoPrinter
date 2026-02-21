@@ -7,9 +7,10 @@ extern "C" {
 #endif
 
 JNIEXPORT jlong JNICALL
-Java_com_example_GCodeInterpreter_createInterpreter(JNIEnv* env, jobject);
+Java_com_example_lpstudio_GCodeInterpreter_createInterpreter(JNIEnv* env, jobject, jlong printerHandle);
 
-Java_com_example_GCodeInterpreter_destroyInterpreter(JNIEnv* env, jobject, jlong handle);
+JNIEXPORT void JNICALL
+Java_com_example_lpstudio_GCodeInterpreter_destroyInterpreter(JNIEnv* env, jobject, jlong handle);
 
 JNIEXPORT jboolean JNICALL
 Java_com_example_lpstudio_GCodeInterpreter_executeGCode(JNIEnv* env, jobject, 

@@ -71,6 +71,8 @@ SpeedProfilePoint convertSpeedProfilePoint(JNIEnv* env, jobject jPoint) {
 
 SpeedProfile convertSpeedProfile(JNIEnv* env, jobject jProfile) {
     SpeedProfile profile{};
+	profile.points = nullptr;
+	
     jclass cls = env->GetObjectClass(jProfile);
     if (!cls) {
         LOGE("convertSpeedProfile: failed to get class");
