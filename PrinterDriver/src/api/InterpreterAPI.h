@@ -10,7 +10,7 @@ extern "C" {
     PRINTER_DRIVER_API InterpreterHandle CreateInterpreter(DriverHandle printer);
     PRINTER_DRIVER_API void DestroyInterpreter(InterpreterHandle handle);
 
-    PRINTER_DRIVER_API bool ExecuteGcode(InterpreterHandle handle, const char* filename);
+    PRINTER_DRIVER_API bool ExecuteGCode(InterpreterHandle handle, const char* filename);
     PRINTER_DRIVER_API bool ExecuteLine(InterpreterHandle handle, const char* line);
 
     PRINTER_DRIVER_API void PauseExecution(InterpreterHandle handle);

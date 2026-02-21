@@ -15,7 +15,7 @@ extern "C" {
 		delete static_cast<Interpreter*>(handle);
 	}
 	
-	bool ExecuteGcode(InterpreterHandle handle, const char* filename) {
+	bool ExecuteGCode(InterpreterHandle handle, const char* filename) {
 		return false;
 	}
 	

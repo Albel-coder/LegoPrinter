@@ -56,6 +56,18 @@ bool PrinterDriver::isConnected() const {
     return transport_ && transport_->isConnected();
 }
 
+void PrinterDriver::rotateMotor(const MotorCommand* commands, int count) {
+
+}
+
+void PrinterDriver::sendCommand(const unsigned char* command, int length) {
+
+}
+
+void PrinterDriver::setMotorSpeed(uint8_t port, int8_t speed) {
+
+}
+
 int PrinterDriver::getLogCount() {
     return gLog.getLogCount();
 }
@@ -66,4 +78,52 @@ void PrinterDriver::clearLog() {
 
 const char* PrinterDriver::getLogEntry(int index) {
     return gLog.getLogEntry(index);
+}
+
+const char* PrinterDriver::getLastErrorMessage() {
+    return "";
+}
+
+void PrinterDriver::printerConnectionInfo() {
+
+}
+
+void PrinterDriver::printerSetLogCategories(unsigned int categories) {
+
+}
+
+unsigned int PrinterDriver::printerGetLogCategories() {
+    return 0;
+}
+
+bool PrinterDriver::printerExecuteSpeedProfile(const SpeedProfile* profile) {
+    return false;
+}
+
+bool PrinterDriver::printerExecuteSpeedProfiles(const SpeedProfile* profiles, int count) {
+    return false;
+}
+
+bool PrinterDriver::printerIsMotorMoving(int count) {
+    return false;
+}
+
+double PrinterDriver::printerGetMotorPosition(unsigned char port) {
+    return 0.0;
+}
+
+bool PrinterDriver::runPrinterTest(const char* testName) {
+    return false;
+}
+
+bool PrinterDriver::printerRequestBatteryLevel() {
+    return false;
+}
+
+unsigned char PrinterDriver::printerGetBatteryLevel() {
+    return 0;
+}
+
+bool PrinterDriver::printerIsBatteryLevelFresh(int maxAgeSeconds) {
+    return false;
 }

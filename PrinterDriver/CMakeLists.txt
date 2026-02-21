@@ -54,9 +54,8 @@ if(MSVC AND NOT ANDROID)
 endif()
 
 # Create a library
-add_library(LegoPrinterCore SHARED
+set(CORE_SOURCE
 	src/api/LegoDriverAPI.h
-	src/api/LegoDriverAPI.cpp
 	src/api/InterpreterAPI.h
 	src/api/InterpreterAPI.cpp
 	src/core/LegoPrinterCore.h
@@ -64,29 +63,27 @@ add_library(LegoPrinterCore SHARED
 	src/core/Interpreter.h
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
-	src/platform/DriverFactory.h
 	src/transport/ITransport.h	
 )
 
-# Include directories
-target_include_directories(LegoPrinterCore
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-		${CMAKE_CURRENT_SOURCE_DIR}/src/core
-		${CMAKE_CURRENT_SOURCE_DIR}/src/transport
-	PRIVATE
-		${CMAKE_CURRENT_SOURCE_DIR}/src/platform
-)
-
 if(WIN32)
-	# Include SimpleBLE only in Windows
-	add_subdirectory(external/simpleble/simpleble)
-	
-	target_sources(LegoPrinterCore PRIVATE
+	add_library(LegoPrinterCore SHARED
+		${CORE_SOURCE}
 		src/transport/TransportSimpleBLE.h
 		src/transport/TransportSimpleBLE.cpp
-		src/platform/DriverFactoryWindows.cpp
+		src/api/LegoDriverAPI_Windows.cpp
+	)	
+	
+	# Include directories
+	target_include_directories(LegoPrinterCore
+		PUBLIC
+			${CMAKE_CURRENT_SOURCE_DIR}/src
+			${CMAKE_CURRENT_SOURCE_DIR}/src/core
+			${CMAKE_CURRENT_SOURCE_DIR}/src/transport
 	)
+	
+	# Include SimpleBLE only in Windows
+	add_subdirectory(external/simpleble/simpleble)
 	
 	# Linking with SimpleBLE only in Windows
 	target_link_libraries(LegoPrinterCore
@@ -94,9 +91,22 @@ if(WIN32)
 			simpleble::simpleble
 	)
 	
+	target_compile_definitions(LegoPrinterCore PRIVATE LEGOPRINTERCORE_EXPORTS)
+	
 elseif (ANDROID)
-	target_sources(LegoPrinterCore PRIVATE
-		src/platform/DriverFactoryAndroid.cpp
+	add_library(LegoPrinterCore STATIC
+		${CORE_SOURCE}
+	)
+	
+	target_include_directories(LegoPrinterCore
+		PUBLIC
+			${CMAKE_CURRENT_SOURCE_DIR}/src
+	)
+	
+	target_link_libraries(LegoPrinterCore
+		PUBLIC
+			log
+			android
 	)
 endif()
 	
@@ -117,13 +127,6 @@ if(ANDROID)
         ARCHIVE_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
     )
     
-    # Add the necessary libraries for Android
-    target_link_libraries(LegoPrinterCore
-        PUBLIC
-            log      # Android logging
-            android  # Android native API
-    )
-    
 elseif(WIN32)
     # For Windows: build/windows/<arch>/<config>/
     set(BASE_OUTPUT_DIR "${OUTPUT_ROOT_DIR}/windows/${ARCH_NAME}")
@@ -135,8 +138,4 @@ elseif(WIN32)
         RUNTIME_OUTPUT_DIRECTORY "${BASE_OUTPUT_DIR}/$<CONFIG>"
     )
     
-    target_compile_definitions(LegoPrinterCore 
-        PRIVATE 
-            LEGOPRINTERCORE_EXPORTS
-    )
 endif()
