@@ -73,7 +73,6 @@ public class PrinterController implements AutoCloseable {
         if (printerHandle == 0) {
             throw new RuntimeException("Failed to create printer instance");
         }
-
     }
 
     // ========== Native methods (declarations) ==========
@@ -268,6 +267,7 @@ public class PrinterController implements AutoCloseable {
             throw new IllegalStateException("PrinterController has been disposed");
         }
     }
+
     @Override
     public void close() {
         if (!disposed) {

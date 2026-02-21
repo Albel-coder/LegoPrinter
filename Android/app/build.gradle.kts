@@ -6,7 +6,7 @@ plugins {
 val versionMajor = 1
 val versionMinor = 0
 val versionPatch = 0
-val versionBuild = 2
+val versionBuild = 5
 
 android {
     namespace = "com.example.lpstudio"

@@ -105,11 +105,11 @@ class DeviceFragment : Fragment() {
             val allGranted = result.all { it.value }
             if (allGranted) {
                 appendToConsole("[INFO] Разрешения Bluetooth получены")
-                // После получения прав, проверяем включен ли Bluetooth
+                // After receiving permissions, we check if Bluetooth is enabled.
                 checkBluetoothEnabled()
             } else {
                 appendToConsole("[WARN] Некоторые разрешения Bluetooth отклонены")
-                // Показываем диалог с объяснением
+                // Show a dialog with an explanation
                 showPermissionExplanationDialog()
             }
         }
@@ -118,7 +118,7 @@ class DeviceFragment : Fragment() {
     ) { uri: Uri? ->
         uri?.let {
             try {
-                // Получаем реальный путь к файлу
+                // Get the real path to the file
                 val file = getFileFromUri(requireContext(), uri)
                 selectedFile = file
                 filePathTextView.text = file?.absolutePath ?: "Файл выбран"
@@ -169,7 +169,7 @@ class DeviceFragment : Fragment() {
         homeYButton = view.findViewById(R.id.homeYButton)
         homeZButton = view.findViewById(R.id.homeZButton)
 
-        // Инициализация в фоновом потоке для избежания блокировки UI
+        // Initialize on a background thread to avoid blocking the UI
         scope.launch(Dispatchers.IO) {
             try {
                 // Initialize controllers
@@ -202,7 +202,7 @@ class DeviceFragment : Fragment() {
                     // Check permissions
                     checkAndRequestPermissions()
 
-                    // Выводим информацию об инициализации
+                    // Print information about initialization
                     appendToConsole("[INFO] Приложение инициализировано")
                     appendToConsole("[INFO] Контроллеры загружены успешно")
                 }
@@ -263,7 +263,7 @@ class DeviceFragment : Fragment() {
         if (!hasBlePermissions()) {
             showPermissionRequestDialog()
         } else {
-            // Проверяем включен ли Bluetooth
+            // Check if Bluetooth is enabled
             checkBluetoothEnabled()
         }
     }
@@ -333,7 +333,7 @@ class DeviceFragment : Fragment() {
 
     private fun connectButtonClick() {
         scope.launch {
-            // Проверяем готовность Bluetooth
+            // Checking Bluetooth readiness
             if (!ensureBleReady()) return@launch
 
             if (!isConnected) {
@@ -424,19 +424,19 @@ class DeviceFragment : Fragment() {
 
     private fun executeButtonClick() {
         scope.launch {
-            // Проверяем подключение
+            // Checking the connection
             if (!isConnected) {
                 appendToConsole("[ERROR] Сначала подключитесь к принтеру")
                 return@launch
             }
 
-            // Проверяем выбран ли файл
+            // Check if a file is selected
             if (selectedFile == null) {
                 appendToConsole("[ERROR] Выберите файл G-code")
                 return@launch
             }
 
-            // Обновляем UI
+            // Update the UI
             executeButton.isEnabled = false
             executeButton.text = "Выполнение..."
 
@@ -447,7 +447,7 @@ class DeviceFragment : Fragment() {
 
                 if (success) {
                     appendToConsole("[INFO] Выполнение G-code начато")
-                    // Запускаем мониторинг выполнения
+                    // Start execution monitoring
                     startExecutionMonitoring()
                 } else {
                     val error = gCodeInterpreter.lastError
@@ -465,7 +465,7 @@ class DeviceFragment : Fragment() {
     private fun startExecutionMonitoring() {
         scope.launch {
             while (isActive && gCodeInterpreter.isRunning()) {
-                // Обновляем прогресс
+                // Updating progress
                 val progress = gCodeInterpreter.progress
                 val status = gCodeInterpreter.status
 
@@ -473,7 +473,7 @@ class DeviceFragment : Fragment() {
                     executeButton.text = "Выполняется ${String.format("%.1f", progress * 100)}%"
                 }
 
-                // Проверяем завершение
+                // Check for completion
                 if (status == GCodeInterpreter.Status.COMPLETED) {
                     withContext(Dispatchers.Main) {
                         executeButton.text = "Завершено"
@@ -489,7 +489,7 @@ class DeviceFragment : Fragment() {
                     break
                 }
 
-                delay(500) // Проверяем каждые 500мс
+                delay(500)
             }
         }
     }
@@ -544,13 +544,13 @@ class DeviceFragment : Fragment() {
 
     private fun updateConsoleDisplayInternal() {
         try {
-            // 1. Update driver logs
+            // Update driver logs
             val currentDriverLogCount = printerController.logCount
 
-            // Если логи были очищены в драйвере
+            // If the logs were cleared in the driver
             if (currentDriverLogCount < lastDriverLogCount) {
                 lastDriverLogCount = 0
-                // Мы не очищаем консоль полностью, так как там могут быть другие логи
+                // We don't clear the console completely, as there may be other logs there.
             }
 
             if (currentDriverLogCount > lastDriverLogCount) {
@@ -559,7 +559,7 @@ class DeviceFragment : Fragment() {
                 lastDriverLogCount = currentDriverLogCount
             }
         } catch (e: Exception) {
-            // Игнорируем ошибки обновления консоли
+            // Ignore console update errors
         }
     }
 
@@ -575,7 +575,7 @@ class DeviceFragment : Fragment() {
                     stringBuilder.appendLine(logEntry)
                 }
             } catch (e: Exception) {
-                // Игнорируем ошибки получения одной записи
+                // Ignore errors getting one record
             }
         }
 
@@ -613,7 +613,7 @@ class DeviceFragment : Fragment() {
     private fun clearConsole() {
         handler.post {
             consoleTextView.text = ""
-            // Сбрасываем счетчики при очистке консоли
+            // Reset the counters when clearing the console
             lastDriverLogCount = 0
             lastInterpreterLogCount = 0
         }
@@ -632,7 +632,7 @@ class DeviceFragment : Fragment() {
                 val newLines = lines.subList(removeCount, lines.size)
                 consoleTextView.text = newLines.joinToString("\n")
 
-                // Корректируем счетчики
+                // Adjusting the counters
                 lastDriverLogCount = maxOf(0, lastDriverLogCount - removeCount)
                 lastInterpreterLogCount = maxOf(0, lastInterpreterLogCount - removeCount)
             }
@@ -709,7 +709,7 @@ class DeviceFragment : Fragment() {
             try {
                 printerController.clearLog()
             } catch (e: Exception) {
-                // Игнорируем ошибки очистки
+                // Ignore cleanup errors
             }
         }
         clearConsole()
@@ -723,13 +723,13 @@ class DeviceFragment : Fragment() {
         try {
             printerController.close()
         } catch (e: Exception) {
-            // Игнорируем ошибки очистки
+            // Ignore cleanup errors
         }
 
         try {
             gCodeInterpreter.close()
         } catch (e: Exception) {
-            // Игнорируем ошибки очистки
+            // Ignore cleanup errors
         }
     }
 }

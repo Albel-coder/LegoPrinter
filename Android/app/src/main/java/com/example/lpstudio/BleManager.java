@@ -44,7 +44,6 @@ public class BleManager {
         BluetoothManager manager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = manager.getAdapter();
         bleScanner = bluetoothAdapter.getBluetoothLeScanner();
-
     }
 
     public void setNativeTransportPtr(long ptr) {
@@ -114,10 +113,10 @@ public class BleManager {
                 if (name == null) name = "";
                 String upperName = name.toUpperCase();
 
-                // Проверка по имени
+                // Check by name
                 boolean isLego = upperName.contains("LEGO") || upperName.contains("HUB") || upperName.contains("CONTROL");
 
-                // Проверка manufacturer data (LEGO Company ID 0x0397)
+                // Checking manufacturer data (LEGO Company ID 0x0397)
                 ScanRecord record = result.getScanRecord();
                 if (record != null) {
                     byte[] manufacturerData = record.getManufacturerSpecificData(0x0397);
@@ -158,7 +157,7 @@ public class BleManager {
             return false;
         }
 
-        // Подключаемся к найденному устройству
+        // Connect to the found device
         Log.i(TAG, "Connecting to " + targetDevice.getAddress());
         final CountDownLatch connectLatch = new CountDownLatch(1);
         final boolean[] connectResult = new boolean[1];
@@ -180,15 +179,15 @@ public class BleManager {
             @Override
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    // Проверяем наличие нужного сервиса и характеристики
+                    // Check for the availability of the required service and characteristics
                     BluetoothGattService service = gatt.getService(UUID.fromString(LEGO_HUB_SERVICE_UUID));
                     if (service != null) {
                         BluetoothGattCharacteristic characteristic = service.getCharacteristic(UUID.fromString(LEGO_HUB_CHARACTERISTIC_UUID));
                         if (characteristic != null) {
                             Log.i(TAG, "Required service and characteristic found");
-                            // Включаем уведомления
+                            // Enable notifications
                             gatt.setCharacteristicNotification(characteristic, true);
-                            // Здесь можно отправить запрос на включение уведомлений через descriptor, если требуется
+                            // You can send a request to enable notifications via descriptor here if required
                             connectResult[0] = true;
                         } else {
                             Log.e(TAG, "Characteristic not found");
@@ -207,10 +206,10 @@ public class BleManager {
 
             @Override
             public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                // Получены данные от устройства
+                // Data received from the device
                 byte[] value = characteristic.getValue();
                 if (value != null && nativeTransportPtr != 0) {
-                    // Вызов нативного метода для передачи данных в C++ (реализуется в TransportAndroid)
+                    // Call a native method to transfer data in C++ (implemented in TransportAndroid)
                     nativeOnDataReceived(nativeTransportPtr, value);
                 }
             }

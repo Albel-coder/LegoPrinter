@@ -95,13 +95,13 @@ public class AndroidUpdateService {
     }
 
     private UpdateInfo checkForUpdatesBlocking() throws Exception {
-        // Проверяем кэш
+        // Check the cache
 //        long lastCheck = prefs.getLong(KEY_LAST_CHECK, 0);
 //        if (System.currentTimeMillis() - lastCheck < CACHE_DURATION_MS) {
 //            return createNoUpdateInfo();
 //        }
 
-        // Получаем текущую версию
+        // Get the current version
         PackageInfo packageInfo = context.getPackageManager()
                 .getPackageInfo(context.getPackageName(), 0);
 
@@ -109,29 +109,29 @@ public class AndroidUpdateService {
         updateInfo.currentVersion = packageInfo.versionName != null ?
                 packageInfo.versionName : "1.0.0";
 
-        // Правильная обработка versionCode для всех API
+        // Correct versionCode handling for all APIs
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             updateInfo.currentVersionCode = (int) packageInfo.getLongVersionCode();
         } else {
             updateInfo.currentVersionCode = packageInfo.versionCode;
         }
 
-        // Проверяем, нужно ли пропустить проверку
+        // Check if the check should be skipped
         if (!shouldCheckForUpdate(updateInfo.currentVersionCode)) {
-            // ВСЕГДА сохраняем время проверки, даже если обновление пропущено
+            // ALWAYS save the check time, even if an update is missed
             prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply();
             return updateInfo;
         }
 
-        // Загружаем манифест
+        // Load the manifest
         String manifestJson = downloadManifest();
         if (manifestJson == null) {
-            // Сохраняем время проверки даже при ошибке
+            // Save the verification time even if there is an error
             prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply();
             return updateInfo;
         }
 
-        // Парсим JSON
+        // Parse JSON
         JSONObject manifest = new JSONObject(manifestJson);
         JSONObject platforms = manifest.getJSONObject("platforms");
 
@@ -142,7 +142,7 @@ public class AndroidUpdateService {
 
         JSONObject androidPlatform = platforms.getJSONObject("android");
 
-        // Парсим версию из манифеста
+        // Parse the version from the manifest
         String latestVersionString = androidPlatform.getString("version");
         int latestVersionCode = androidPlatform.optInt("versionCode", 0);
 
@@ -161,10 +161,10 @@ public class AndroidUpdateService {
         Log.d("UpdateCheck", "Current: " + updateInfo.currentVersion + "/" + updateInfo.currentVersionCode +
                 ", Latest: " + updateInfo.latestVersion + "/" + updateInfo.latestBuild);
 
-        // Сравниваем версии
+        // Compare versions
         boolean isUpdateAvailable = latestVersionCode > updateInfo.currentVersionCode;
 
-        // ВСЕГДА сохраняем время проверки (исправлено)
+        // ALWAYS save the check time (fixed)
         prefs.edit().putLong(KEY_LAST_CHECK, System.currentTimeMillis()).apply();
 
         if (isUpdateAvailable) {
@@ -189,7 +189,7 @@ public class AndroidUpdateService {
         int patch = parts.length > 2 ? parsePart(parts[2]) : 0;
         int build = parts.length > 3 ? parsePart(parts[3]) : 0;
 
-        // Схема Gradle: major*10000000 + minor*100000 + patch*1000 + build
+        // Gradle schema: major*10000000 + minor*100000 + patch*1000 + build
         return major * 10000000 + minor * 100000 + patch * 1000 + build;
     }
 
@@ -200,7 +200,6 @@ public class AndroidUpdateService {
             return 0;
         }
     }
-
 
     private boolean shouldCheckForUpdate(int currentVersionCode) {
         int skipVersion = prefs.getInt(KEY_SKIP_VERSION, -1);
@@ -280,11 +279,11 @@ public class AndroidUpdateService {
         DownloadManager downloadManager = (DownloadManager)
                 context.getSystemService(Context.DOWNLOAD_SERVICE);
 
-        // Работаем только с internal cache, без внешнего хранилища
+        // We work only with the internal cache, without external storage
         File downloadsDir = new File(context.getCacheDir(), "downloads");
         downloadsDir.mkdirs();
 
-        String fileName = "LPStudio.apk"; // берём фиксированное имя из JSON
+        String fileName = "LPStudio.apk"; // take a fixed name from JSON
         String fileUri = updateInfo.downloadUrl;
         fileName = fileUri.substring(fileUri.lastIndexOf('/') + 1);
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(updateInfo.downloadUrl))
@@ -305,7 +304,7 @@ public class AndroidUpdateService {
         long downloadId = downloadManager.enqueue(request);
         currentDownloadId = downloadId;
 
-        // Сохраняем информацию для проверки checksum
+        // Save information for checksum verification
         prefs.edit()
                 .putLong("current_download_id", downloadId)
                 .putString("expected_checksum", updateInfo.checksum)
@@ -331,12 +330,12 @@ public class AndroidUpdateService {
         try {
             context.unregisterReceiver(downloadReceiver);
         } catch (IllegalArgumentException e) {
-            // Receiver не был зарегистрирован
+            // Receiver was not registered
         }
         executorService.shutdown();
     }
 
-    // Метод для установки APK
+    // Method for installing APK
     private void installApk(File apkFile) {
         try {
             Uri apkUri;
@@ -358,7 +357,7 @@ public class AndroidUpdateService {
                 intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             }
 
-            // Проверяем, может ли система обработать установку
+            // Check if the system can handle the installation
             if (intent.resolveActivity(context.getPackageManager()) != null) {
                 context.startActivity(intent);
             } else {
@@ -378,7 +377,7 @@ public class AndroidUpdateService {
         }
     }
 
-    // Проверка контрольной суммы
+    // Checksum verification
     private boolean verifyChecksum(File file, String expectedHash) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -433,7 +432,7 @@ public class AndroidUpdateService {
         void onError(String error);
     }
 
-    // Исправленный DownloadCompleteReceiver с реальной логикой
+    // Fixed DownloadCompleteReceiver with real logic
     class DownloadCompleteReceiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -442,19 +441,19 @@ public class AndroidUpdateService {
             if (downloadId == currentDownloadId) {
                 Log.i(TAG, "Download completed: " + downloadId);
 
-                // Получаем путь к файлу и ожидаемый checksum
+                // Get the file path and the expected checksum
                 String filePath = prefs.getString("download_file_path", null);
                 String expectedChecksum = prefs.getString("expected_checksum", null);
 
                 if (filePath != null) {
                     File apkFile = new File(filePath);
                     if (apkFile.exists()) {
-                        // Проверяем checksum
+                        // Check the checksum
                         if (expectedChecksum != null && !expectedChecksum.isEmpty()) {
                             if (verifyChecksum(apkFile, expectedChecksum)) {
-                                // Запускаем установку
+                                // Run the installation
                                 installApk(apkFile);
-                                // Показываем уведомление
+                                // Show the notification
                                 mainHandler.post(() -> {
                                     Toast.makeText(context,
                                             "Загрузка завершена. Начинаем установку...",
@@ -469,7 +468,7 @@ public class AndroidUpdateService {
                                 });
                             }
                         } else {
-                            // Если checksum не указан, просто устанавливаем
+                            // If checksum is not specified, just set
                             installApk(apkFile);
                             mainHandler.post(() -> {
                                 Toast.makeText(context,

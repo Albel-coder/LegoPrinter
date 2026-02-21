@@ -20,7 +20,7 @@ public class UpdateCoordinator {
     }
 
     public UpdateCoordinator(Context context, String owner, String repo) {
-        // Используем applicationContext для предотвращения утечек памяти
+        // Use applicationContext to prevent memory leaks
         this.context = context.getApplicationContext();
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.updateService = new AndroidUpdateService(this.context, owner, repo);
@@ -49,7 +49,7 @@ public class UpdateCoordinator {
         this.listener = listener;
     }
 
-    // Убираем лишний Thread - делегируем всю работу AndroidUpdateService
+    // Remove the extra Thread - delegate all work to AndroidUpdateService
     public void checkForUpdates(boolean force) {
         updateService.checkForUpdates(new AndroidUpdateService.UpdateCheckCallback() {
             @Override
@@ -77,7 +77,7 @@ public class UpdateCoordinator {
     }
 
     public void downloadUpdate(AndroidUpdateService.UpdateInfo info) {
-        // Оставляем Thread только для загрузки
+        // Leave the Thread only for loading
         new Thread(() -> {
             try {
                 long downloadId = updateService.downloadUpdate(info);
@@ -117,6 +117,4 @@ public class UpdateCoordinator {
         void onDownloadStarted(AndroidUpdateService.UpdateInfo info);
         void onError(String message);
     }
-
-
 }
