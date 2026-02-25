@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../transport/ITransport.h"
+#include "interfaces/ITransport.h"
 #include "../api/LegoDriverAPI.h"
 #include <memory>
 #include <atomic>
@@ -15,7 +15,7 @@ public:
 
 	bool connect();
 	bool disconnect();
-	bool isConnected() const;
+	bool isConnected();
 	void rotateMotor(const MotorCommand* commands, int count);
 	void sendCommand(const unsigned char* command, int length);
 	void setMotorSpeed(uint8_t port, int8_t speed);

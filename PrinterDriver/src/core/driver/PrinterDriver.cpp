@@ -1,4 +1,4 @@
-#include "LegoPrinterCore.h"
+#include "PrinterDriver.h"
 #include "../logging/LogManager.h"
 #include <cstdarg>
 #include <map>
@@ -20,16 +20,13 @@ bool PrinterDriver::connect() {
     }
 
     LOG_INFO("Starting connection...");
-    if (!transport_->open()) {
-        LOG_ERROR("Failed to open transport");
-        return false;
-    }
+    bool connected = transport_->open();
 
     const auto timeout = std::chrono::seconds(30);
     auto start = std::chrono::steady_clock::now();
 
     while (std::chrono::steady_clock::now() - start < timeout) {
-        if (!transport_->isConnected()) {
+        if (transport_->isConnected()) {
             LOG_INFO("Connection established");
             return true;
         }
@@ -52,8 +49,8 @@ bool PrinterDriver::disconnect() {
     return true;
 }
 
-bool PrinterDriver::isConnected() const {
-    return transport_ && transport_->isConnected();
+bool PrinterDriver::isConnected() {
+    return transport_->isConnected();
 }
 
 void PrinterDriver::rotateMotor(const MotorCommand* commands, int count) {
