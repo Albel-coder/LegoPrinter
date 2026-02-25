@@ -57,13 +57,16 @@ endif()
 set(CORE_SOURCE
 	src/api/LegoDriverAPI.h
 	src/api/InterpreterAPI.h
-	src/api/InterpreterAPI.cpp
-	src/core/LegoPrinterCore.h
-	src/core/LegoPrinterCore.cpp
-	src/core/Interpreter.h
+	src/api/InterpreterAPI.cpp	
+	
+	src/core/driver/interfaces/ITransport.h
+	src/core/driver/PrinterDriver.h
+	src/core/driver/PrinterDriver.cpp
+	
+	src/core/interpreter/Interpreter.h
+	
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
-	src/transport/ITransport.h	
 )
 
 if(WIN32)
@@ -71,7 +74,7 @@ if(WIN32)
 		${CORE_SOURCE}
 		src/transport/TransportSimpleBLE.h
 		src/transport/TransportSimpleBLE.cpp
-		src/api/LegoDriverAPI_Windows.cpp
+		src/api/LegoDriverAPI.cpp
 	)	
 	
 	# Include directories
