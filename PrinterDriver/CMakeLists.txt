@@ -60,8 +60,14 @@ set(CORE_SOURCE
 	src/api/InterpreterAPI.cpp	
 	
 	src/core/driver/interfaces/ITransport.h
+	src/core/driver/interfaces/IMotorManager.h
+	
 	src/core/driver/PrinterDriver.h
 	src/core/driver/PrinterDriver.cpp
+	
+	src/core/driver/implementation/MotorManager.h
+	src/core/driver/implementation/MotorManager.cpp
+	
 	
 	src/core/interpreter/Interpreter.h
 	
