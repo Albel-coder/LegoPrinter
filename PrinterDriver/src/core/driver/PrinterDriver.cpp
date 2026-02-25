@@ -4,7 +4,10 @@
 #include <map>
 #include <thread>
 
-PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) : transport_(std::move(transport)) {
+PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) 
+    : transport_(std::move(transport)),
+    motorManager_(std::make_unique<MotorManager>(*transport_)) {
+
     gLog.setLogCategories(LOG_CATEGORY_ALL);
     LOG_INFO("PrinterImplementation created");
 }
@@ -54,15 +57,15 @@ bool PrinterDriver::isConnected() {
 }
 
 void PrinterDriver::rotateMotor(const MotorCommand* commands, int count) {
-
+    motorManager_->rotate(commands, count);
 }
 
 void PrinterDriver::sendCommand(const unsigned char* command, int length) {
-
+    transport_->write(command, length);
 }
 
 void PrinterDriver::setMotorSpeed(uint8_t port, int8_t speed) {
-
+    motorManager_->setSpeed(port, speed);
 }
 
 int PrinterDriver::getLogCount() {
@@ -106,7 +109,7 @@ bool PrinterDriver::printerIsMotorMoving(int count) {
 }
 
 double PrinterDriver::printerGetMotorPosition(unsigned char port) {
-    return 0.0;
+    return motorManager_->getPosition(port);
 }
 
 bool PrinterDriver::runPrinterTest(const char* testName) {

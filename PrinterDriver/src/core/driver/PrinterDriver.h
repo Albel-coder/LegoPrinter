@@ -2,12 +2,15 @@
 
 #include "interfaces/ITransport.h"
 #include "../api/LegoDriverAPI.h"
+#include "implementation/MotorManager.h"
 #include <memory>
 #include <atomic>
 
 class PrinterDriver {
 private:
 	std::unique_ptr<ITransport> transport_;
+
+	std::unique_ptr<MotorManager> motorManager_;
 	
 public:
 	explicit PrinterDriver(std::unique_ptr<ITransport> transport);
