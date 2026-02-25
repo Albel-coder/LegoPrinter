@@ -1,6 +1,6 @@
 #include "InterpreterAPI.h"
-#include "../core/Interpreter.h"
-#include "../core/LegoPrinterCore.h"
+#include "../core/interpreter/Interpreter.h"
+#include "../core/driver/PrinterDriver.h"
 
 extern "C" {
 	

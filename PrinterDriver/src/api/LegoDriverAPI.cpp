@@ -1,5 +1,5 @@
 #include "LegoDriverAPI.h"
-#include "../core/LegoPrinterCore.h"
+#include "../core/driver/PrinterDriver.h"
 #include "../transport/TransportSimpleBLE.h"
 
 extern "C" {
@@ -25,7 +25,8 @@ extern "C" {
 	}
 
 	PRINTER_DRIVER_API bool IsConnected(DriverHandle printer) {
-		return false;
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->isConnected();
 	}
 
 	PRINTER_DRIVER_API void PrinterRotateMotor(DriverHandle printer, MotorCommand* commands, int count)	{
