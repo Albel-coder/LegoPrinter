@@ -46,9 +46,11 @@ private:
 	bool absolutePositing_ = true;
 	double feedrate_ = 0.0;
 
-	std::unique_ptr<std::thread> workerThread_;
+	std::unique_ptr<std::thread> executionThread_;
 	mutable std::mutex mutex_;
+	std::atomic<bool> threadRunning_;
 
+	void runFile(const std::string& filename);
 	void runFileInternal(const std::string& filename);
 	void processLine(const std::string& line, int lineNumber, bool dryRun);
 	void waitPaused();
