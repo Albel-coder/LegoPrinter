@@ -3,11 +3,11 @@
 #include <sstream>
 
 std::optional<GCodeCommand> GCodeParser::parse(const std::string& line) const {
-	// Удаляем комментарии (после ;)
+	// Remove comments (after ;)
 	size_t commentPosition = line.find(';');
 	std::string clean = (commentPosition != std::string::npos) ? line.substr(0, commentPosition) : line;
 
-	// Удаляем лишние пробелы
+	// Remove extra spaces
 	size_t start = clean.find_first_not_of(" \t\r\n");
 	if (start == std::string::npos) {
 		return std::nullopt;
@@ -23,7 +23,7 @@ std::optional<GCodeCommand> GCodeParser::parse(const std::string& line) const {
 	std::string token;
 	GCodeCommand command;
 
-	// Первый токен - команда (G1, M30, F500, ...)
+	// The first token is a command (G1, M30, F500, ...)
 	stringStream >> token;
 	command.command = token;
 
