@@ -10,7 +10,6 @@ const std::string TransportSimpleBLE::LEGO_HUB_CHARACTERISTIC_UUID = "00001624-1
 
 TransportSimpleBLE::TransportSimpleBLE() {
     std::lock_guard<std::mutex> lock(stateMutex_);  
-    currentState_ = State::Disconnected;
 }
 
 TransportSimpleBLE::~TransportSimpleBLE() {
@@ -27,18 +26,12 @@ void TransportSimpleBLE::cleanup() {
     }
 
     std::lock_guard<std::mutex> lock(stateMutex_);
-    currentState_ = State::Disconnected;
     threadRunning_ = false;
 }
 
 bool TransportSimpleBLE::open() {
     try {
         std::lock_guard<std::mutex> lock(stateMutex_);
-
-        // Check the state
-        if (currentState_ != State::Disconnected && currentState_ != State::Error) {
-            return false;
-        }
 
         // Clear the previous state
         if (workerThread_.joinable()) {
@@ -50,7 +43,6 @@ bool TransportSimpleBLE::open() {
         threadRunning_ = false;
 
         workerThread_ = std::thread(&TransportSimpleBLE::workerFunction, this);
-        setState(State::Scanning);
         return true;
     }
     catch (...) {        
@@ -90,6 +82,12 @@ void TransportSimpleBLE::workerFunction() {
             adapter.identifier().c_str(),
             adapter.address().c_str());
 
+        deviceFound_ = false;
+        {
+            std::lock_guard<std::mutex> lock(candidateMutex_);
+            peripheralCandidate_.reset();
+        }
+
         // Setting up callbacks
         adapter.set_callback_on_scan_start([]() {});
         LOG_BLUETOOTH("Scanning started...");
@@ -122,13 +120,35 @@ void TransportSimpleBLE::workerFunction() {
 
             if (isLego) {
                 LOG_BLUETOOTH("LEGO HUB DISCOVERED!");
+
+                if (!deviceFound_.load()) {
+                    std::lock_guard<std::mutex> lock(candidateMutex_);
+
+                    if (!deviceFound_.load()) {
+                        peripheralCandidate_ = std::move(peripheral);
+                        deviceFound_ = true;
+                    }
+                }
             }
             });
 
         // Start scanning
         adapter.scan_start();
-        LOG_BLUETOOTH("Starting Bluetooth scan for 10 seconds...");
-        std::this_thread::sleep_for(10s);
+        LOG_BLUETOOTH("Starting Bluetooth scan...");
+
+        auto startTime = std::chrono::steady_clock::now();
+        const auto timeout = std::chrono::seconds(10);
+
+        while (!stopRequested_ && !deviceFound_.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            auto elapsed = std::chrono::steady_clock::now() - startTime;
+
+            if (elapsed >= timeout) {
+                LOG_BLUETOOTH("Scan timeout reached (10 seconds)");
+                break;
+            }
+        }
+        
         adapter.scan_stop();
 
         // We get a list of found devices
@@ -136,68 +156,85 @@ void TransportSimpleBLE::workerFunction() {
         LOG_BLUETOOTH("Scan completed. Found %d devices", peripherals.size());
 
         // Search LEGO Hub
-        for (auto& scannedPeripheral : peripherals) {
-            std::string name = scannedPeripheral.identifier();
-            std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+        if (deviceFound_.load()) {
+            SimpleBLE::Peripheral candidate;
+            {
+                std::lock_guard<std::mutex> lock(candidateMutex_);
+                if (peripheralCandidate_.has_value()) {
+                    candidate = std::move(*peripheralCandidate_);
+                }
+                else {
+                    LOG_ERROR("Device found but candidate is empty");
+                    if (connectionCallback_) {
+                        connectionCallback_(false);
+                    }
+                    return;
+                }
+            }
 
-            if (name.find("LEGO") != std::string::npos ||
-                name.find("HUB") != std::string::npos ||
-                name.find("CONTROL") != std::string::npos) {
+            std::string name = candidate.identifier();
+            LOG_BLUETOOTH("Attempting to connect to LEGO Hub: %s", name.c_str());
 
-                LOG_BLUETOOTH("Attempting to connect to LEGO Hub: %s", name.c_str());
+            try {
+                candidate.connect();
 
-                // Connection attempt
-                try {
-                    scannedPeripheral.connect();
+                if (candidate.is_connected()) {
+                    LOG_BLUETOOTH("Successfully connected to LEGO Hub");
 
-                    // In the main function, after connection:               
-                    if (scannedPeripheral.is_connected()) {
-                        LOG_BLUETOOTH("Successfully connected to LEGO Hub");
-                                 
-                        // Looking for LEGO Hub service and features
-
-                        bool foundChar = false;
-                        for (auto& service : scannedPeripheral.services()) {
-                            if (service.uuid() == LEGO_HUB_SERVICE_UUID) {
-                                for (auto& characteristic : service.characteristics()) {
-                                    if (characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
-                                        foundChar = true;
-                                        break;
-                                    }
+                    bool foundChar = false;
+                    for (auto& service : candidate.services()) {
+                        if (service.uuid() == LEGO_HUB_SERVICE_UUID) {
+                            for (auto& characteristic : service.characteristics()) {
+                                if (characteristic.uuid() == LEGO_HUB_CHARACTERISTIC_UUID) {
+                                    foundChar = true;
+                                    break;
                                 }
-                                break;
                             }
+                            break;
                         }
+                    }
 
-                        if (!foundChar) {                            
-                            continue;
-                        }                        
+                    if (!foundChar) {
+                        LOG_ERROR("Required service/characteristic not found");
+                        candidate.disconnect();
+                        if (connectionCallback_) {
+                            connectionCallback_(false);
+                        }
+                        return;
+                    }
 
-                        peripheral_ = std::move(scannedPeripheral);
+                    peripheral_ = std::move(candidate);
 
-                        setState(State::Connected);
+                    peripheral_.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
+                        [this](const std::vector<uint8_t>& data) {
+                            this->onNotification(data);
+                        });
 
-                        peripheral_.notify(LEGO_HUB_SERVICE_UUID, LEGO_HUB_CHARACTERISTIC_UUID,
-                            [this](const std::vector<uint8_t>& data) {
-                                this->onNotification(data);
-                            });
-
-                        if (connectionCallback_) connectionCallback_(true);
-
-                        connected = true;
-                        break;
+                    if (connectionCallback_) {
+                        connectionCallback_(true);
                     }
                 }
-                catch (const std::exception& e) {
-                    LOG_ERROR("Connection error: %s", e.what());
+                else {
+                    LOG_ERROR("Failed to connect (is_connected false)");
+                    if (connectionCallback_) {
+                        connectionCallback_(false);
+                    }
+                }
+            }
+            catch (const std::exception& e) {
+                LOG_ERROR("Connection error: %s", e.what());
+                if (connectionCallback_) {
+                    connectionCallback_(false);
                 }
             }
         }
-
-        if (!connected) {
-            LOG_ERROR("No LEGO Hub found or connection failed");
-            setState(State::Error);
-            if (connectionCallback_) connectionCallback_(false);
+        else {
+            if (!stopRequested_) {
+                LOG_ERROR("No LEGO Hub found within timeout");
+                if (connectionCallback_) {
+                    connectionCallback_(false);
+                }
+            }
         }
     }
     catch (const std::exception& e) {
@@ -212,34 +249,34 @@ void TransportSimpleBLE::workerFunction() {
     threadRunning_ = false;
 }
 
-void TransportSimpleBLE::close() {
-    {
-        std::lock_guard<std::mutex> lock(stateMutex_);
-        if (currentState_ == State::Disconnected || currentState_ == State::Disconnecting) {
-            return;
-        }
-        setState(State::Disconnecting);
+bool TransportSimpleBLE::close() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+
+    if (!peripheral_.initialized() || peripheral_.address().empty()) {
+        return false;
     }
 
-    try {
-        if (peripheral_.is_connected()) {
+    if (peripheral_.is_connected()) {
+        try {
             peripheral_.disconnect();
         }
+        catch (...) {
+            // Ignoring disconnection errors
+            return false;
+        }
     }
-    catch (const std::exception& e) {
-    }
-
-    setState(State::Disconnected);
 
     if (connectionCallback_) {
         connectionCallback_(false);
     }
+
+    return true;
 }
 
 bool TransportSimpleBLE::write(const uint8_t* data, size_t length) {
     std::lock_guard<std::mutex> lock(stateMutex_);
 
-    if (currentState_ != State::Connected || !peripheral_.is_connected()) {
+    if (!peripheral_.is_connected()) {
         return false;
     }
 
@@ -256,8 +293,12 @@ bool TransportSimpleBLE::write(const uint8_t* data, size_t length) {
 }
 
 bool TransportSimpleBLE::isConnected() {
-    std::lock_guard<std::mutex> lock(stateMutex_);
-    return currentState_ == State::Connected && peripheral_.is_connected();
+    try {
+        return peripheral_.is_connected();
+    }
+    catch (...) {
+        return false;
+    }
 }
 
 void TransportSimpleBLE::setDataCallback(std::function<void(const uint8_t*, size_t)> callback) {
@@ -272,22 +313,4 @@ void TransportSimpleBLE::onNotification(const std::vector<uint8_t>& data) {
     if (dataCallback_) {
         dataCallback_(data.data(), data.size());
     }
-}
-
-void TransportSimpleBLE::setState(State newState) {
-    std::lock_guard<std::mutex> lock(stateMutex_);
-    currentState_ = newState;
-    stateCV_.notify_all();
-}
-
-TransportSimpleBLE::State TransportSimpleBLE::getState() const {
-    std::lock_guard<std::mutex> lock(stateMutex_);
-    return currentState_;
-}
-
-bool TransportSimpleBLE::waitForState(State state, std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(stateMutex_);
-    return stateCV_.wait_for(lock, timeout, [this, state] {
-        return currentState_ == state || stopRequested_;
-        });
 }

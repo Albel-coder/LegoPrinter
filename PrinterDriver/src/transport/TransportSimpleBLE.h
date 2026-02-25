@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../transport/ITransport.h"
+#include "../core/driver/interfaces/ITransport.h"
 #include "../logging/LogManager.h"
 #include <simpleble/SimpleBLE.h>
 #include <mutex>
@@ -21,7 +21,7 @@ public:
 
     // ITransport implementation
     bool open() override;
-    void close() override;
+    bool close() override;
     bool write(const uint8_t* data, size_t length) override;
     bool isConnected() override;
 
@@ -30,19 +30,9 @@ public:
     const char* getName() const override { return "SimpleBLE"; }
 
 private:
-    enum class State {
-        Disconnected,
-        Scanning,
-        Connecting,
-        Connected,
-        Disconnecting,
-        Error
-    };
 
     //void scanAndConnect();
     void onNotification(const std::vector<uint8_t>& data);
-    void setState(State newState);
-    State getState() const;
 
     // BLE
     SimpleBLE::Adapter adapter_;
@@ -55,7 +45,6 @@ private:
     // Synchronization
     mutable std::mutex stateMutex_;
     std::condition_variable stateCV_;
-    State currentState_ = State::Disconnected;
 
     // Worker thread
     std::thread workerThread_;
@@ -66,8 +55,11 @@ private:
     static const std::string LEGO_HUB_SERVICE_UUID;
     static const std::string LEGO_HUB_CHARACTERISTIC_UUID;
 
+    std::atomic<bool> deviceFound_;
+    std::mutex candidateMutex_;
+    std::optional<SimpleBLE::Peripheral> peripheralCandidate_;
+
     // Helper methods
     void cleanup();
     void workerFunction();
-    bool waitForState(State state, std::chrono::milliseconds timeout);
 };
