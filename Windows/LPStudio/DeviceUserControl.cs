@@ -84,7 +84,7 @@ namespace LPStudio
         }
         private async void connectButton_Click(object sender, EventArgs e)
         {
-            if (!printerController.IsPrinterConnect())
+            if (printerController.IsPrinterConnect() == false)
             {
                 this.connectButton.Enabled = false;
                 this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(227)))), ((int)(((byte)(235)))), ((int)(((byte)(12)))));
@@ -107,8 +107,9 @@ namespace LPStudio
 
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Console.WriteLine("connect exception" + ex);
                     this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(29)))), ((int)(((byte)(175)))), ((int)(((byte)(30)))));
                     this.connectButton.Enabled = true;
                     this.connectButton.Text = "Connect";
