@@ -18,10 +18,10 @@ namespace LPStudio
     public partial class DeviceUserControl : UserControl
     {
         private PrinterController printerController;
+        private InterpreterController interpreterController;
         private BatteryLabel batteryLabel;
 
         private int lastDriverLogCount = 0;
-        private int lastInterpreterLogCount = 0;
         private int lastLogCount = 0;
         private readonly object updateLock = new object();
         private bool isConsoleUpdating = false;
@@ -50,10 +50,8 @@ namespace LPStudio
             try
             {
                 printerController = new PrinterController();
-                //interpreter = new GCodeInterpreter();
+                interpreterController = new InterpreterController(printerController.GetPrinterHandle());
                 InitializeComponent();
-
-                //interpreter.ReadConfig("Printer.cfg");
 
                 batteryLabel = new BatteryLabel();
                 batteryLabel.Location = this.labelBattery.Location;
@@ -63,8 +61,6 @@ namespace LPStudio
                 batteryLabel.TextAlign = this.labelBattery.TextAlign;
                 batteryLabel.Font = this.labelBattery.Font;
 
-                // ВАЖНО: Убедитесь, что заменяете контрол в правильном контейнере
-                // Обычно labelBattery находится в panelConnection
                 int index = this.panelConnection.Controls.IndexOf(this.labelBattery);
                 if (index >= 0)
                 {
@@ -103,8 +99,6 @@ namespace LPStudio
                         batteryLabel.SetPrinterController(printerController);
 
                         await Task.Delay(1000);
-
-
                     }
                 }
                 catch (Exception ex)
@@ -187,7 +181,7 @@ namespace LPStudio
         {
             try
             {
-                // 1. Обновляем логи драйвера
+                // Обновляем логи драйвера
                 int currentDriverLogCount = printerController.GetLogCount();
 
                 if (currentDriverLogCount < lastDriverLogCount)
@@ -195,12 +189,6 @@ namespace LPStudio
                     // Логи драйвера были очищены
                     ClearTextBoxSafe();
                     lastDriverLogCount = 0;
-
-                    // Также сбрасываем счетчик интерпретатора при полной очистке
-                    if (currentDriverLogCount == 0)
-                    {
-                        lastInterpreterLogCount = 0;
-                    }
 
                     if (currentDriverLogCount > 0)
                     {
@@ -217,25 +205,6 @@ namespace LPStudio
                     AppendDriverLogs(lastDriverLogCount, newDriverLogs);
                     lastDriverLogCount = currentDriverLogCount;
                 }
-
-                /*// 2. Обновляем логи интерпретатора
-                if (interpreter != null)
-                {
-                    int currentInterpreterLogCount = interpreter.GetLogCount();
-
-                    if (currentInterpreterLogCount < lastInterpreterLogCount)
-                    {
-                        // Логи интерпретатора были очищены
-                        lastInterpreterLogCount = 0;
-                    }
-
-                    if (currentInterpreterLogCount > lastInterpreterLogCount)
-                    {
-                        int newInterpreterLogs = currentInterpreterLogCount - lastInterpreterLogCount;
-                        AppendInterpreterLogs(lastInterpreterLogCount, newInterpreterLogs);
-                        lastInterpreterLogCount = currentInterpreterLogCount;
-                    }
-                }*/
             }
             catch (Exception)
             {
@@ -269,43 +238,7 @@ namespace LPStudio
             {
                 AppendTextSafe(stringBuilder.ToString());
             }
-        }
-
-        /*private void AppendInterpreterLogs(int startIndex, int count)
-        {
-            if (count < 1 || interpreter == null) return;
-
-            StringBuilder stringBuilder = new StringBuilder(count * 100);
-
-            for (int i = 0; i < count; i++)
-            {
-                try
-                {
-                    // Получаем запись лога и ее категорию
-                    string logEntry = interpreter.GetLog(startIndex + i);
-                    if (!string.IsNullOrEmpty(logEntry))
-                    {
-                        // Определяем префикс в зависимости от категории (для удобства чтения)
-                        string prefix = "[Interpreter]";
-
-                        // Можно добавить цветовое кодирование или префиксы по категориям:
-                        // if (category == InterpreterLogCategory.Error) prefix = "[Interpreter ERROR]";
-                        // else if (category == InterpreterLogCategory.Warning) prefix = "[Interpreter WARN]";
-
-                        stringBuilder.AppendLine($"{prefix} {logEntry}");
-                    }
-                }
-                catch
-                {
-                    // Игнорируем ошибки получения одной записи
-                }
-            }
-
-            if (stringBuilder.Length > 0)
-            {
-                AppendTextSafe(stringBuilder.ToString());
-            }
-        }*/
+        }        
 
         private void AppendTextSafe(string text)
         {
@@ -413,68 +346,20 @@ namespace LPStudio
         {
             buttonExecuteCode.Enabled = false;
             buttonExecuteCode.Text = "Executing";
+        }
 
-            try
+        private async void moveYUpButton_Click(object sender, EventArgs e)
+        {
+            if (printerController.IsPrinterConnect())
             {
-                /*string filePath = showCodeFile.Text;
-                string fullPath = Path.GetFullPath(filePath);
-
-                if (!File.Exists(fullPath))
-                {
-                    Console.WriteLine($"File '{fullPath}' not found!");
-                    return;
-                }
-
-                var printerHandle = printerController.GetPrinterHandle();
-
-                var status = interpreter.GetStatus();
-                Console.WriteLine($"C#: Current interpreter status: {status}");
-
-                if (status == GCodeInterpreter.Status.RUNNING ||
-                    status == GCodeInterpreter.Status.PAUSED ||
-                    status == GCodeInterpreter.Status.CHECKING_CODE)
-                {
-                    Console.WriteLine("Interpreter is busy. Please wait for current execution to complete.");
-                    return;
-                }
-
-                if (status == GCodeInterpreter.Status.COMPLETED || status == GCodeInterpreter.Status.ERROR)
-                {
-                    await Task.Delay(200); // 200ms задержка
-                }
-
-                if (status == GCodeInterpreter.Status.ERROR)
-                {
-                    interpreter.ClearLog();
-                }
-
-                Console.WriteLine("C#: Calling Interpreter.ExecuteFile...");
-                bool success = await Task.Run(() => interpreter.ExecuteFile(fullPath, printerHandle));
-
-                Console.WriteLine($"C#: ExecuteFile returned: {success}");
-
-                if (success)
-                {
-                    Console.WriteLine("G-code execution started successfully");
-                    //StartExecutionMonitoring();
-                }
-                else
-                {
-                    string error = interpreter.GetLastError();
-                    Console.WriteLine($"C#: ExecuteFile failed: {error}");
-                    Console.WriteLine($"Failed to execute G-code: {error}");
-                }*/
+                bool result = await Task.Run(() => interpreterController.ExecuteLine("G0 Y1"));
             }
-            catch (Exception ex)
+        }
+        private async void moveYDownButton_Click(object sender, EventArgs e)
+        {
+            if (printerController.IsPrinterConnect())
             {
-                Console.WriteLine($"C#: Exception in ExecuteGcodeButton_Click: {ex}");
-                Console.WriteLine($"Execution error: {ex.Message}");
-            }
-            finally
-            {
-                buttonExecuteCode.Enabled = true;
-                buttonExecuteCode.Text = "Execute code";
-                Console.WriteLine("=== ExecuteGcodeButton_Click END ===");
+                bool result = await Task.Run(() => interpreterController.ExecuteLine("G0 Y-1"));
             }
         }
     }
@@ -671,7 +556,7 @@ namespace LPStudio
         }
         private void DrawBattery(Graphics g, int x, int y)
         {
-            // 1. Основной корпус батареи
+            // Основной корпус батареи
             Rectangle batteryRect = new Rectangle(x, y, batteryWidth, batteryHeight);
 
             using (Pen borderPen = new Pen(borderColor, 1))
@@ -679,7 +564,7 @@ namespace LPStudio
                 g.DrawRectangle(borderPen, batteryRect);
             }
 
-            // 2. Колпачок (справа)
+            // Колпачок (справа)
             int capY = y + (batteryHeight - capHeight) / 2;
             Rectangle capRect = new Rectangle(
                 x + batteryWidth,
@@ -690,7 +575,7 @@ namespace LPStudio
 
             g.FillRectangle(new SolidBrush(borderColor), capRect);
 
-            // 3. Проверяем подключение и заряд
+            // Проверяем подключение и заряд
             if (isConnected && batteryLevel > 0)
             {
                 // Вычисляем ширину заполнения с учетом границ
