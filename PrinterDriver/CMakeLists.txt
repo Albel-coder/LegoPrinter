@@ -66,10 +66,10 @@ set(CORE_SOURCE
 	src/core/driver/PrinterDriver.cpp
 	
 	src/core/driver/implementation/MotorManager.h
-	src/core/driver/implementation/MotorManager.cpp
-	
+	src/core/driver/implementation/MotorManager.cpp	
 	
 	src/core/interpreter/Interpreter.h
+	src/core/interpreter/Interpreter.cpp
 	
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp

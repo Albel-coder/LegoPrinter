@@ -16,11 +16,13 @@ extern "C" {
 	}
 	
 	bool ExecuteGCode(InterpreterHandle handle, const char* filename) {
-		return false;
+		auto* interpreter = static_cast<Interpreter*>(handle);
+		return interpreter->executeGCode(filename);
 	}
 	
 	bool ExecuteLine(InterpreterHandle handle, const char* line) {
-		return false;
+		auto* interpreter = static_cast<Interpreter*>(handle);
+		return interpreter->executeLine(line);
 	}
 	
 	void PauseExecution(InterpreterHandle handle) {
