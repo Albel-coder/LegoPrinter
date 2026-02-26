@@ -427,6 +427,7 @@
             this.moveYUpButton.Size = new System.Drawing.Size(35, 35);
             this.moveYUpButton.TabIndex = 5;
             this.moveYUpButton.UseVisualStyleBackColor = false;
+            this.moveYUpButton.Click += new System.EventHandler(this.moveYUpButton_Click);
             // 
             // moveXLeftButton
             // 
@@ -451,6 +452,7 @@
             this.moveYDownButton.Size = new System.Drawing.Size(35, 35);
             this.moveYDownButton.TabIndex = 3;
             this.moveYDownButton.UseVisualStyleBackColor = false;
+            this.moveYDownButton.Click += new System.EventHandler(this.moveYDownButton_Click);
             // 
             // moveXRightButton
             // 

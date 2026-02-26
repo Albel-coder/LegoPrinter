@@ -34,7 +34,7 @@ public class InterpreterController : IDisposable
             throw new ArgumentException("Printer handle is invalid", nameof(printerHandle));
 
         _printerHandle = printerHandle;
-        _interpreterHandle = CreateInterpreterNative(_printerHandle);
+        _interpreterHandle = CreateInterpreter(_printerHandle);
 
         if (_interpreterHandle == IntPtr.Zero)
             throw new InvalidOperationException("Failed to create interpreter instance");
@@ -48,7 +48,7 @@ public class InterpreterController : IDisposable
         lock (_syncRoot)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(InterpreterController));
-            return SafeCall(() => ReadConfigNative(_interpreterHandle, filename), false);
+            return SafeCall(() => ReadConfig(_interpreterHandle, filename), false);
         }
     }
 
@@ -60,7 +60,7 @@ public class InterpreterController : IDisposable
         lock (_syncRoot)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(InterpreterController));
-            return SafeCall(() => ExecuteGCodeNative(_interpreterHandle, filename), false);
+            return SafeCall(() => ExecuteGCode(_interpreterHandle, filename), false);
         }
     }
 
@@ -72,7 +72,7 @@ public class InterpreterController : IDisposable
         lock (_syncRoot)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(InterpreterController));
-            return SafeCall(() => ExecuteLineNative(_interpreterHandle, line), false);
+            return SafeCall(() => ExecuteLine(_interpreterHandle, line), false);
         }
     }
 
@@ -84,7 +84,7 @@ public class InterpreterController : IDisposable
         lock (_syncRoot)
         {
             if (_disposed) return;
-            PauseExecutionNative(_interpreterHandle);
+            PauseExecution(_interpreterHandle);
         }
     }
 
@@ -96,7 +96,7 @@ public class InterpreterController : IDisposable
         lock (_syncRoot)
         {
             if (_disposed) return;
-            ResumeExecutionNative(_interpreterHandle);
+            ResumeExecution(_interpreterHandle);
         }
     }
 
@@ -108,7 +108,7 @@ public class InterpreterController : IDisposable
         lock (_syncRoot)
         {
             if (_disposed) return;
-            StopExecutionNative(_interpreterHandle);
+            StopExecution(_interpreterHandle);
         }
     }
 
@@ -121,7 +121,7 @@ public class InterpreterController : IDisposable
         {
             if (_disposed) return InterpreterStatus.Error;
 
-            int status = SafeCall(() => GetStatusNative(_interpreterHandle), (int)InterpreterStatus.Error);
+            int status = SafeCall(() => GetStatus(_interpreterHandle), (int)InterpreterStatus.Error);
 
             // Check that the value is within the valid range of the enum
             if (Enum.IsDefined(typeof(InterpreterStatus), status))
@@ -139,7 +139,7 @@ public class InterpreterController : IDisposable
         get
         {
             if (_disposed) return 0.0;
-            return SafeCall(() => GetProgressNative(_interpreterHandle), 0.0);
+            return SafeCall(() => GetProgress(_interpreterHandle), 0.0);
         }
     }
 
@@ -154,7 +154,7 @@ public class InterpreterController : IDisposable
 
             return SafeCall(() =>
             {
-                IntPtr ptr = GetLastInterpreterErrorNative(_interpreterHandle);
+                IntPtr ptr = GetLastInterpreterError(_interpreterHandle);
                 return ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : string.Empty;
             }, string.Empty);
         }
@@ -191,7 +191,7 @@ public class InterpreterController : IDisposable
             {
                 if (_interpreterHandle != IntPtr.Zero)
                 {
-                    DestroyInterpreterNative(_interpreterHandle);
+                    DestroyInterpreter(_interpreterHandle);
                     _interpreterHandle = IntPtr.Zero;
                 }
             }
@@ -213,38 +213,38 @@ public class InterpreterController : IDisposable
     // ================= DLL IMPORTS =================
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr CreateInterpreterNative(IntPtr printer);
+    private static extern IntPtr CreateInterpreter(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void DestroyInterpreterNative(IntPtr handle);
+    private static extern void DestroyInterpreter(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool ExecuteGCodeNative(IntPtr handle, string filename);
+    private static extern bool ExecuteGCode(IntPtr handle, string filename);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool ExecuteLineNative(IntPtr handle, string line);
+    private static extern bool ExecuteLine(IntPtr handle, string line);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void PauseExecutionNative(IntPtr handle);
+    private static extern void PauseExecution(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void ResumeExecutionNative(IntPtr handle);
+    private static extern void ResumeExecution(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern void StopExecutionNative(IntPtr handle);
+    private static extern void StopExecution(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern int GetStatusNative(IntPtr handle);
+    private static extern int GetStatus(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern double GetProgressNative(IntPtr handle);
+    private static extern double GetProgress(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
-    private static extern IntPtr GetLastInterpreterErrorNative(IntPtr handle);
+    private static extern IntPtr GetLastInterpreterError(IntPtr handle);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool ReadConfigNative(IntPtr handle, string filename);
+    private static extern bool ReadConfig(IntPtr handle, string filename);
 }
