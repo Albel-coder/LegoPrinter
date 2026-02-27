@@ -348,19 +348,13 @@ namespace LPStudio
             buttonExecuteCode.Text = "Executing";
         }
 
-        private async void moveYUpButton_Click(object sender, EventArgs e)
+        private void moveYUpButton_Click(object sender, EventArgs e)
         {
-            if (printerController.IsPrinterConnect())
-            {
-                bool result = await Task.Run(() => interpreterController.ExecuteLine("G0 Y1"));
-            }
+
         }
-        private async void moveYDownButton_Click(object sender, EventArgs e)
+        private void moveYDownButton_Click(object sender, EventArgs e)
         {
-            if (printerController.IsPrinterConnect())
-            {
-                bool result = await Task.Run(() => interpreterController.ExecuteLine("G0 Y-1"));
-            }
+
         }
     }
     public class BatteryLabel : Label
