@@ -30,9 +30,9 @@ void MotorManager::handleNotification(const uint8_t* data, size_t length) {
 		if (feedback == 0x0A) {
 			std::lock_guard<std::mutex> lock(completionMutex_);
 
-			if (commandStatus[port].waiting && !commandStatus[port].completed)
-			{
-				commandStatus[port].completed = true;
+			auto it = commandStatus.find(port);
+			if (it != commandStatus.end()) {
+				it->second.completed = true;
 				completionCv_.notify_all();
 			}
 		}
@@ -57,7 +57,6 @@ void MotorManager::rotate(const MotorCommand* commands, int count) {
 		std::lock_guard<std::mutex> lock(completionMutex_);
 		for (int i = 0; i < count; ++i) {
 			commandStatus[commands[i].port].completed = false;
-			commandStatus[commands[i].port].waiting = true;
 		}
 	}
 
@@ -182,23 +181,13 @@ void MotorManager::sendMotorCommand(const MotorCommand& command) {
 void MotorManager::waitForCommandsCompletion(const MotorCommand* Commands, int count) {
 	std::unique_lock<std::mutex> lock(completionMutex_);
 
-	bool allCompleted = completionCv_.wait_for(lock, std::chrono::seconds(30),
+	completionCv_.wait_for(lock, std::chrono::seconds(30),
 		[this, Commands, count]() {
 			for (int i = 0; i < count; i++) {
-				if (!commandStatus[Commands[i].port].completed) return false;
+				if (!commandStatus[Commands[i].port].completed) {
+					return false;
+				}
 			}
 			return true;
 		});
-
-	if (!allCompleted) {
-		// For timeout - end all
-		for (int i = 0; i < count; i++) {
-			commandStatus[Commands[i].port].waiting = false;
-		}
-	}
-
-	// Delete waiting status
-	for (int i = 0; i < count; i++) {
-		commandStatus[Commands[i].port].waiting = false;
-	}
 }

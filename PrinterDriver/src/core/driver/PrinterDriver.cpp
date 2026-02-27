@@ -31,6 +31,11 @@ bool PrinterDriver::connect() {
     while (std::chrono::steady_clock::now() - start < timeout) {
         if (transport_->isConnected()) {
             LOG_INFO("Connection established");
+
+            transport_->setDataCallback([this](const uint8_t* data, size_t length) {
+                motorManager_->handleNotification(data, length);
+            });
+
             return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));

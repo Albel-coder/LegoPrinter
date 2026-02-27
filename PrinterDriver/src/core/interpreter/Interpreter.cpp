@@ -4,25 +4,27 @@ Interpreter::Interpreter(PrinterDriver& driver) : driver(driver) {
 	stepperX.rotationDistance = 43.982297150;
 	stepperX.gearRatio = 24;
 	stepperX.direction = true;
-	stepperX.ports = {'B'};
-	stepperX.minimumFeedrate = 15;
+	stepperX.ports = { 0x01 };
+	stepperX.minimumFeedrate = 55;
 	stepperX.maximumFeedrate = 90;
 
 	stepperY.rotationDistance = 43.982297150;
 	stepperY.gearRatio = 24;
 	stepperY.direction = true;
-	stepperY.ports = { 'C' };
-	stepperY.minimumFeedrate = 15;
+	stepperY.ports = { 0x02 };
+	stepperY.minimumFeedrate = 55;
 	stepperY.maximumFeedrate = 90;
 
 	stepperZ.rotationDistance = 43.982297150;
 	stepperZ.gearRatio = 1;
 	stepperZ.direction = true;
-	stepperZ.ports = { 'D' };
-	stepperZ.minimumFeedrate = 15;
+	stepperZ.ports = { 0x03 };
+	stepperZ.minimumFeedrate = 55;
 	stepperZ.maximumFeedrate = 90;
 
 	absolutePositioning = false;
+
+	LOG_INFO("Interpreter created");
 }
 
 Interpreter::~Interpreter() = default;

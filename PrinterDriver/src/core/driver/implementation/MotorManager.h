@@ -31,20 +31,7 @@ private:
 	std::condition_variable completionCv_;
 
 	struct CommandExecution {
-		std::atomic<bool> completed{ false };
-		std::atomic<bool> waiting{ false };
-
-		CommandExecution() {
-			completed = true;
-			waiting = false;
-		}
-
-		CommandExecution(const CommandExecution&) = delete;
-		CommandExecution& operator=(const CommandExecution&) = delete;
-
-		CommandExecution(CommandExecution&& Other) noexcept
-			: completed(Other.completed.load()), waiting(Other.waiting.load()) {
-		}
+		bool completed = false;
 	};
 
 	std::map<uint8_t, CommandExecution> commandStatus;
