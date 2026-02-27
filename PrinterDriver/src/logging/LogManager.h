@@ -40,7 +40,7 @@ enum LogCategory : uint32_t {
 #ifdef _DEBUG
 #define LOG_COMPILE_MASK LOG_CATEGORY_ALL
 #else
-#define LOG_COMPILE_MASK (LOG_CATEGORY_DEFAULT)
+#define LOG_COMPILE_MASK LOG_CATEGORY_ALL
 #endif
 #endif
 
