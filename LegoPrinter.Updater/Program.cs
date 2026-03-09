@@ -193,7 +193,7 @@ namespace WindowsForms.Updater
             var filePath = Path.Combine(tempDir, fileName);
 
             Console.WriteLine($"URL: {url}");
-            Console.WriteLine($"Файл: {filePath}");
+            Console.WriteLine($"File: {filePath}");
 
             using (var client = new HttpClient())
             {
