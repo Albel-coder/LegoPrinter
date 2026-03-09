@@ -10,10 +10,10 @@ namespace LPStudio
         private readonly UpdateInfo _updateInfo;
         private readonly GitHubUpdateService _updateService;
         private bool _autoUpdateEnabled;
-        private string _skipVersion; // Теперь будет хранить полную версию (4 числа)
+        private string _skipVersion; // Will now store the full version (4 numbers)
         private DateTime _postponeUntil;
 
-        // UI элементы
+        // UI elements
         private Label _lblTitle;
         private Label _lblCurrentVersion;
         private Label _lblLatestVersion;
@@ -30,7 +30,7 @@ namespace LPStudio
             _updateInfo = updateInfo ?? throw new ArgumentNullException(nameof(updateInfo));
             _updateService = updateService ?? throw new ArgumentNullException(nameof(updateService));
 
-            // Загружаем временные настройки
+            // Load temporary settings
             LoadTempSettings();
 
             InitializeForm();
@@ -39,8 +39,8 @@ namespace LPStudio
 
         private void InitializeForm()
         {
-            // Настройки формы
-            this.Text = "Доступно обновление";
+            // Form settings
+            this.Text = "Update available";
             this.Size = new Size(500, 450);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -51,44 +51,44 @@ namespace LPStudio
 
         private void InitializeUI()
         {
-            // Формируем полные версии для отображения (4 числа)
+            // Generate full versions for display (4 numbers)
             string currentFullVersion = $"{_updateInfo.CurrentVersion}.{_updateInfo.CurrentBuild}";
             string latestFullVersion = $"{_updateInfo.LatestVersion}.{_updateInfo.LatestBuild}";
 
-            // Заголовок
+            // Title
             _lblTitle = new Label
             {
-                Text = $"Доступна новая версия {latestFullVersion}",
+                Text = $"New version available {latestFullVersion}",
                 Font = new Font("Segoe UI", 12, FontStyle.Bold),
                 Location = new Point(20, 20),
                 Size = new Size(450, 30),
                 ForeColor = Color.SteelBlue
             };
 
-            // Текущая версия
+            // Current version
             _lblCurrentVersion = new Label
             {
-                Text = $"Текущая версия: {currentFullVersion}",
+                Text = $"Current version: {currentFullVersion}",
                 Location = new Point(20, 60),
                 Size = new Size(200, 20)
             };
 
-            // Последняя версия
+            // Latest version
             _lblLatestVersion = new Label
             {
-                Text = $"Новая версия: {latestFullVersion}",
+                Text = $"New version: {latestFullVersion}",
                 Location = new Point(250, 60),
                 Size = new Size(200, 20),
                 ForeColor = Color.Green,
                 Font = new Font("Segoe UI", 9, FontStyle.Bold)
             };
 
-            // Убираем ReleaseName, так как его нет в UpdateInfo
-            // Вместо этого можем показать productVersion
+            // Remove ReleaseName, since it's not in UpdateInfo
+            // We can show productVersion instead
             var lblProductVersion = new Label
             {
                 Text = !string.IsNullOrEmpty(_updateInfo.ProductVersion)
-                    ? $"Версия принтера: {_updateInfo.ProductVersion}"
+                    ? $"Printer version: {_updateInfo.ProductVersion}"
                     : "",
                 Font = new Font("Segoe UI", 9, FontStyle.Italic),
                 Location = new Point(20, 90),
@@ -96,21 +96,21 @@ namespace LPStudio
                 ForeColor = Color.Gray
             };
 
-            // Описание изменений
+            // Description of changes
             var lblReleaseNotes = new Label
             {
-                Text = "Изменения в этой версии:",
+                Text = "Changes in this version:",
                 Location = new Point(20, 120),
                 Size = new Size(150, 20),
                 Font = new Font("Segoe UI", 9, FontStyle.Bold)
             };
 
-            // Текст изменений
+            // Change text
             _txtReleaseNotes = new RichTextBox
             {
                 Text = !string.IsNullOrEmpty(_updateInfo.ReleaseNotes)
                     ? _updateInfo.ReleaseNotes
-                    : "Нет информации об изменениях",
+                    : "No information about changes",
                 Location = new Point(20, 145),
                 Size = new Size(440, 150),
                 ReadOnly = true,
@@ -118,7 +118,7 @@ namespace LPStudio
                 ScrollBars = RichTextBoxScrollBars.Vertical
             };
 
-            // Прогресс-бар (скрыт по умолчанию)
+            // Progress bar (hidden by default)
             _progressBar = new ProgressBar
             {
                 Location = new Point(20, 310),
@@ -127,7 +127,7 @@ namespace LPStudio
                 Style = ProgressBarStyle.Continuous
             };
 
-            // Текст прогресса
+            // Progress text
             _lblProgress = new Label
             {
                 Location = new Point(20, 335),
@@ -136,10 +136,10 @@ namespace LPStudio
                 TextAlign = ContentAlignment.MiddleCenter
             };
 
-            // Автоматическое обновление
+            // Automatic update
             _chkAutoUpdate = new CheckBox
             {
-                Text = "Всегда проверять обновления при запуске",
+                Text = "Always check for updates when starting up",
                 Location = new Point(20, 310),
                 Size = new Size(300, 20),
                 Checked = _autoUpdateEnabled
@@ -150,10 +150,10 @@ namespace LPStudio
                 SaveTempSettings();
             };
 
-            // Кнопка "Обновить"
+            // "Refresh" button
             _btnUpdate = new Button
             {
-                Text = "Установить обновление",
+                Text = "Install update",
                 Location = new Point(20, 350),
                 Size = new Size(150, 35),
                 BackColor = Color.SteelBlue,
@@ -163,7 +163,7 @@ namespace LPStudio
             };
             _btnUpdate.Click += BtnUpdate_Click;
 
-            // Кнопка "Позже"
+            // "Later" button
             _btnLater = new Button
             {
                 Text = "Напомнить позже",
@@ -173,17 +173,17 @@ namespace LPStudio
             };
             _btnLater.Click += BtnLater_Click;
 
-            // Кнопка "Пропустить"
+            // Skip button
             _btnSkip = new Button
             {
-                Text = "Пропустить версию",
+                Text = "Skip version",
                 Location = new Point(310, 350),
                 Size = new Size(150, 35),
                 FlatStyle = FlatStyle.Flat
             };
             _btnSkip.Click += BtnSkip_Click;
 
-            // Добавляем элементы на форму
+            // Add elements to the form
             this.Controls.AddRange(new Control[]
             {
                 _lblTitle, _lblCurrentVersion, _lblLatestVersion, lblProductVersion,
@@ -196,7 +196,7 @@ namespace LPStudio
         {
             try
             {
-                // Временная загрузка настроек из файла
+                // Temporarily loading settings from a file
                 string settingsPath = System.IO.Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "LPStudio", "update_settings.txt");
@@ -230,7 +230,7 @@ namespace LPStudio
             }
             catch
             {
-                // Значения по умолчанию
+                // Default values
                 _autoUpdateEnabled = true;
                 _skipVersion = "";
                 _postponeUntil = DateTime.MinValue;
@@ -255,7 +255,7 @@ namespace LPStudio
             }
             catch
             {
-                // Игнорируем ошибки
+                // Ignore errors
             }
         }
 
@@ -263,28 +263,28 @@ namespace LPStudio
         {
             try
             {
-                // Логируем запуск обновления с полными версиями
+                // Logging the launch of an update with full versions
                 string currentFull = $"{_updateInfo.CurrentVersion}.{_updateInfo.CurrentBuild}";
                 string latestFull = $"{_updateInfo.LatestVersion}.{_updateInfo.LatestBuild}";
-                Console.WriteLine($"[UpdateDialog] Запуск обновления с {currentFull} на {latestFull}");
+                Console.WriteLine($"[UpdateDialog] Starting update from {currentFull} to {latestFull}");
 
-                // Скрываем кнопки и показываем прогресс
+                // Hide the buttons and show the progress
                 SetUpdateInProgress(true);
 
-                // Скачиваем и устанавливаем обновление
+                // Download and install the update
                 _updateService.StartUpdateProcess(_updateInfo);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка при обновлении: {ex.Message}",
-                    "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error while updating: {ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 SetUpdateInProgress(false);
             }
         }
 
         private void BtnLater_Click(object sender, EventArgs e)
         {
-            // Откладываем обновление на 1 день
+            // Postpone the update for 1 day
             _postponeUntil = DateTime.Now.AddDays(1);
             SaveTempSettings();
 
@@ -294,12 +294,12 @@ namespace LPStudio
 
         private void BtnSkip_Click(object sender, EventArgs e)
         {
-            // Пропускаем эту версию - сохраняем полную версию с build
+            // Skip this version - save the full version with build
             string latestFullVersion = $"{_updateInfo.LatestVersion}.{_updateInfo.LatestBuild}";
             _skipVersion = latestFullVersion;
             SaveTempSettings();
 
-            Console.WriteLine($"[UpdateDialog] Версия {_skipVersion} пропущена");
+            Console.WriteLine($"[UpdateDialog] Version {_skipVersion} skipped");
 
             this.DialogResult = DialogResult.Cancel;
             this.Close();
@@ -317,12 +317,12 @@ namespace LPStudio
 
             if (inProgress)
             {
-                _lblProgress.Text = "Подготовка к обновлению...";
+                _lblProgress.Text = "Preparing for the update...";
                 _progressBar.Style = ProgressBarStyle.Marquee;
             }
         }
 
-        // Метод для обновления прогресса
+        // Method for updating progress
         public void UpdateProgress(double percentage, string status)
         {
             if (InvokeRequired)

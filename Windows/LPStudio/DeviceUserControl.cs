@@ -181,12 +181,12 @@ namespace LPStudio
         {
             try
             {
-                // Обновляем логи драйвера
+                // Update driver logs
                 int currentDriverLogCount = printerController.GetLogCount();
 
                 if (currentDriverLogCount < lastDriverLogCount)
                 {
-                    // Логи драйвера были очищены
+                    // Driver logs have been cleared
                     ClearTextBoxSafe();
                     lastDriverLogCount = 0;
 
@@ -230,7 +230,7 @@ namespace LPStudio
                 }
                 catch
                 {
-                    // Игнорируем ошибки получения одной записи
+                    // Ignore errors getting one record
                 }
             }
 
@@ -246,11 +246,11 @@ namespace LPStudio
             {
                 textBoxConsole.BeginInvoke((MethodInvoker)delegate
                 {
-                    // Быстрая вставка с приостановкой обновления
+                    // Fast insert with paused update
                     textBoxConsole.SuspendLayout();
                     textBoxConsole.AppendText(text);
 
-                    // Автопрокрутка если включена
+                    // Autoscroll if enabled
                     if (AutoScrollEnabled)
                     {
                         textBoxConsole.SelectionStart = textBoxConsole.TextLength;
@@ -259,7 +259,7 @@ namespace LPStudio
 
                     textBoxConsole.ResumeLayout();
 
-                    // Ограничиваем размер для производительности
+                    // Limit the size for performance
                     LimitLogSize();
                 });
             }
@@ -294,8 +294,8 @@ namespace LPStudio
         }
         private void LimitLogSize()
         {
-            // Ограничиваем лог для производительности, но НЕ очищаем полностью
-            // Просто удаляем старые строки если их слишком много
+            // Limit the log for performance, but do NOT clear it completely
+            // Simply delete old lines if there are too many of them
             const int MAX_LINES = 2000;
             const int KEEP_LINES = 1500;
 
@@ -306,14 +306,14 @@ namespace LPStudio
 
                 if (removeCount > 0)
                 {
-                    // Создаем новые строки без старых
+                    // Create new lines without old ones
                     var newLines = new string[KEEP_LINES];
                     Array.Copy(lines, removeCount, newLines, 0, KEEP_LINES);
 
-                    // Обновляем TextBox
+                    // Update the TextBox
                     textBoxConsole.Lines = newLines;
 
-                    // Корректируем счетчик (примерно)
+                    // Adjust the counter (approximately)
                     lastLogCount = Math.Max(0, lastLogCount - removeCount);
                 }
             }
@@ -390,7 +390,7 @@ namespace LPStudio
             batteryToolTip.InitialDelay = 1000;
             batteryToolTip.ReshowDelay = 500;
             batteryToolTip.ShowAlways = true;
-            batteryToolTip.SetToolTip(this, "Батарея не подключена");
+            batteryToolTip.SetToolTip(this, "The battery is not connected");
 
             updateTimer = new Timer();
             updateTimer.Interval = 5000;
@@ -466,12 +466,12 @@ namespace LPStudio
                 }
                 byte newLevel = 0;
                 try
-                {                    
-                    // Получаем уровень
+                {
+                    // Get the level
                     newLevel = printer.GetBatteryLevel();
 
                     System.Threading.Thread.Sleep(50);
-                    // Проверяем корректность
+                    // Checking the correctness
                     if (newLevel > 100)
                     {
                         newLevel = 100;
@@ -538,19 +538,19 @@ namespace LPStudio
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-            // Рассчитываем позицию батареи (слева)
+            // Calculate the battery position (left)
             int batteryX = padding;
             int batteryY = (this.Height - batteryHeight) / 2;
 
-            // Рисуем батарею
+            // Draw the battery
             DrawBattery(g, batteryX, batteryY);
 
-            // Рисуем текст (справа от батареи)
+            // Draw text (to the right of the battery)
             DrawText(g, batteryX + batteryWidth + capWidth + 5);
         }
         private void DrawBattery(Graphics g, int x, int y)
         {
-            // Основной корпус батареи
+            // Main battery body
             Rectangle batteryRect = new Rectangle(x, y, batteryWidth, batteryHeight);
 
             using (Pen borderPen = new Pen(borderColor, 1))
@@ -558,7 +558,7 @@ namespace LPStudio
                 g.DrawRectangle(borderPen, batteryRect);
             }
 
-            // Колпачок (справа)
+            // Cap (right)
             int capY = y + (batteryHeight - capHeight) / 2;
             Rectangle capRect = new Rectangle(
                 x + batteryWidth,
@@ -569,26 +569,26 @@ namespace LPStudio
 
             g.FillRectangle(new SolidBrush(borderColor), capRect);
 
-            // Проверяем подключение и заряд
+            // Checking the connection and charge
             if (isConnected && batteryLevel > 0)
             {
-                // Вычисляем ширину заполнения с учетом границ
-                int innerWidth = batteryWidth - 2; // -2 для левой и правой границ
+                // Calculate the padding width taking into account the borders
+                int innerWidth = batteryWidth - 2; // -2 for left and right borders
                 int fillWidth = (int)(innerWidth * batteryLevel / 100.0);
 
-                // Ограничиваем fillWidth, чтобы не выходил за границы
+                // Limit fillWidth so it doesn't go beyond the boundaries
                 fillWidth = Math.Max(1, Math.Min(fillWidth, innerWidth));
 
                 Rectangle fillRect = new Rectangle(
-                    x + 1, // +1 для внутренней границы
-                    y + 1, // +1 для внутренней границы
+                    x + 1, // +1 for the inner border
+                    y + 1, // +1 for the inner border
                     fillWidth,
-                    batteryHeight - 2 // -2 для верхней и нижней границ
+                    batteryHeight - 2 // -2 for upper and lower bounds
                 );
 
                 g.FillRectangle(new SolidBrush(fillColor), fillRect);
 
-                // Легкий градиент для красоты
+                // Light gradient for beauty
                 using (LinearGradientBrush brush = new LinearGradientBrush(
                     fillRect,
                     Color.FromArgb(150, Color.White),
@@ -602,7 +602,7 @@ namespace LPStudio
             }
             else if (!isConnected)
             {
-                // Серый фон для отключенного состояния
+                // Gray background for disabled state
                 Rectangle emptyRect = new Rectangle(
                     x + 1,
                     y + 1,
@@ -612,7 +612,7 @@ namespace LPStudio
 
                 g.FillRectangle(new SolidBrush(disconnectedColor), emptyRect);
 
-                // Крестик
+                // Cross
                 using (Pen crossPen = new Pen(Color.Gray, 1))
                 {
                     int crossSize = Math.Min(emptyRect.Width, emptyRect.Height) / 2;
@@ -629,23 +629,23 @@ namespace LPStudio
         {
             string text = isConnected ? $"{batteryLevel}%" : "---";
 
-            // Используем шрифт с правильными настройками
+            // Use the font with the correct settings
             using (Font font = new Font("Arial", 9, FontStyle.Bold))
             {
-                // Измеряем текст для правильного позиционирования
+                // Measure the text for correct positioning
                 SizeF textSize = g.MeasureString(text, font);
                 int textY = (this.Height - (int)textSize.Height) / 2;
 
-                // Рисуем текст с небольшим смещением для лучшей читаемости
+                // Draw text with a slight offset for better readability
                 RectangleF textRect = new RectangleF(textX, textY, textSize.Width, textSize.Height);
 
-                // Рисуем фон для текста (опционально, для лучшей читаемости)
+                // Draw a background for the text (optional, for better readability)
                 g.FillRectangle(new SolidBrush(Color.FromArgb(100, 0, 0, 0)), textRect);
 
-                // Тень для лучшей читаемости
+                // Shadow for better readability
                 g.DrawString(text, font, Brushes.Black, textX + 1, textY + 1);
 
-                // Основной текст
+                // Main text
                 using (SolidBrush textBrush = new SolidBrush(textColor))
                 {
                     g.DrawString(text, font, textBrush, textX, textY);
