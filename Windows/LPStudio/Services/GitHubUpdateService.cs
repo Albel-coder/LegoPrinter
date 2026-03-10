@@ -57,16 +57,16 @@ namespace LPStudio.Services
 
                 if (!manifest.Platforms.TryGetValue(_currentPlatform, out var platformInfo))
                 {
-                    Debug.WriteLine($"[UpdateService] Платформа '{_currentPlatform}' не найдена в манифесте");
+                    Debug.WriteLine($"[UpdateService] Platform '{_currentPlatform}' not found in manifest");
                     return CreateNoUpdateInfo();
                 }
 
-                // Получаем текущую версию и сборку
+                // Get the current version and build
                 var (currentVersion, currentBuild) = UpdateHelper.ParseVersionAndBuild(
                     UpdateHelper.GetCurrentVersion()
                 );
 
-                // Проверяем обновление
+                // Check for an update
                 var checkResult = platformInfo.CheckForUpdate(currentVersion, currentBuild);
 
                 var updateInfo = new UpdateInfo
@@ -104,7 +104,7 @@ namespace LPStudio.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[UpdateService] Ошибка проверки обновлений: {ex.Message}");
+                Debug.WriteLine($"[UpdateService] Error checking for updates: {ex.Message}");
                 return CreateNoUpdateInfo();
             }
         }
@@ -118,7 +118,7 @@ namespace LPStudio.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[UpdateService] Ошибка загрузки манифеста: {ex.Message}");
+                Debug.WriteLine($"[UpdateService] Error loading manifest: {ex.Message}");
                 return null;
             }
         }
@@ -157,16 +157,16 @@ namespace LPStudio.Services
                 throw new ArgumentNullException(nameof(updateInfo));
 
             if (!updateInfo.IsAvailable)
-                throw new InvalidOperationException("Обновление недоступно");
+                throw new InvalidOperationException("Update not available");
 
             if (string.IsNullOrEmpty(updateInfo.DownloadUrl))
-                throw new InvalidOperationException("URL для скачивания не указан");
+                throw new InvalidOperationException("Download URL not specified");
 
             if (!UpdateHelper.UpdaterExists())
             {
                 MessageBox.Show(
-                    "Программа обновления не найдена. Пожалуйста, обновите приложение вручную.",
-                    "Ошибка обновления",
+                    "The updater was not found. Please update the application manually.",
+                    "Update error",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;
@@ -174,49 +174,49 @@ namespace LPStudio.Services
 
             try
             {
-                Console.WriteLine($"=== Запуск процесса обновления ===");
+                Console.WriteLine($"=== Starting the update process ===");
                 Console.WriteLine($"Current PID: {Process.GetCurrentProcess().Id}");
 
-                // Получаем текущий исполняемый файл и директорию
+                // Get the current executable file and directory
                 var currentExe = Process.GetCurrentProcess().MainModule.FileName;
                 var currentDir = Path.GetDirectoryName(currentExe);
 
-                // Собираем аргументы с точными путями
+                // Collect arguments with exact paths
                 var arguments = BuildUpdaterArguments(updateInfo, currentExe, currentDir);
-                Console.WriteLine($"Аргументы Updater: {arguments}");
+                Console.WriteLine($"Updater Arguments: {arguments}");
 
                 var updaterPath = UpdateHelper.GetUpdaterPath();
-                Console.WriteLine($"Путь к Updater: {updaterPath}");
+                Console.WriteLine($"Path to Updater: {updaterPath}");
                 Console.WriteLine($"Exists: {File.Exists(updaterPath)}");
 
                 var process = UpdateHelper.StartProcess(updaterPath, arguments, false);
 
                 if (process == null)
                 {
-                    Console.WriteLine("Process.Start вернул null!");
-                    throw new Exception("Не удалось запустить процесс Updater");
+                    Console.WriteLine("Process.Start returned null!");
+                    throw new Exception("Failed to start Updater process");
                 }
 
-                Console.WriteLine($"Updater запущен, PID: {process.Id}");
+                Console.WriteLine($"Updater running, PID: {process.Id}");
 
                 System.Threading.Thread.Sleep(1000);
 
                 if (process.HasExited)
                 {
-                    Console.WriteLine($"Updater завершился с кодом: {process.ExitCode}");
-                    throw new Exception($"Updater завершился сразу после запуска. Код: {process.ExitCode}");
+                    Console.WriteLine($"Updater exited with code: {process.ExitCode}");
+                    throw new Exception($"Updater exited immediately after launch. Code: {process.ExitCode}");
                 }
 
-                Console.WriteLine("Updater успешно запущен, закрываю основное приложение...");
+                Console.WriteLine("Updater has launched successfully, I'm closing the main application...");
 
                 Application.Exit();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Ошибка запуска Updater: {ex.Message}");
+                Console.WriteLine($"Error starting Updater: {ex.Message}");
                 MessageBox.Show(
-                    $"Не удалось запустить процесс обновления: {ex.Message}",
-                    "Ошибка",
+                    $"Failed to start update process: {ex.Message}",
+                    "Error",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
@@ -226,7 +226,7 @@ namespace LPStudio.Services
         {
             var args = new StringBuilder();
 
-            // Обязательные параметры
+            // Required parameters
             args.Append($"--app-exe \"{currentExe}\" ");
             args.Append($"--app-dir \"{currentDir}\" ");
             args.Append($"--download-url \"{updateInfo.DownloadUrl}\" ");
@@ -296,7 +296,7 @@ namespace LPStudio.Services
                 if (!VerifyChecksum(filePath, updateInfo.Checksum))
                 {
                     File.Delete(filePath);
-                    throw new Exception("Контрольная сумма файла не совпадает");
+                    throw new Exception("The file checksum does not match.");
                 }
             }
 

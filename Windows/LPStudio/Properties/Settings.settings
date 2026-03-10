@@ -1,0 +1,37 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" 
+              CurrentProfile="(Default)" 
+              GeneratedClassNamespace="LPStudio.Properties" 
+              GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <!-- Настройки автообновлений -->
+    <Setting Name="CheckForUpdates" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">True</Value>
+    </Setting>
+    <Setting Name="AutoUpdate" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="AutoUpdatePreReleases" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="PostponeUpdateUntil" Type="System.DateTime" Scope="User">
+      <Value Profile="(Default)">0001-01-01T00:00:00</Value>
+    </Setting>
+    <Setting Name="SkipVersion" Type="System.String" Scope="User">
+      <Value Profile="(Default)" />
+    </Setting>
+    <Setting Name="GitHubOwner" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">YOUR_USERNAME</Value>
+    </Setting>
+    <Setting Name="GitHubRepo" Type="System.String" Scope="Application">
+      <Value Profile="(Default)">YOUR_REPOSITORY</Value>
+    </Setting>
+    <Setting Name="UpdateCheckIntervalHours" Type="System.Int32" Scope="User">
+      <Value Profile="(Default)">24</Value>
+    </Setting>
+    <Setting Name="LastUpdateCheck" Type="System.DateTime" Scope="User">
+      <Value Profile="(Default)">0001-01-01T00:00:00</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>

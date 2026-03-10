@@ -8,7 +8,7 @@ namespace LPStudio.Services
     public static class UpdateHelper
     {
         /// <summary>
-        /// Получает текущую версию приложения (в формате 4 чисел)
+        /// Gets the current application version (in 4-digit format)
         /// </summary>
         public static string GetCurrentVersion()
         {
@@ -31,8 +31,8 @@ namespace LPStudio.Services
         }
 
         /// <summary>
-        /// Очищает строку версии до формата major.minor.patch.build (4 числа)
-        /// Всегда возвращает 4 числа
+        /// Clears the version string to the format major.minor.patch.build (4 numbers)
+        /// Always returns 4 numbers
         /// </summary>
         public static string CleanVersion(string version)
         {
@@ -63,7 +63,7 @@ namespace LPStudio.Services
 
 
         /// <summary>
-        /// Парсит версию в формате 4 чисел на 3-числовую версию и номер сборки
+        /// Parses the version in 4-digit format into a 3-digit version and build number
         /// </summary>
         public static VersionInfo ParseVersionAndBuild(string versionString)
         {
@@ -72,25 +72,25 @@ namespace LPStudio.Services
                 var cleanVersion = CleanVersion(versionString);
                 var parts = cleanVersion.Split('.');
 
-                // Первые три числа - версия для пользователя
+                // The first three numbers are the user version
                 var userVersion = $"{parts[0]}.{parts[1]}.{parts[2]}";
 
-                // Четвертое число - номер сборки
+                // The fourth number is the build number
                 var build = int.Parse(parts[3]);
 
                 return new VersionInfo(userVersion, build);
             }
             catch
             {
-                // В случае ошибки возвращаем дефолтные значения
+                // In case of an error, we return default values
                 return new VersionInfo("0.0.0.0", 0);
             }
         }
 
         /// <summary>
-        /// Сравнивает версии с учетом сборок
-        /// version1, version2 - в формате 3 чисел (major.minor.patch)
-        /// build1, build2 - номера сборок
+        /// Compares versions based on builds
+        /// version1, version2 - in 3-number format (major.minor.patch)
+        /// build1, build2 - build numbers
         /// </summary>
         public static int CompareVersionsWithBuild(
             string version1, int build1,
@@ -105,12 +105,12 @@ namespace LPStudio.Services
             }
             catch
             {
-                return -1; // В случае ошибки считаем, что version1 старше
+                return -1; // In case of an error, we assume that version1 is older
             }
         }
 
         /// <summary>
-        /// Проверяет, доступна ли новая версия
+        /// Checks if a new version is available
         /// </summary>
         public static bool IsUpdateAvailable(string currentVersion, int currentBuild,
                                              string availableVersion, int availableBuild)
@@ -120,7 +120,7 @@ namespace LPStudio.Services
         }
 
         /// <summary>
-        /// Проверяет, является ли версия минимально требуемой
+        /// Checks if the version is the minimum required
         /// </summary>
         public static bool IsMinVersionRequired(string currentVersion, int currentBuild,
                                                 string minVersion, int minBuild)
@@ -130,7 +130,7 @@ namespace LPStudio.Services
         }
 
         /// <summary>
-        /// Получает путь к Updater
+        /// Gets the path to the Updater
         /// </summary>
         public static string GetUpdaterPath()
         {
@@ -139,7 +139,7 @@ namespace LPStudio.Services
         }
 
         /// <summary>
-        /// Проверяет существование Updater
+        /// Checks for the existence of Updater
         /// </summary>
         public static bool UpdaterExists()
         {
@@ -148,7 +148,7 @@ namespace LPStudio.Services
         }
 
         /// <summary>
-        /// Запускает процесс
+        /// Starts the process
         /// </summary>
         public static Process StartProcess(string fileName, string arguments, bool waitForExit = false)
         {
@@ -204,12 +204,12 @@ namespace LPStudio.Services
     }
 
     /// <summary>
-    /// Структура для хранения версии (3 числа) и сборки
+    /// Structure for storing the version (3 numbers) and build
     /// </summary>
     public class VersionInfo
     {
-        public string Version { get; } // 3 числа: major.minor.patch
-        public int Build { get; }      // Четвертое число: build
+        public string Version { get; } // 3 numbers: major.minor.patch
+        public int Build { get; }      // Fourth number: build
 
         public VersionInfo(string version, int build)
         {

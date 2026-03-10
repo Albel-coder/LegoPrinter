@@ -6,7 +6,7 @@ using System.Runtime.Serialization;
 namespace LPStudio.Services
 {
     /// <summary>
-    /// Манифест обновления (update.json)
+    /// Update manifest (update.json)
     /// </summary>
     public class UpdateManifest
     {
@@ -14,7 +14,7 @@ namespace LPStudio.Services
         public string ProductName { get; set; }
 
         [JsonProperty("productVersion")]
-        public string ProductVersion { get; set; } // 3 числа для пользователя (GitHub Release)
+        public string ProductVersion { get; set; } // 3 numbers per user (GitHub Release)
 
         [JsonProperty("releaseNotes")]
         public string ReleaseNotes { get; set; }
@@ -27,15 +27,15 @@ namespace LPStudio.Services
     }
 
     /// <summary>
-    /// Информация о платформе в манифесте
+    /// Platform information in the manifest
     /// </summary>
     public class PlatformInfo
     {
         [JsonProperty("version")]
-        private string _version { get; set; } // 4 числа в JSON
+        private string _version { get; set; } // 4 numbers in JSON
 
         [JsonIgnore]
-        public string AvailableVersion { get; private set; } // 3 числа
+        public string AvailableVersion { get; private set; }
 
         [JsonIgnore]
         public int Build { get; private set; }
@@ -44,7 +44,7 @@ namespace LPStudio.Services
         public string Url { get; set; }
 
         [JsonProperty("minVersion")]
-        public string MinVersion { get; set; } // Минимальная версия в формате 3 чисел
+        public string MinVersion { get; set; } // Minimum version in 3-number format
 
         [JsonProperty("releaseDate")]
         public DateTime ReleaseDate { get; set; }
@@ -74,7 +74,7 @@ namespace LPStudio.Services
         public bool IsCritical { get; set; }
 
         /// <summary>
-        /// Проверяет доступность обновления
+        /// Checks for update availability
         /// </summary>
         public UpdateCheckResult CheckForUpdate(string currentVersion, int currentBuild)
         {
@@ -86,7 +86,7 @@ namespace LPStudio.Services
             var isCompatible = string.IsNullOrEmpty(MinVersion) ||
                 UpdateHelper.IsMinVersionRequired(
                     currentVersion, currentBuild,
-                    MinVersion, 0 // Минимальная версия всегда имеет build = 0
+                    MinVersion, 0 // The minimum version always has build = 0
                 );
 
             return new UpdateCheckResult
@@ -102,7 +102,7 @@ namespace LPStudio.Services
         [OnDeserialized]
         private void OnDeserialized(StreamingContext context)
         {
-            // Разбираем 4-числовую версию из JSON на 3-числовую версию и сборку
+            // Parse the 4-number version from JSON into a 3-number version and assemble
             var cleanVersion = UpdateHelper.CleanVersion(_version);
             var parts = cleanVersion.Split('.');
 
@@ -124,7 +124,7 @@ namespace LPStudio.Services
                 Build = 0;
             }
 
-            // Нормализуем минимальную версию до 3 чисел
+            // Normalize the minimum version to 3 numbers
             if (!string.IsNullOrEmpty(MinVersion))
             {
                 MinVersion = UpdateHelper.CleanVersion(MinVersion);
@@ -138,7 +138,7 @@ namespace LPStudio.Services
     }
 
     /// <summary>
-    /// Результат проверки обновления
+    /// Update check result
     /// </summary>
     public class UpdateCheckResult
     {
@@ -150,7 +150,7 @@ namespace LPStudio.Services
     }
 
     /// <summary>
-    /// Информация об обновлении для UI
+    /// UI update information
     /// </summary>
     public class UpdateInfo
     {
@@ -160,17 +160,17 @@ namespace LPStudio.Services
         public bool IsCompatible { get; set; }
         public bool IsCritical { get; set; }
 
-        public string CurrentVersion { get; set; } // 3 числа
+        public string CurrentVersion { get; set; }
         public int CurrentBuild { get; set; }
-        public string LatestVersion { get; set; } // 3 числа
+        public string LatestVersion { get; set; }
         public int LatestBuild { get; set; }
-        public string MinRequiredVersion { get; set; } // 3 числа
+        public string MinRequiredVersion { get; set; }
 
         public string DownloadUrl { get; set; }
         public string ReleaseNotes { get; set; }
         public string GeneralReleaseNotes { get; set; }
         public string ProductName { get; set; }
-        public string ProductVersion { get; set; } // 3 числа
+        public string ProductVersion { get; set; }
         public DateTime PublishedAt { get; set; }
         public string InstallerType { get; set; }
         public long FileSize { get; set; }
