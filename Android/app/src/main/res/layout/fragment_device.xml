@@ -12,7 +12,7 @@
         android:orientation="vertical"
         android:padding="8dp">
 
-        <!-- Панель подключения -->
+        <!-- Connection Panel -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -27,7 +27,7 @@
                 android:orientation="vertical"
                 android:padding="8dp">
 
-                <!-- Заголовок панели -->
+                <!-- Panel Title -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -45,14 +45,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Подключение"
+                        android:text="Connection"
                         android:textColor="@android:color/white"
                         android:textSize="18sp"
                         android:textStyle="bold" />
 
                 </LinearLayout>
 
-                <!-- Контент панели -->
+                <!-- Panel content -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -66,7 +66,7 @@
                         android:layout_height="48dp"
                         android:layout_marginEnd="16dp"
                         android:minWidth="120dp"
-                        android:text="Подключить"
+                        android:text="Connect"
                         android:textAllCaps="false"
                         android:backgroundTint="@color/connect"
                         style="@style/Widget.AppCompat.Button" />
@@ -82,7 +82,7 @@
 
         </androidx.cardview.widget.CardView>
 
-        <!-- Панель управления (Tool) -->
+        <!-- Control Panel (Tool) -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -96,7 +96,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="8dp">
-				<!-- Заголовок панели -->
+				<!-- Panel Title -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -114,14 +114,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Управление"
+                        android:text="Control"
                         android:textColor="@android:color/white"
                         android:textSize="18sp"
                         android:textStyle="bold" />
 
                 </LinearLayout>
 
-                <!-- Кнопки управления движением -->
+                <!-- Movement control buttons -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -129,7 +129,7 @@
                     android:padding="16dp"
                     android:gravity="center">
 
-                    <!-- Левая часть (ось X) -->
+                    <!-- Left side (X-axis) -->
                     <Button
                         android:id="@+id/moveXLeftButton"
                         android:layout_width="48dp"
@@ -140,7 +140,7 @@
                         android:textColor="@android:color/white"
                         android:textSize="16sp" />
 
-                    <!-- Центральная часть (ось Y) -->
+                    <!-- Central part (Y-axis) -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -168,7 +168,7 @@
 
                     </LinearLayout>
 
-                    <!-- Правая часть (ось X) -->
+                    <!-- Right side (X-axis) -->
                     <Button
                         android:id="@+id/moveXRightButton"
                         android:layout_width="48dp"
@@ -179,7 +179,7 @@
                         android:textColor="@android:color/white"
                         android:textSize="16sp" />
 
-                    <!-- Ось Z -->
+                    <!-- Z-axis -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -207,7 +207,7 @@
 
                 </LinearLayout>
 
-                <!-- Кнопки Home -->
+                <!-- Home Buttons -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -249,7 +249,7 @@
 
                 </LinearLayout>
 
-                <!-- Отдельные кнопки Home -->
+                <!-- Separate Home buttons -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -284,7 +284,7 @@
 
         </androidx.cardview.widget.CardView>
 
-        <!-- Панель G-code -->
+        <!-- G-code panel -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -299,7 +299,7 @@
                 android:orientation="vertical"
                 android:padding="8dp">
 
-                <!-- Заголовок панели -->
+                <!-- Panel Title -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -324,7 +324,7 @@
 
                 </LinearLayout>
 
-                <!-- Контент панели -->
+                <!-- Panel content -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -343,7 +343,7 @@
                             android:layout_height="48dp"
                             android:layout_marginEnd="16dp"
                             android:minWidth="120dp"
-                            android:text="Выполнить код"
+                            android:text="Run code"
                             android:textAllCaps="false"
                             android:backgroundTint="@color/execute_button"
                             style="@style/Widget.AppCompat.Button" />
@@ -357,7 +357,7 @@
                             android:gravity="center_vertical"
                             android:paddingStart="8dp"
                             android:paddingEnd="8dp"
-                            android:text="Файл не выбран"
+                            android:text="File not selected"
                             android:textColor="@color/text_secondary"
                             android:ellipsize="end"
                             android:singleLine="true" />
@@ -367,7 +367,7 @@
                         android:id="@+id/browseButton"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
-                        android:text="Выбрать файл..."
+                        android:text="Select file..."
                         android:textAllCaps="false"
                         android:backgroundTint="@color/browse_button"
                         style="@style/Widget.AppCompat.Button" />
@@ -378,7 +378,7 @@
 
         </androidx.cardview.widget.CardView>
 
-        <!-- Консоль -->
+        <!-- Console -->
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="400dp"
@@ -391,7 +391,7 @@
                 android:layout_height="match_parent"
                 android:orientation="vertical">
 
-                <!-- Заголовок панели -->
+                <!-- Panel Title -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -409,14 +409,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Консоль"
+                        android:text="Console"
                         android:textColor="@android:color/white"
                         android:textSize="18sp"
                         android:textStyle="bold" />
 
                 </LinearLayout>
 
-                <!-- Консоль -->
+                <!-- Console -->
                 <ScrollView
                     android:id="@+id/consoleScrollView"
                     android:layout_width="match_parent"

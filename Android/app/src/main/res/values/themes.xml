@@ -1,5 +1,5 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Базовая тема приложения -->
+    <!-- Base application theme -->
     <style name="Theme.LPStudio" parent="Theme.AppCompat.Light.DarkActionBar">
         <!-- Primary brand color -->
         <item name="colorPrimary">@color/purple_500</item>
