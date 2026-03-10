@@ -72,7 +72,7 @@ class DeviceFragment : Fragment() {
     private var autoScrollEnabled = true
 
     // Timer for logs
-    private val logTimer = object : CountDownTimer(Long.MAX_VALUE, 500) { // Увеличили интервал до 500мс
+    private val logTimer = object : CountDownTimer(Long.MAX_VALUE, 500) {
         override fun onTick(millisUntilFinished: Long) {
             updateConsoleDisplay()
         }
@@ -104,11 +104,11 @@ class DeviceFragment : Fragment() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val allGranted = result.all { it.value }
             if (allGranted) {
-                appendToConsole("[INFO] Разрешения Bluetooth получены")
+                appendToConsole("[INFO] Bluetooth permissions received")
                 // After receiving permissions, we check if Bluetooth is enabled.
                 checkBluetoothEnabled()
             } else {
-                appendToConsole("[WARN] Некоторые разрешения Bluetooth отклонены")
+                appendToConsole("[WARNING] Some Bluetooth permissions are denied")
                 // Show a dialog with an explanation
                 showPermissionExplanationDialog()
             }
@@ -121,14 +121,14 @@ class DeviceFragment : Fragment() {
                 // Get the real path to the file
                 val file = getFileFromUri(requireContext(), uri)
                 selectedFile = file
-                filePathTextView.text = file?.absolutePath ?: "Файл выбран"
+                filePathTextView.text = file?.absolutePath ?: "File selected"
 
                 if (file != null) {
-                    appendToConsole("[INFO] Выбран файл: ${file.name}")
+                    appendToConsole("[INFO] File selected: ${file.name}")
                 }
             } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Ошибка выбора файла", Toast.LENGTH_SHORT).show()
-                appendToConsole("[ERROR] Ошибка выбора файла: ${e.message}")
+                Toast.makeText(requireContext(), "File selection error", Toast.LENGTH_SHORT).show()
+                appendToConsole("[ERROR] Error selecting file: ${e.message}")
             }
         }
     }
@@ -203,13 +203,13 @@ class DeviceFragment : Fragment() {
                     checkAndRequestPermissions()
 
                     // Print information about initialization
-                    appendToConsole("[INFO] Приложение инициализировано")
-                    appendToConsole("[INFO] Контроллеры загружены успешно")
+                    appendToConsole("[INFO] Application initialized")
+                    appendToConsole("[INFO] Controllers loaded successfully")
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    appendToConsole("[ERROR] Ошибка инициализации: ${e.message}")
-                    Toast.makeText(requireContext(), "Ошибка инициализации", Toast.LENGTH_LONG).show()
+                    appendToConsole("[ERROR] Initialization error: ${e.message}")
+                    Toast.makeText(requireContext(), "Initialization error", Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -250,12 +250,12 @@ class DeviceFragment : Fragment() {
             bluetoothAdapter = bluetoothManager.adapter
 
             if (bluetoothAdapter == null) {
-                appendToConsole("[ERROR] Устройство не поддерживает Bluetooth")
+                appendToConsole("[ERROR] Device does not support Bluetooth")
             } else {
-                appendToConsole("[INFO] Bluetooth адаптер обнаружен")
+                appendToConsole("[INFO] Bluetooth adapter detected")
             }
         } catch (e: Exception) {
-            appendToConsole("[ERROR] Ошибка инициализации Bluetooth: ${e.message}")
+            appendToConsole("[ERROR] Bluetooth initialization error: ${e.message}")
         }
     }
 
@@ -270,19 +270,19 @@ class DeviceFragment : Fragment() {
 
     private fun showPermissionRequestDialog() {
         val builder = AlertDialog.Builder(requireContext())
-            .setTitle("Требуются разрешения")
-            .setMessage("Для работы с Bluetooth принтером необходимы следующие разрешения:\n\n" +
-                    "• Bluetooth подключение\n" +
-                    "• Поиск устройств Bluetooth\n" +
-                    "• Доступ к местоположению (для поиска устройств)\n\n" +
-                    "Эти разрешения необходимы для поиска и подключения к вашему принтеру.")
-            .setPositiveButton("Предоставить разрешения") { dialog, _ ->
+            .setTitle("Permissions required")
+            .setMessage("To work with a Bluetooth printer, the following permissions are required:\n\n" +
+                    "• Bluetooth connection\n" +
+                    "• Search for Bluetooth devices\n" +
+                    "• Location access (to find devices)\n\n" +
+                    "These permissions are required to find and connect to your printer.")
+            .setPositiveButton("Grant Permissions") { dialog, _ ->
                 dialog.dismiss()
                 permissionLauncher.launch(blePermissions)
             }
-            .setNegativeButton("Отказаться") { dialog, _ ->
+            .setNegativeButton("Refuse") { dialog, _ ->
                 dialog.dismiss()
-                appendToConsole("[WARN] Работа с принтером невозможна без разрешений")
+                appendToConsole("[WARNING] Printer operation is not possible without permissions.")
             }
             .setCancelable(false)
 
@@ -291,22 +291,22 @@ class DeviceFragment : Fragment() {
 
     private fun showPermissionExplanationDialog() {
         val builder = AlertDialog.Builder(requireContext())
-            .setTitle("Разрешения не предоставлены")
-            .setMessage("Для работы приложения необходимы разрешения Bluetooth. Вы можете:\n\n" +
-                    "1. Нажать 'Запросить снова' для повторного запроса\n" +
-                    "2. Нажать 'Настройки' для ручного предоставления разрешений\n" +
-                    "3. Продолжить без Bluetooth (ограниченный функционал)")
-            .setPositiveButton("Запросить снова") { dialog, _ ->
+            .setTitle("Permissions not granted")
+            .setMessage("The app requires Bluetooth permissions to function. You can:\n\n" +
+                    "1. Click 'Request Again' to request again\n" +
+                    "2. Click 'Settings' to manually grant permissions\n" +
+                    "3. Continue without Bluetooth (limited functionality)")
+            .setPositiveButton("Request again") { dialog, _ ->
                 dialog.dismiss()
                 permissionLauncher.launch(blePermissions)
             }
-            .setNeutralButton("Настройки") { dialog, _ ->
+            .setNeutralButton("Settings") { dialog, _ ->
                 dialog.dismiss()
                 openAppSettings()
             }
-            .setNegativeButton("Продолжить") { dialog, _ ->
+            .setNegativeButton("Continue") { dialog, _ ->
                 dialog.dismiss()
-                appendToConsole("[INFO] Продолжение без Bluetooth разрешений")
+                appendToConsole("[INFO] Continuing without Bluetooth permissions")
             }
 
         builder.show()
@@ -315,16 +315,16 @@ class DeviceFragment : Fragment() {
     private fun checkBluetoothEnabled() {
         if (bluetoothAdapter != null && !bluetoothAdapter.isEnabled) {
             val builder = AlertDialog.Builder(requireContext())
-                .setTitle("Bluetooth отключен")
-                .setMessage("Для работы с принтером необходимо включить Bluetooth")
-                .setPositiveButton("Включить") { dialog, _ ->
+                .setTitle("Bluetooth disabled")
+                .setMessage("To work with the printer, you need to enable Bluetooth")
+                .setPositiveButton("Turn on") { dialog, _ ->
                     dialog.dismiss()
                     val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
                     startActivity(enableBtIntent)
                 }
-                .setNegativeButton("Отмена") { dialog, _ ->
+                .setNegativeButton("Cancel") { dialog, _ ->
                     dialog.dismiss()
-                    appendToConsole("[WARN] Bluetooth отключен - подключение невозможно")
+                    appendToConsole("[WARNING] Bluetooth is disabled - connection is not possible")
                 }
 
             builder.show()
@@ -339,7 +339,7 @@ class DeviceFragment : Fragment() {
             if (!isConnected) {
                 // === CONNECT ===
                 connectButton.isEnabled = false
-                connectButton.text = "Подключение..."
+                connectButton.text = "Connection..."
                 connectButton.setBackgroundColor(
                     ContextCompat.getColor(requireContext(), R.color.connecting)
                 )
@@ -356,10 +356,10 @@ class DeviceFragment : Fragment() {
                     isConnected = true
 
                     batteryIndicator.setPrinterController(printerController)
-                    appendToConsole("[INFO] Принтер подключен")
+                    appendToConsole("[INFO] Printer connected")
 
                     connectButton.isEnabled = true
-                    connectButton.text = "Отключить"
+                    connectButton.text = "Disable"
                     connectButton.setBackgroundColor(
                         ContextCompat.getColor(requireContext(), R.color.disconnect)
                     )
@@ -367,17 +367,17 @@ class DeviceFragment : Fragment() {
                     isConnected = false
 
                     connectButton.isEnabled = true
-                    connectButton.text = "Подключить"
+                    connectButton.text = "Connect"
                     connectButton.setBackgroundColor(
                         ContextCompat.getColor(requireContext(), R.color.connect)
                     )
 
-                    appendToConsole("[ERROR] Ошибка подключения: ${e.message}")
+                    appendToConsole("[ERROR] Connection error: ${e.message}")
                 }
             } else {
                 // === DISCONNECT ===
                 connectButton.isEnabled = false
-                connectButton.text = "Отключение..."
+                connectButton.text = "Shutdown..."
                 connectButton.setBackgroundColor(
                     ContextCompat.getColor(requireContext(), R.color.connecting)
                 )
@@ -398,21 +398,21 @@ class DeviceFragment : Fragment() {
 
                     isConnected = false
                     batteryIndicator.setPrinterController(null)
-                    appendToConsole("[INFO] Принтер отключен")
+                    appendToConsole("[INFO] Printer is offline")
 
                     connectButton.isEnabled = true
-                    connectButton.text = "Подключить"
+                    connectButton.text = "Connect"
                     connectButton.setBackgroundColor(
                         ContextCompat.getColor(requireContext(), R.color.connect)
                     )
                 } catch (e: Exception) {
                     connectButton.isEnabled = true
-                    connectButton.text = "Отключить"
+                    connectButton.text = "Disable"
                     connectButton.setBackgroundColor(
                         ContextCompat.getColor(requireContext(), R.color.disconnect)
                     )
 
-                    appendToConsole("[ERROR] Ошибка отключения: ${e.message}")
+                    appendToConsole("[ERROR] Disconnect error: ${e.message}")
                 }
             }
         }
@@ -426,19 +426,19 @@ class DeviceFragment : Fragment() {
         scope.launch {
             // Checking the connection
             if (!isConnected) {
-                appendToConsole("[ERROR] Сначала подключитесь к принтеру")
+                appendToConsole("[ERROR] Connect to the printer first")
                 return@launch
             }
 
             // Check if a file is selected
             if (selectedFile == null) {
-                appendToConsole("[ERROR] Выберите файл G-code")
+                appendToConsole("[ERROR] Select G-code file")
                 return@launch
             }
 
             // Update the UI
             executeButton.isEnabled = false
-            executeButton.text = "Выполнение..."
+            executeButton.text = "Execution..."
 
             try {
                 val success = withContext(Dispatchers.IO) {
@@ -446,18 +446,18 @@ class DeviceFragment : Fragment() {
                 }
 
                 if (success) {
-                    appendToConsole("[INFO] Выполнение G-code начато")
+                    appendToConsole("[INFO] G-code execution started")
                     // Start execution monitoring
                     startExecutionMonitoring()
                 } else {
                     val error = gCodeInterpreter.lastError
-                    appendToConsole("[ERROR] Ошибка выполнения: $error")
+                    appendToConsole("[ERROR] Runtime error: $error")
                 }
             } catch (e: Exception) {
-                appendToConsole("[ERROR] Ошибка при выполнении: ${e.message}")
+                appendToConsole("[ERROR] Error while executing: ${e.message}")
             } finally {
                 executeButton.isEnabled = true
-                executeButton.text = "Выполнить код"
+                executeButton.text = "Run code"
             }
         }
     }
@@ -470,21 +470,21 @@ class DeviceFragment : Fragment() {
                 val status = gCodeInterpreter.status
 
                 withContext(Dispatchers.Main) {
-                    executeButton.text = "Выполняется ${String.format("%.1f", progress * 100)}%"
+                    executeButton.text = "In progress ${String.format("%.1f", progress * 100)}%"
                 }
 
                 // Check for completion
                 if (status == GCodeInterpreter.Status.COMPLETED) {
                     withContext(Dispatchers.Main) {
-                        executeButton.text = "Завершено"
-                        appendToConsole("[INFO] Выполнение завершено")
+                        executeButton.text = "Completed"
+                        appendToConsole("[INFO] Execution completed")
                     }
                     break
                 } else if (status == GCodeInterpreter.Status.ERROR) {
                     withContext(Dispatchers.Main) {
-                        executeButton.text = "Ошибка"
+                        executeButton.text = "Error"
                         val error = gCodeInterpreter.lastError
-                        appendToConsole("[ERROR] Ошибка выполнения: $error")
+                        appendToConsole("[ERROR] Runtime error: $error")
                     }
                     break
                 }
@@ -497,7 +497,7 @@ class DeviceFragment : Fragment() {
     private fun sendGCodeCommand(command: String) {
         scope.launch {
             if (!isConnected) {
-                appendToConsole("[ERROR] Сначала подключитесь к принтеру")
+                appendToConsole("[ERROR] Connect to the printer first")
                 return@launch
             }
 
@@ -507,13 +507,13 @@ class DeviceFragment : Fragment() {
                 }
 
                 if (success) {
-                    appendToConsole("[INFO] Команда выполнена: $command")
+                    appendToConsole("[INFO] Command executed: $command")
                 } else {
                     val error = gCodeInterpreter.lastError
-                    appendToConsole("[ERROR] Ошибка команды: $error")
+                    appendToConsole("[ERROR] Command error: $error")
                 }
             } catch (e: Exception) {
-                appendToConsole("[ERROR] Ошибка выполнения команды: ${e.message}")
+                appendToConsole("[ERROR] Error executing command: ${e.message}")
             }
         }
     }
@@ -659,7 +659,7 @@ class DeviceFragment : Fragment() {
         }
 
         if (bluetoothAdapter == null) {
-            appendToConsole("[ERROR] Устройство не поддерживает Bluetooth")
+            appendToConsole("[ERROR] Device does not support Bluetooth")
             return false
         }
 
@@ -687,7 +687,7 @@ class DeviceFragment : Fragment() {
             )
             startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(requireContext(), "Не удалось открыть настройки", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Failed to open settings", Toast.LENGTH_SHORT).show()
         }
     }
 

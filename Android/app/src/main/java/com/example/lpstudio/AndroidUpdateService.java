@@ -30,7 +30,7 @@ public class AndroidUpdateService {
     private static final String KEY_SKIP_VERSION = "skip_version";
     private static final String KEY_POSTPONE_UNTIL = "postpone_until";
     private static final String KEY_LAST_CHECK = "last_check";
-    private static final long CACHE_DURATION_MS = 6 * 60 * 60 * 1000L; // 6 часов
+    private static final long CACHE_DURATION_MS = 6 * 60 * 60 * 1000L; // 6 hours
 
     private final Context context;
     private final Handler mainHandler;
@@ -240,7 +240,7 @@ public class AndroidUpdateService {
                 return scanner.hasNext() ? scanner.next() : null;
             }
             else {
-                callback.onError("Ошибка загрузки манифеста: HTTP " + responseCode);
+                callback.onError("Error loading manifest: HTTP " + responseCode);
             }
         } catch (Exception e) {
             callback.onError("Error downloading manifest: " + e.getMessage());
@@ -287,8 +287,8 @@ public class AndroidUpdateService {
         String fileUri = updateInfo.downloadUrl;
         fileName = fileUri.substring(fileUri.lastIndexOf('/') + 1);
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(updateInfo.downloadUrl))
-                .setTitle("Обновление LPStudio")
-                .setDescription("Загрузка обновления")
+                .setTitle("LPStudio update")
+                .setDescription("Downloading the update")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationInExternalFilesDir(context, null, fileName)
                 .setAllowedOverMetered(true)
@@ -363,7 +363,7 @@ public class AndroidUpdateService {
             } else {
                 mainHandler.post(() -> {
                     Toast.makeText(context,
-                            "Не удалось запустить установку. Проверьте файловый менеджер.",
+                            "Failed to start installation. Check your file manager.",
                             Toast.LENGTH_LONG).show();
                 });
             }
@@ -371,7 +371,7 @@ public class AndroidUpdateService {
             Log.e(TAG, "Install APK error: " + e.getMessage());
             mainHandler.post(() -> {
                 Toast.makeText(context,
-                        "Ошибка установки: " + e.getMessage(),
+                        "Installation error: " + e.getMessage(),
                         Toast.LENGTH_LONG).show();
             });
         }
@@ -456,14 +456,14 @@ public class AndroidUpdateService {
                                 // Show the notification
                                 mainHandler.post(() -> {
                                     Toast.makeText(context,
-                                            "Загрузка завершена. Начинаем установку...",
+                                            "Download complete. Beginning installation...",
                                             Toast.LENGTH_LONG).show();
                                 });
                             } else {
                                 Log.e(TAG, "Checksum mismatch!");
                                 mainHandler.post(() -> {
                                     Toast.makeText(context,
-                                            "Ошибка: контрольная сумма не совпадает. Файл поврежден.",
+                                            "Error: Checksum does not match. File is corrupted.",
                                             Toast.LENGTH_LONG).show();
                                 });
                             }
@@ -472,14 +472,14 @@ public class AndroidUpdateService {
                             installApk(apkFile);
                             mainHandler.post(() -> {
                                 Toast.makeText(context,
-                                        "Загрузка завершена. Начинаем установку...",
+                                        "Download complete. Beginning installation...",
                                         Toast.LENGTH_LONG).show();
                             });
                         }
                     } else {
                         mainHandler.post(() -> {
                             Toast.makeText(context,
-                                    "Ошибка: файл не найден",
+                                    "Error: File not found",
                                     Toast.LENGTH_LONG).show();
                         });
                     }

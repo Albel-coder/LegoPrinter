@@ -255,7 +255,7 @@ public class BleManager {
         BluetoothGattCharacteristic characteristic = service.getCharacteristic(UUID.fromString(LEGO_HUB_CHARACTERISTIC_UUID));
         if (characteristic == null) return false;
         characteristic.setValue(data);
-        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE); // или WRITE_TYPE_DEFAULT
+        characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
         return bluetoothGatt.writeCharacteristic(characteristic);
     }
 

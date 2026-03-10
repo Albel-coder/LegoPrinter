@@ -133,7 +133,7 @@ public class MainActivity extends AppCompatActivity {
                     public void run() {
                         Toast.makeText(
                                 MainActivity.this,
-                                "Загрузка обновления начата",
+                                "The update download has started.",
                                 Toast.LENGTH_SHORT
                         ).show();
                     }
@@ -150,12 +150,12 @@ public class MainActivity extends AppCompatActivity {
     private void showUpdateDialog(final AndroidUpdateService.UpdateInfo info) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
 
-        builder.setTitle("Доступно обновление " + info.latestVersion + "(build " + info.latestBuild)
+        builder.setTitle("Update available " + info.latestVersion + "(build " + info.latestBuild)
                 .setMessage(
-                        "Текущая версия: " + info.currentVersion + " (build " + info.currentVersionCode + ")\n" +
-                                "Новая версия: " + info.latestVersion + "(build " + info.latestBuild + ")\n\n" +
+                        "Current version: " + info.currentVersion + " (build " + info.currentVersionCode + ")\n" +
+                                "New version: " + info.latestVersion + "(build " + info.latestBuild + ")\n\n" +
                                 info.releaseNotes
-                ).setPositiveButton("Обновить", new DialogInterface.OnClickListener() {
+                ).setPositiveButton("Update", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialogInterface, int i) {
                         updateCoordinator.downloadUpdate(info);
@@ -163,14 +163,14 @@ public class MainActivity extends AppCompatActivity {
                 });
 
         if (!info.isRequired) {
-            builder.setNegativeButton("Позже", new DialogInterface.OnClickListener() {
+            builder.setNegativeButton("Later", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialogInterface, int i) {
                     updateCoordinator.postponeUpdate(24);
                 }
             });
 
-            builder.setNegativeButton("Пропустить", new DialogInterface.OnClickListener() {
+            builder.setNegativeButton("Skip", new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialogInterface, int i) {
                     updateCoordinator.skipVersion(info.latestVersionCode);

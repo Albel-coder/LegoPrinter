@@ -93,7 +93,7 @@ public class UpdateCoordinator {
                 Log.e(TAG, "Download error: " + e.getMessage());
                 mainHandler.post(() -> {
                     if (listener != null) {
-                        listener.onError("Ошибка загрузки: " + e.getMessage());
+                        listener.onError("Loading error: " + e.getMessage());
                     }
                 });
             }
