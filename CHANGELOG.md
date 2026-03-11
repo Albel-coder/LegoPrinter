@@ -1,6 +1,20 @@
 # Changelog
 
-## [1.0.0] - 2025-12-31
+## [1.0.1] - 03.02.2026
+
+## Main Changes
+- Fixed data transport between the driver and the ble manager
+- Compiler refactoring
+
+### Windows (build 5)
+#### Added
+- Console for displaying logs
+- Custom buttons for closing the app, windowed mode, and setting the minimum size
+
+#### Fixed
+- Freezing the form when connecting
+
+## [1.0.0] - 31.12.2025
 
 ### Main Changes
 - Added basic driver methods (connection, motor control)
