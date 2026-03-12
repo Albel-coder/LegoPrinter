@@ -90,7 +90,7 @@ namespace LPStudio
                 {
                     Console.WriteLine($"Update available: {updateInfo.IsAvailable}");
                     Console.WriteLine($"Current version: {updateInfo.CurrentVersion}.{updateInfo.CurrentBuild}");
-                    Console.WriteLine($"New version: {updateInfo.LatestVersion}.{updateInfo.CurrentBuild}");
+                    Console.WriteLine($"New version: {updateInfo.LatestVersion}.{updateInfo.LatestBuild}");
                     Console.WriteLine($"Download URL: {updateInfo.DownloadUrl ?? "null"}");
                     Console.WriteLine($"File name: {updateInfo.AssetName ?? "null"}");
                 }

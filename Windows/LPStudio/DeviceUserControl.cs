@@ -352,6 +352,7 @@ namespace LPStudio
         {
 
         }
+
         private void moveYDownButton_Click(object sender, EventArgs e)
         {
 
