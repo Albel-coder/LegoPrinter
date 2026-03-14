@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.2] - 10.02.2026
+
+## Main Changes
+- Fixed memory leak errors
+- Driver refactoring
+
+### Windows (build 2)
+#### Added
+- Categories of logging information in the console
+
+#### Fixed
+- Syntax errors in displaying information
+
 ## [1.0.1] - 03.02.2026
 
 ## Main Changes
