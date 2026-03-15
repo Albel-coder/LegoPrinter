@@ -111,10 +111,10 @@ private:
 
     static constexpr size_t MAX_ENTRIES = 10000;    // Size of the ring buffer
 
-    std::unique_ptr<LogEntry[]> buffer_ = std::make_unique<LogEntry[]>(MAX_ENTRIES);
-    std::atomic<size_t> writeIndex_{ 0 };   // Index for entry (atomic)
-    std::atomic<size_t> readIndex_{ 0 };    // Index to read (atomic)
-    std::atomic<uint32_t> enabledCategories_{ LOG_CATEGORY_DEFAULT };
+    std::unique_ptr<LogEntry[]> buffer = std::make_unique<LogEntry[]>(MAX_ENTRIES);
+    std::atomic<size_t> writeIndex{ 0 };   // Index for entry (atomic)
+    std::atomic<size_t> readIndex{ 0 };    // Index to read (atomic)
+    std::atomic<uint32_t> enabledCategories{ LOG_CATEGORY_DEFAULT };
 };
 
 // Declare a global instance (defined in .cpp)

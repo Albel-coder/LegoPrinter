@@ -7,15 +7,15 @@ LogManager gLog;
 LogManager::LogManager() = default;
 
 void LogManager::setLogCategories(uint32_t categories) noexcept {
-    enabledCategories_.store(categories, std::memory_order_relaxed);
+    enabledCategories.store(categories, std::memory_order_relaxed);
 }
 
 uint32_t LogManager::getLogCategories() const noexcept {
-    return enabledCategories_.load(std::memory_order_relaxed);
+    return enabledCategories.load(std::memory_order_relaxed);
 }
 
 bool LogManager::isEnabled(LogCategory category) const noexcept {
-    return (enabledCategories_.load(std::memory_order_relaxed) & category) != 0;
+    return (enabledCategories.load(std::memory_order_relaxed) & category) != 0;
 }
 
 void LogManager::logV(LogCategory category, const char* format, va_list args) noexcept {
@@ -48,32 +48,32 @@ void LogManager::logV(LogCategory category, const char* format, va_list args) no
     if (len <= 0) return;   // formatting error
 
     // Reserve a slot in the ring buffer (atomically)
-    size_t writeIdx = writeIndex_.fetch_add(1, std::memory_order_acq_rel);
+    size_t writeIdx = writeIndex.fetch_add(1, std::memory_order_acq_rel);
     size_t idx = writeIdx % MAX_ENTRIES;
 
     // Copy data to the slot
-    STRNCPY_SAFE(buffer_[idx].message, finalBuffer, sizeof(buffer_[idx].message));
-    buffer_[idx].category = category;
-    buffer_[idx].timestamp = now;
+    STRNCPY_SAFE(buffer[idx].message, finalBuffer, sizeof(buffer[idx].message));
+    buffer[idx].category = category;
+    buffer[idx].timestamp = now;
 
     // Update readIndex if the buffer is full
-    size_t readIdx = readIndex_.load(std::memory_order_acquire);
+    size_t readIdx = readIndex.load(std::memory_order_acquire);
     if (writeIdx - readIdx >= MAX_ENTRIES) {
         // Shift readIndex forward to "lose" the oldest entry
-        readIndex_.store(writeIdx - MAX_ENTRIES + 1, std::memory_order_release);
+        readIndex.store(writeIdx - MAX_ENTRIES + 1, std::memory_order_release);
     }
 }
 
 int LogManager::getLogCount() const noexcept {
-    size_t writeIdx = writeIndex_.load(std::memory_order_acquire);
-    size_t readIdx = readIndex_.load(std::memory_order_acquire);
+    size_t writeIdx = writeIndex.load(std::memory_order_acquire);
+    size_t readIdx = readIndex.load(std::memory_order_acquire);
     size_t count = writeIdx - readIdx;
     return static_cast<int>(count > MAX_ENTRIES ? MAX_ENTRIES : count);
 }
 
 const char* LogManager::getLogEntry(int index, LogCategory* outCategory) const noexcept {
-    size_t readIdx = readIndex_.load(std::memory_order_acquire);
-    size_t writeIdx = writeIndex_.load(std::memory_order_acquire);
+    size_t readIdx = readIndex.load(std::memory_order_acquire);
+    size_t writeIdx = writeIndex.load(std::memory_order_acquire);
     size_t available = writeIdx - readIdx;
     if (available > MAX_ENTRIES) available = MAX_ENTRIES;
 
@@ -82,12 +82,12 @@ const char* LogManager::getLogEntry(int index, LogCategory* outCategory) const n
 
     size_t idx = (readIdx + index) % MAX_ENTRIES;
     if (outCategory)
-        *outCategory = buffer_[idx].category;
-    return buffer_[idx].message;
+        *outCategory = buffer[idx].category;
+    return buffer[idx].message;
 }
 
 void LogManager::clearLog() noexcept {
     // Reset indexes (old records become unavailable)
-    writeIndex_.store(0, std::memory_order_release);
-    readIndex_.store(0, std::memory_order_release);
+    writeIndex.store(0, std::memory_order_release);
+    readIndex.store(0, std::memory_order_release);
 }
