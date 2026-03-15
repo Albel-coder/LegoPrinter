@@ -3,10 +3,12 @@
 #include "../core/driver/interfaces/ITransport.h"
 #include "../logging/LogManager.h"
 #include <simpleble/SimpleBLE.h>
-#include <mutex>
 #include <atomic>
-#include <condition_variable>
+#include <map>
+#include <mutex>
 #include <thread>
+#include <tuple>
+#include <vector>
 
 class TransportSimpleBLE : public ITransport {
 public:
@@ -20,46 +22,62 @@ public:
     TransportSimpleBLE& operator=(TransportSimpleBLE&&) = delete;
 
     // ITransport implementation
-    bool open() override;
-    bool close() override;
-    bool write(const uint8_t* data, size_t length) override;
-    bool isConnected() override;
+    bool startScan(int timeoutSeconds) override;
+    void stopScan() override;
+    std::vector<DeviceInfo> getScanResults() const override;
 
-    void setDataCallback(std::function<void(const uint8_t*, size_t)> callback) override;
-    void setConnectionCallback(std::function<void(bool)> callback) override;
+    bool connect(const std::string& address) override;
+    bool disconnect() override;
+    bool isConnected() override;
+    std::string getConnectedAddress() const override;
+
+    std::vector<std::string> getServices() const override;
+    std::vector<Characteristic> getCharacteristics(const std::string& serviceUUid) const override;
+
+    bool read(const Characteristic& characteristic, std::vector<uint8_t>& out) override;
+    bool write(const Characteristic& characteristic, const uint8_t* data, size_t length, bool withResponse = true) override;
+
+    bool subscribe(const Characteristic& characteristic, DataCallback callback) override;
+    bool unsubscribe(const Characteristic& characteristic) override;
+
+    size_t getMaxWriteSize() const override;
+
+    void setConnectionCallback(ConnectionCallback callback) override;
     const char* getName() const override { return "SimpleBLE"; }
 
 private:
+    struct CharKey {
+        std::string serviceUuid;
+        std::string characteristicUuid;
 
-    //void scanAndConnect();
-    void onNotification(const std::vector<uint8_t>& data);
+        bool operator<(const CharKey& other) const {
+            return std::tie(serviceUuid, characteristicUuid) <
+                   std::tie(other.serviceUuid, other.characteristicUuid);
+        }
+    };
 
-    // BLE
-    SimpleBLE::Adapter adapter_;
-    SimpleBLE::Peripheral peripheral_;
+    void scanWorker(int timeoutSeconds);
+    bool findPeripheralByAddress(const std::string& address, SimpleBLE::Peripheral& out);
+    void cacheServicesAndCharacteristics();
+    void clearCache();
+    void dispatchNotification(const Characteristic& characteristic, const std::vector<uint8_t>& data);
 
-    // Callbacks
-    std::function<void(const uint8_t*, size_t)> dataCallback_;
-    std::function<void(bool)> connectionCallback_;
+private:
+    mutable std::mutex stateMutex;
+    std::atomic<bool> scanning{ false };
+    std::atomic<bool> stopScanRequested{ false };
+    std::thread scanThread;
 
-    // Synchronization
-    mutable std::mutex stateMutex_;
-    std::condition_variable stateCV_;
+    std::vector<DeviceInfo> scanResults;
 
-    // Worker thread
-    std::thread workerThread_;
-    std::atomic<bool> stopRequested_{ false };
-    std::atomic<bool> threadRunning_{ false };
+    SimpleBLE::Adapter adapter;
+    SimpleBLE::Peripheral peripheral;
+    std::string connectedAddress;
 
-    // Constants
-    static const std::string LEGO_HUB_SERVICE_UUID;
-    static const std::string LEGO_HUB_CHARACTERISTIC_UUID;
+    ConnectionCallback connectionCallback;
+    std::map<std::string, std::vector<Characteristic>> cachedCharacteristics;
+    std::vector<std::string> cachedServices;
+    std::map<CharKey, DataCallback> subscriptions;
 
-    std::atomic<bool> deviceFound_;
-    std::mutex candidateMutex_;
-    std::optional<SimpleBLE::Peripheral> peripheralCandidate_;
-
-    // Helper methods
-    void cleanup();
-    void workerFunction();
+    size_t maxWriteSize = 20;
 };
