@@ -18,6 +18,7 @@ public:
 	void setCallback(RuntimeCallback callback);
 
 	bool isConnected() const;
+	std::string getConnectedAddress() const;
 
 private:
 	ITransport& transport;

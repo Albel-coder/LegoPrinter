@@ -1,5 +1,6 @@
 #include "RuntimeSession.h"
 #include "protocol/PrinterProtocol.h"
+#include "../logging/LogManager.h"
 
 #include <algorithm>
 
@@ -8,11 +9,14 @@ RuntimeSession::RuntimeSession(ITransport& transport)
 
 bool RuntimeSession::discover() {
 	if (!transport.isConnected()) {
+		LOG_BLUETOOTH("Runtime discover: transport not connected");
 		return false;
 	}
 
 	nusRx = {};
 	nusTx = {};
+
+	LOG_BLUETOOTH("Runtime discover: checking NUS service");
 
 	for (const auto& service : transport.getServices()) {
 		if (service == protocol::NUS_SERVICE_UUID) {
@@ -28,32 +32,51 @@ bool RuntimeSession::discover() {
 		}
 	}
 
-	return !nusRx.characteristicUuid.empty() && !nusTx.characteristicUuid.empty();
+	if (nusRx.characteristicUuid.empty() || nusTx.characteristicUuid.empty()) {
+		LOG_ERROR("Runtime discover: NUS RX/TX not found");
+		return false;
+	}
+
+	LOG_BLUETOOTH("Runtime discover: NUS RX/TX found");
+	return true;
 }
 
 bool RuntimeSession::connect(const std::string& address) {
-	if (transport.isConnected()) {
+	LOG_BLUETOOTH("Runtime connect: %s", address.c_str());
+
+	if (transport.isConnected() && transport.getConnectedAddress() != address) {
 		transport.disconnect();
 	}
 
-	if (!transport.connect(address)) {
-		return false;
+	if (!transport.isConnected()) {
+		if (!transport.connect(address)) {
+			LOG_ERROR("Runtime connect failed");
+			return false;
+		}
 	}
 
 	if (!discover()) {
+		LOG_ERROR("Runtime connect: discover failed");
 		transport.disconnect();
 		return false;
 	}
 
-	transport.subscribe(nusTx, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
+	if (!transport.subscribe(nusTx, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
 		onData(characteristic, data, length);
-	});
+		})) {
+		LOG_ERROR("Runtime connect: subscribe failed");
+		transport.disconnect();
+		return false;
+	}
 
 	connectedAddress = address;
+	LOG_INFO("Runtime connected");
 	return true;
 }
 
 void RuntimeSession::disconnect() {
+	LOG_BLUETOOTH("Runtime disconnect");
+
 	if (transport.isConnected() && !nusTx.characteristicUuid.empty()) {
 		transport.unsubscribe(nusTx);
 	}
@@ -69,15 +92,19 @@ void RuntimeSession::disconnect() {
 
 bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse) {
 	if (!transport.isConnected() || nusRx.characteristicUuid.empty()) {
+		LOG_ERROR("Runtime send: not connected");
 		return false;
 	}
 
 	const size_t maxChunk = transport.getMaxWriteSize();
 	size_t offset = 0;
 
+	LOG_COMMAND("Runtime send: %zu bytes (chunk=%zu)", length, maxChunk);
+
 	while (offset < length) {
 		const size_t chunk = std::min(maxChunk, length - offset);
 		if (!transport.write(nusRx, data + offset, chunk, withResponse)) {
+			LOG_ERROR("Runtime send: write failed at offset %zu", offset);
 			return false;
 		}
 
@@ -96,6 +123,7 @@ bool RuntimeSession::isConnected() const {
 }
 
 void RuntimeSession::onData(const Characteristic&, const uint8_t* data, size_t length) {
+	LOG_COMMAND("Runtime RX: %zu bytes", length);
 	if (callback) {
 		callback(data, length);
 	}
