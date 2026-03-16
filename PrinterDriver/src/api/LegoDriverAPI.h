@@ -31,20 +31,25 @@
     #define PRINTER_DRIVER_API
 #endif
 
+#pragma pack(push, 1)
 typedef struct
 {
     unsigned char port;
     signed char speed;
     double revolutions;
 } MotorCommand;
+#pragma pack(pop)
 
+#pragma pack(push, 1)
 typedef struct
 {
     double distance; // Target position in revolutions
     signed char speed; // Speed for current position (-100 to 100)
     double tolerance; // Tolerance for position
 } SpeedProfilePoint;
+#pragma pack(pop)
 
+#pragma pack(push, 1)
 typedef struct
 {
     unsigned char port;
@@ -52,7 +57,7 @@ typedef struct
     int count;
     int timeoutMs; // Timeout for all profile
 } SpeedProfile;
-
+#pragma pack(pop)
 
 // C-style for maximum compatibility with C# and Java UI
 #ifdef __cplusplus
@@ -67,6 +72,13 @@ extern "C" {
 
     PRINTER_DRIVER_API bool PrinterConnect(DriverHandle printer);
     PRINTER_DRIVER_API bool PrinterDisconnect(DriverHandle printer);
+
+    PRINTER_DRIVER_API int scanHubs(DriverHandle driver, int timeoutSeconds, char* outAddress, int maxCount, int* outModes);
+
+    PRINTER_DRIVER_API int FlashFirmware(DriverHandle driver, const char* firmwareBootloaderPath, const char* address);
+
+    PRINTER_DRIVER_API int UploadProgramm(DriverHandle driver, const char* scriptPath, const char* address);
+
     PRINTER_DRIVER_API bool IsConnected(DriverHandle printer);
     PRINTER_DRIVER_API void PrinterRotateMotor(DriverHandle printer, MotorCommand* commands, int count);
     PRINTER_DRIVER_API void PrinterSendCommand(DriverHandle printer, const unsigned char* command, int length);

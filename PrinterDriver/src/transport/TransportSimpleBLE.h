@@ -2,6 +2,7 @@
 
 #include "../core/driver/interfaces/ITransport.h"
 #include "../logging/LogManager.h"
+
 #include <simpleble/SimpleBLE.h>
 #include <atomic>
 #include <map>
@@ -78,6 +79,8 @@ private:
     std::map<std::string, std::vector<Characteristic>> cachedCharacteristics;
     std::vector<std::string> cachedServices;
     std::map<CharKey, DataCallback> subscriptions;
+
+    std::map<std::string, SimpleBLE::Peripheral> discoveredPeripherals;
 
     size_t maxWriteSize = 20;
 };

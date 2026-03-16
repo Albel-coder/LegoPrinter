@@ -120,31 +120,27 @@ bool Interpreter::executeLine(const std::string& line) {
 	return true;
 }
 
-void Interpreter::pauseExecution()
-{
+void Interpreter::pauseExecution() {
+
 }
 
-void Interpreter::resumeExecution()
-{
+void Interpreter::resumeExecution() {
+
 }
 
-Status Interpreter::getStatus()
-{
+Status Interpreter::getStatus() {
 	return Status();
 }
 
-double Interpreter::getProgress()
-{
+double Interpreter::getProgress() {
 	return 0.0;
 }
 
-const char* Interpreter::getLastError()
-{
+const char* Interpreter::getLastError() {
 	return nullptr;
 }
 
-bool Interpreter::readConfig(const std::string filename)
-{
+bool Interpreter::readConfig(const std::string filename) {
 	return false;
 }
 

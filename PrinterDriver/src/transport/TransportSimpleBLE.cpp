@@ -28,6 +28,7 @@ bool TransportSimpleBLE::startScan(int timeoutSeconds) {
     {
         std::lock_guard<std::mutex> lock(stateMutex);
         scanResults.clear();
+        discoveredPeripherals.clear();
     }
 
     stopScanRequested = false;
@@ -53,8 +54,19 @@ bool TransportSimpleBLE::connect(const std::string& address) {
     disconnect();
 
     SimpleBLE::Peripheral printerPeripheral;
-    if (!findPeripheralByAddress(address, printerPeripheral)) {
-        return false;
+
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        auto it = discoveredPeripherals.find(address);
+        if (it != discoveredPeripherals.end()) {
+            printerPeripheral = it->second;
+        }
+    }
+
+    if (!printerPeripheral.initialized()) {
+        if (!findPeripheralByAddress(address, printerPeripheral)) {
+            return false;
+        }
     }
 
     try {
@@ -226,13 +238,17 @@ void TransportSimpleBLE::scanWorker(int timeoutSeconds) {
                 device.manufacturerData[md.first] = md.second;
             }
 
-            std::lock_guard<std::mutex> lock(stateMutex);
-            auto it = std::find_if(scanResults.begin(), scanResults.end(), [&](const DeviceInfo& x) {
-                return x.address == device.address;
-            });
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                auto it = std::find_if(scanResults.begin(), scanResults.end(), [&](const DeviceInfo& x) {
+                    return x.address == device.address;
+                });
 
-            if (it == scanResults.end()) {
-                scanResults.push_back(std::move(device));
+                if (it == scanResults.end()) {
+                    scanResults.push_back(std::move(device));
+                }
+
+                discoveredPeripherals[device.address] = peripheral;
             }
         });
 

@@ -17,15 +17,15 @@ class ConfigManager {
 public:
 	bool load(const std::string& filename);
 
-	const StepperConfig& getX() const { return stepperX_; }
-	const StepperConfig& getY() const { return stepperY_; }
-	const StepperConfig& getZ() const { return stepperZ_; }
+	const StepperConfig& getX() const { return stepperX; }
+	const StepperConfig& getY() const { return stepperY; }
+	const StepperConfig& getZ() const { return stepperZ; }
 
-	double getZDistanceToPrint() { return zDistanceToPrint_; }
+	double getZDistanceToPrint() { return zDistanceToPrint; }
 
 private:
-	StepperConfig stepperX_, stepperY_, stepperZ_;
-	double zDistanceToPrint_ = 0.0;
+	StepperConfig stepperX, stepperY, stepperZ;
+	double zDistanceToPrint = 0.0;
 
 	bool parseSection(const std::string& section, const std::string& key, const std::string& value);
 };
