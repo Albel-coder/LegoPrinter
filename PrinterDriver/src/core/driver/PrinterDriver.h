@@ -1,26 +1,38 @@
 #pragma once
 
+#include "../core/driver/PrinterFirmware.h"
 #include "interfaces/ITransport.h"
 #include "../api/LegoDriverAPI.h"
 #include "implementation/MotorManager.h"
+
 #include <memory>
 #include <atomic>
 
 class PrinterDriver {
 private:
-	std::unique_ptr<ITransport> transport_;
-
-	std::unique_ptr<MotorManager> motorManager_;
+	std::unique_ptr<ITransport> transport;
+	std::unique_ptr<MotorManager> motorManager;	
+	std::unique_ptr<PrinterFirmware> printerFirmware;
 	
 public:
 	explicit PrinterDriver(std::unique_ptr<ITransport> transport);
 	~PrinterDriver();
 
-	bool connect();
+	std::vector<HubDescriptor> scanHubs(int timeoutSeconds = 10);
+
+	bool flashFirmware(const std::filesystem::path& firmwareBootloaderPath, const std::string& address,
+		PrinterFirmware::ProgressCallback progress = nullptr, PrinterFirmware::LogCallback log = nullptr);
+
+	bool uploadProgram(const std::filesystem::path& scriptFile, const std::string& address,
+		PrinterFirmware::ProgressCallback progress = nullptr, PrinterFirmware::LogCallback log = nullptr);
+
+	bool connect(const std::string& address);
 	bool disconnect();
 	bool isConnected();
+
+	bool sendCommand(const uint8_t* data, size_t length);
+
 	void rotateMotor(const MotorCommand* commands, int count);
-	void sendCommand(const unsigned char* command, int length);
 	void setMotorSpeed(uint8_t port, int8_t speed);
 
 	int getLogCount();
@@ -45,5 +57,5 @@ public:
     unsigned char printerGetBatteryLevel();
     bool printerIsBatteryLevelFresh(int maxAgeSeconds);
 
-	ITransport* getTransport() { return transport_.get(); }
+	ITransport* getTransport() { return transport.get(); }
 };

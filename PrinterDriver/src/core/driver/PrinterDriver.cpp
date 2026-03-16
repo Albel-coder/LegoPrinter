@@ -1,12 +1,14 @@
 #include "PrinterDriver.h"
 #include "../logging/LogManager.h"
+
+
 #include <cstdarg>
 #include <map>
 #include <thread>
 
 PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) 
-    : transport_(std::move(transport)),
-    motorManager_(std::make_unique<MotorManager>(*transport_)) {
+    : transport(std::move(transport)),
+    motorManager(std::make_unique<MotorManager>(*transport)) {
 
     gLog.setLogCategories(LOG_CATEGORY_ALL);
     LOG_INFO("PrinterImplementation created");
@@ -16,61 +18,58 @@ PrinterDriver::~PrinterDriver() {
     LOG_INFO("PrinterImplementation destroyed");
 }
 
-bool PrinterDriver::connect() {
-    if (!transport_) {
-        LOG_ERROR("Transport not initialized");
-        return false;
+bool PrinterDriver::flashFirmware(const std::filesystem::path& firmwareBootloaderPath, const std::string& address,
+    PrinterFirmware::ProgressCallback progress = nullptr, PrinterFirmware::LogCallback log = nullptr) {
+
+    const bool result = printerFirmware->flashFirmware(firmwareBootloaderPath, address, progress, log);
+
+    if (!result) {
+        LOG_ERROR("flashFirmware failed");
     }
+    return result;
+}
 
-    LOG_INFO("Starting connection...");
-    bool connected = transport_->open();
+bool PrinterDriver::uploadProgram(const std::filesystem::path& scriptFile, const std::string& address,
+    PrinterFirmware::ProgressCallback progress = nullptr, PrinterFirmware::LogCallback log = nullptr) {
 
-    const auto timeout = std::chrono::seconds(30);
-    auto start = std::chrono::steady_clock::now();
-
-    while (std::chrono::steady_clock::now() - start < timeout) {
-        if (transport_->isConnected()) {
-            LOG_INFO("Connection established");
-
-            transport_->setDataCallback([this](const uint8_t* data, size_t length) {
-                motorManager_->handleNotification(data, length);
-            });
-
-            return true;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    const bool result = printerFirmware->uploadProgram(scriptFile, address, progress, log);
+    if (result) {
+        LOG_ERROR("uploadProgram failed");
     }
+    return result;
+}
 
-    LOG_ERROR("Connection timeout");
-    return false;
+bool PrinterDriver::connect(const std::string& address) {
+    const bool result = printerFirmware->connectRuntime(address);
+    if (!result) {
+        LOG_ERROR("connect failed");
+    }
+    return result;
 }
 
 bool PrinterDriver::disconnect() {
-    if (!transport_) {
-        LOG_ERROR("Transport not initialized");
-        return false;
-    }
-
-    LOG_INFO("Disconnecting using transport: %s", transport_->getName());
-
-    transport_->close();
+    printerFirmware->disconnectRuntime();
     return true;
 }
 
+bool PrinterDriver::sendCommand(const uint8_t* data, size_t length) {
+    const bool result = printerFirmware->sendRuntimePacket(data, length, false);
+    if (!result) {
+        LOG_ERROR("sendCommand failed.");
+    }
+    return result;
+}
+
 bool PrinterDriver::isConnected() {
-    return transport_->isConnected();
+    return transport->isConnected();
 }
 
 void PrinterDriver::rotateMotor(const MotorCommand* commands, int count) {
-    motorManager_->rotate(commands, count);
-}
-
-void PrinterDriver::sendCommand(const unsigned char* command, int length) {
-    transport_->write(command, length);
+    motorManager->rotate(commands, count);
 }
 
 void PrinterDriver::setMotorSpeed(uint8_t port, int8_t speed) {
-    motorManager_->setSpeed(port, speed);
+    motorManager->setSpeed(port, speed);
 }
 
 int PrinterDriver::getLogCount() {
@@ -114,7 +113,7 @@ bool PrinterDriver::printerIsMotorMoving(int count) {
 }
 
 double PrinterDriver::printerGetMotorPosition(unsigned char port) {
-    return motorManager_->getPosition(port);
+    return motorManager->getPosition(port);
 }
 
 bool PrinterDriver::runPrinterTest(const char* testName) {

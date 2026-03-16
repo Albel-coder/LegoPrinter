@@ -1,6 +1,6 @@
 #include "MotorManager.h"
 
-MotorManager::MotorManager(ITransport& transport) : transport_(transport) {
+MotorManager::MotorManager(ITransport& transport) : transport(transport) {
 }
 
 MotorManager::~MotorManager() = default;
@@ -18,8 +18,8 @@ void MotorManager::handleNotification(const uint8_t* data, size_t length) {
 		
 		double position = raw / 360.0;
 		{
-			std::lock_guard<std::mutex> lock(completionMutex_);
-			states_[port].position.store(position);
+			std::lock_guard<std::mutex> lock(completionMutex);
+			states[port].position.store(position);
 		}
 		LOG_ENCODER("Port 0x%02X position = %.3f revolutions", port, position);
 	}
@@ -28,12 +28,12 @@ void MotorManager::handleNotification(const uint8_t* data, size_t length) {
 		uint8_t feedback = data[4];
 
 		if (feedback == 0x0A) {
-			std::lock_guard<std::mutex> lock(completionMutex_);
+			std::lock_guard<std::mutex> lock(completionMutex);
 
 			auto it = commandStatus.find(port);
 			if (it != commandStatus.end()) {
 				it->second.completed = true;
-				completionCv_.notify_all();
+				completionCv.notify_all();
 			}
 		}
 	}
@@ -47,14 +47,14 @@ void MotorManager::rotate(const MotorCommand* commands, int count) {
 
 	LOG_INFO("RotateMotor called with %d commands", count);
 
-	if (!transport_.isConnected()) {
+	if (!transport.isConnected()) {
 		LOG_ERROR("Printer is not connected!");
 		return;
 	}
 
 	{
 		// Prepare command tracking
-		std::lock_guard<std::mutex> lock(completionMutex_);
+		std::lock_guard<std::mutex> lock(completionMutex);
 		for (int i = 0; i < count; ++i) {
 			commandStatus[commands[i].port].completed = false;
 		}
@@ -69,7 +69,7 @@ void MotorManager::rotate(const MotorCommand* commands, int count) {
 }
 
 void MotorManager::setSpeed(uint8_t port, int8_t speed) {
-	if (!transport_.isConnected()) {
+	if (!transport.isConnected()) {
 		return;
 	}
 
@@ -88,7 +88,7 @@ void MotorManager::setSpeed(uint8_t port, int8_t speed) {
 		0x00        // Range max
 	};
 
-	transport_.write(setupCommand.data(), setupCommand.size());
+	transport.write(setupCommand.data(), setupCommand.size());
 
 	// Second Team: motor control
 	std::vector<uint8_t> motorCommand = {
@@ -101,13 +101,13 @@ void MotorManager::setSpeed(uint8_t port, int8_t speed) {
 		static_cast<uint8_t>(speed) // Speed
 	};
 
-	transport_.write(motorCommand.data(), motorCommand.size());
+	transport.write(motorCommand.data(), motorCommand.size());
 }
 
 double MotorManager::getPosition(uint8_t port) const {
-	std::lock_guard<std::mutex> lock(completionMutex_);
-	auto it = states_.find(port);
-	if (it != states_.end()) {
+	std::lock_guard<std::mutex> lock(completionMutex);
+	auto it = states.find(port);
+	if (it != states.end()) {
 		return it->second.position.load();
 	}
 	
@@ -115,9 +115,9 @@ double MotorManager::getPosition(uint8_t port) const {
 }
 
 bool MotorManager::isMoving(uint8_t port) {
-	std::lock_guard<std::mutex> lock(completionMutex_);
-	auto it = states_.find(port);
-	if (it != states_.end()) {
+	std::lock_guard<std::mutex> lock(completionMutex);
+	auto it = states.find(port);
+	if (it != states.end()) {
 		return it->second.moving.load();
 	}
 
@@ -125,7 +125,7 @@ bool MotorManager::isMoving(uint8_t port) {
 }
 
 void MotorManager::resetPosition(uint8_t port) {
-	states_[port].position.store(0.0);
+	states[port].position.store(0.0);
 }
 
 void MotorManager::sendMotorCommand(const MotorCommand& command) {
@@ -148,7 +148,7 @@ void MotorManager::sendMotorCommand(const MotorCommand& command) {
 		0x00, // Range
 		0x00  // Range
 	};
-	transport_.write(setupCommand.data(), setupCommand.size());
+	transport.write(setupCommand.data(), setupCommand.size());
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
 	// Command 2: Rotate by a given angle
@@ -175,13 +175,13 @@ void MotorManager::sendMotorCommand(const MotorCommand& command) {
 	};
 
 	LOG_MOTOR("Sending motor command to port 0x%02X", command.port);
-	transport_.write(payload.data(), payload.size());
+	transport.write(payload.data(), payload.size());
 }
 
 void MotorManager::waitForCommandsCompletion(const MotorCommand* Commands, int count) {
-	std::unique_lock<std::mutex> lock(completionMutex_);
+	std::unique_lock<std::mutex> lock(completionMutex);
 
-	completionCv_.wait_for(lock, std::chrono::seconds(30),
+	completionCv.wait_for(lock, std::chrono::seconds(30),
 		[this, Commands, count]() {
 			for (int i = 0; i < count; i++) {
 				if (!commandStatus[Commands[i].port].completed) {

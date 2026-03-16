@@ -24,11 +24,11 @@ private:
 		std::atomic<int8_t> currentSpeed{ 0 };
 	};
 
-	ITransport& transport_;
-	std::map<uint8_t, MotorState> states_;
+	ITransport& transport;
+	std::map<uint8_t, MotorState> states;
 
-	mutable std::mutex completionMutex_;
-	std::condition_variable completionCv_;
+	mutable std::mutex completionMutex;
+	std::condition_variable completionCv;
 
 	struct CommandExecution {
 		bool completed = false;
