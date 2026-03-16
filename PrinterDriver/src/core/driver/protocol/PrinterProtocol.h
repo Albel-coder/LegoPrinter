@@ -3,20 +3,15 @@
 #include "../core/driver/interfaces/ITransport.h"
 #include "Constants.h"
 
-#include <functional>
 #include <vector>
 
 class PrinterProtocol {
 public:
-	using ProgressCallback = std::function<void(int percent, const std::string& stage)>;
-	using LogCallback = std::function<void(const std::string& message)>;
-
 	explicit PrinterProtocol(ITransport& transport);
 
 	bool discover();
 
-	bool uploadProgram(const std::vector<uint8_t>& script,
-		ProgressCallback progress = nullptr, LogCallback log = nullptr);
+	bool uploadProgram(const std::vector<uint8_t>& script);
 
 	bool startUserProgram();
 	bool stopUserProgram();

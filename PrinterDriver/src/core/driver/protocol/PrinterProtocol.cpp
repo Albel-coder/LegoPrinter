@@ -1,18 +1,23 @@
 #include "PrinterProtocol.h"
+#include "../logging/LogManager.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <chrono>
+#include <thread>
 
 PrinterProtocol::PrinterProtocol(ITransport& transport)
 	: transport(transport) { }
 
 bool PrinterProtocol::discover() {
 	if (!transport.isConnected()) {
+		LOG_BLUETOOTH("PrinterProtocol discover: transport not connected");
 		return false;
 	}
 
 	commandEvent = {};
 	capabilities = {};
+
+	LOG_BLUETOOTH("PrinterProtocol discover: checking services");
 
 	for (const auto& service : transport.getServices()) {
 		if (service == protocol::PYBRICKS_SERVICE_UUID) {
@@ -28,11 +33,18 @@ bool PrinterProtocol::discover() {
 		}
 	}
 
-	return !commandEvent.characteristicUuid.empty();
+	if (commandEvent.characteristicUuid.empty()) {
+		LOG_ERROR("PrinterProtocol discover: command characteristic missing");
+		return false;
+	}
+
+	LOG_BLUETOOTH("PrinterProtocol command characteristic found");
+	return true;
 }
 
 bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::vector<uint8_t>& payload, bool withResponse) {
 	if (commandEvent.characteristicUuid.empty() || !transport.isConnected()) {
+		LOG_ERROR("PrinterProtocol sendCommand: not connected or char missing");
 		return false;
 	}
 
@@ -41,19 +53,23 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 	buffer.push_back(static_cast<uint8_t>(command));
 	buffer.insert(buffer.end(), payload.begin(), payload.end());
 
+	LOG_COMMAND("PrinterProtocol sendCommand command=0x%02X payload=%zu withResponse=%d",
+		static_cast<uint8_t>(command), payload.size(), withResponse ? "true" : "false");
+	
 	return transport.write(commandEvent, buffer.data(), buffer.size(), withResponse);
 }
 
-bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script, ProgressCallback progress, LogCallback log) {
+bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	if (!discover()) {
-		if (log) {
-			log("Printer command characteristic not found.");
-		}
+		LOG_ERROR("PrinterProtocol command characteristic not found");
 		return false;
 	}
 
-	if (progress) {
-		progress(5, "Preparing upload");
+	LOG_INFO("PrinterProtocol upload started (%zu bytes)", script.size());
+
+	// Stop any currently running program before upload
+	if (!sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true)) {
+		LOG_WARNING("Could not stop current program before upload (continuing)");
 	}
 
 	// Meta: [size u32 little-endian]
@@ -65,24 +81,18 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script, Progress
 	meta.push_back(static_cast<uint8_t>((size >> 24) & 0xFF));
 
 	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, true)) {
-		if (log) {
-			log("WRITE_USER_PROGRAM_META failed.");
-		}
-
+		LOG_ERROR("WRITE_USER_PROGRAM_META failed");
 		return false;
-	}
-
-	if (progress) {
-		progress(15, "Uploading script");
 	}
 
 	// Payload for WRITE_USER_RAM in this baseline:
 	// [offset u32 little-endian][chunk bytes...]
-	constexpr size_t kChunkSize = 180;
+	const size_t maxWrite = transport.getMaxWriteSize();
+	const size_t payloadLimit = (maxWrite > 8) ? (maxWrite - 4) : 16; // 4 bytes offset
 	size_t sent = 0;
 
 	while (sent < script.size()) {
-		const size_t chunk = std::min(kChunkSize, script.size() - sent);
+		const size_t chunk = std::min(payloadLimit, script.size() - sent);
 
 		std::vector<uint8_t> payload;
 		payload.reserve(4 + chunk);
@@ -95,38 +105,29 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script, Progress
 		payload.insert(payload.end(), script.begin() + sent, script.begin() + sent + chunk);
 
 		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, false)) {
-			if (log) {
-				log("COMMAND_WRITE_USER_RAM failed.");
-			}
+			LOG_ERROR("COMMAND_WRITE_USER_RAM failed at offset=%zu", sent);
 			return false;
 		}
 
 		sent += chunk;
-		if (progress) {
-			const int percent = 15 + static_cast<int>((sent * 75) / script.size());
-			progress(percent, "Uploading script");
-		}
+		LOG_INFO("PrinterProtocol upload progress: %zu / %zu", sent, script.size());
 	}
 
-	if (progress) {
-		progress(95, "Stopping old program");
-	}
-	sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true);
-
-	if (progress) {
-		progress(100, "Program upload");
-	}
+	LOG_INFO("PrinterProtocol upload finished");
 	return true;
 }
 
 bool PrinterProtocol::startUserProgram() {
+	LOG_COMMAND("PrinterProtocol startUserProgram");
 	return discover() && sendCommand(protocol::PybricksCommand::StartUserProgram, {}, true);
 }
 
 bool PrinterProtocol::stopUserProgram() {
+	LOG_COMMAND("PrinterProtocol stopUserProgram");
 	return discover() && sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true);
 }
 
 bool PrinterProtocol::rebootToUpdateMode() {
+	LOG_COMMAND("PrinterProtocol rebootToUpdateMode");
 	return discover() && sendCommand(protocol::PybricksCommand::RebootToUpdateMode, {}, true);
 }
