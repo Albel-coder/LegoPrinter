@@ -13,15 +13,6 @@ TransportSimpleBLE::~TransportSimpleBLE() {
     disconnect();
 }
 
-bool TransportSimpleBLE::isConnected() {
-    try {
-        return peripheral.is_connected();
-    }
-    catch (...) {
-        return false;
-    }
-}
-
 bool TransportSimpleBLE::startScan(int timeoutSeconds) {
     stopScan();
     
@@ -141,7 +132,9 @@ std::vector<Characteristic> TransportSimpleBLE::getCharacteristics(const std::st
 }
 
 bool TransportSimpleBLE::read(const Characteristic& characteristic, std::vector<uint8_t>& out) {
-    if (!isConnected()) return false;
+    if (!peripheral.is_connected()) {
+        return false;
+    }
 
     try {
         out = peripheral.read(characteristic.serviceUUid, characteristic.characteristicUuid);
@@ -153,7 +146,9 @@ bool TransportSimpleBLE::read(const Characteristic& characteristic, std::vector<
 }
 
 bool TransportSimpleBLE::write(const Characteristic& characteristic, const uint8_t* data, size_t length, bool withResponse) {
-    if (!isConnected()) return false;
+    if (!peripheral.is_connected()) {
+        return false;
+    }
 
     try {
         std::vector<uint8_t> payload(data, data + length);
@@ -171,7 +166,9 @@ bool TransportSimpleBLE::write(const Characteristic& characteristic, const uint8
 }
 
 bool TransportSimpleBLE::subscribe(const Characteristic& characteristic, DataCallback callback) {
-    if (!isConnected()) return false;
+    if (!peripheral.is_connected()) {
+        return false;
+    }
 
     try {
         CharKey key{ characteristic.serviceUUid, characteristic.characteristicUuid };
@@ -193,7 +190,9 @@ bool TransportSimpleBLE::subscribe(const Characteristic& characteristic, DataCal
 }
 
 bool TransportSimpleBLE::unsubscribe(const Characteristic& characteristic) {
-    if (!isConnected()) return false;
+    if (!peripheral.is_connected()) {
+        return false;
+    }
 
     try {
         CharKey key{ characteristic.serviceUUid, characteristic.characteristicUuid };
@@ -240,8 +239,8 @@ void TransportSimpleBLE::scanWorker(int timeoutSeconds) {
 
             {
                 std::lock_guard<std::mutex> lock(stateMutex);
-                auto it = std::find_if(scanResults.begin(), scanResults.end(), [&](const DeviceInfo& x) {
-                    return x.address == device.address;
+                auto it = std::find_if(scanResults.begin(), scanResults.end(), [&](const DeviceInfo& otherDevice) {
+                    return otherDevice.address == device.address;
                 });
 
                 if (it == scanResults.end()) {
