@@ -253,6 +253,82 @@ std::vector<DeviceInfo> PrinterDriver::getLastScanResults() const {
     return scanResults;
 }
 
+HubMode PrinterDriver::detectHubMode(const std::string& address) {
+    if (address.empty()) {
+        LOG_ERROR("detectHubMode: empty address");
+        return HubMode::Unknown;
+    }
+
+    LOG_BLUETOOTH("detectHubMode(%s)", address.c_str());
+
+    if (!transport->connect(address)) {
+        LOG_WARNING("detectHubMode: connect failed");
+        return HubMode::Unknown;
+    }
+
+    const auto services = transport->getServices();
+    HubMode mode = HubMode::Unknown;
+
+    for (const auto& service : services) {
+        if (service == protocol::LWP3_BOOTLOADER_CHAR_UUID) {
+            mode = HubMode::Bootloader;
+        }
+        if (service == protocol::PYBRICKS_SERVICE_UUID) {
+            mode = HubMode::PybricksRuntime;
+        }
+        if (service == protocol::LWP3_HUB_SERVICE_UUID) {
+            mode = HubMode::LegoOfficial;
+        }
+    }
+
+    transport->disconnect();
+    LOG_INFO("detectHubMode: %d", static_cast<int>(mode));
+    return mode;
+}
+
+bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
+    if (address.empty()) {
+        LOG_ERROR("probeRuntime: empty address");
+        return false;
+    }
+
+    LOG_BLUETOOTH("probeRuntime(%s, %dms)", address.c_str(), timeoutMs);
+
+    if (!runtime->connect(address)) {
+        LOG_WARNING("probeRuntime: runtime connect failed");
+        return false;
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    bool ready = false;
+
+    runtime->setCallback([&](const uint8_t* data, size_t length) {
+        std::string message(reinterpret_cast<const char*>(data), length);
+        if (message.find("ready") != std::string::npos) {
+            ready = true;
+        }
+    });
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (ready) {
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    runtime->disconnect();
+
+    if (!ready) {
+        LOG_WARNING("probeRuntime: no ready marker");
+    }
+    else {
+        LOG_INFO("probeRuntime: ready");
+    }
+
+    return ready;
+}
+
 bool PrinterDriver::flashFirmware(const std::filesystem::path& firmwareBootloaderPath, const std::string& address) {
     const std::string target = resolveAddress(address);
     if (target.empty()) {

@@ -2,9 +2,28 @@
 #include "../core/driver/PrinterDriver.h"
 #include "../transport/TransportSimpleBLE.h"
 
+static void copyString(char* destination, int capacity, const std::string& string) {
+	if (!destination || capacity <= 0) {
+		return;
+	}
+
+	std::strncpy(destination, string.c_str(), static_cast<size_t>(capacity) - 1);
+	destination[capacity - 1] = '\0';
+}
+
+static PrinterDeviceInfoC toCDevice(const DeviceInfo& device) {
+	PrinterDeviceInfoC result{};
+	copyString(result.address, static_cast<int>(sizeof(result.address)), device.address);
+	copyString(result.name, static_cast<int>(sizeof(result.name)), device.name);
+	result.rssi = device.rssi;
+	result.isLegoHub = (device.manufacturerData.find(0x0397) != device.manufacturerData.end()) ? 1 : 0;
+	
+	return result;
+}
+
 extern "C" {
-	PRINTER_DRIVER_API DriverHandle CreatePrinter()
-	{
+
+	PRINTER_DRIVER_API DriverHandle CreatePrinter()	{
 		auto transport = std::make_unique<TransportSimpleBLE>();
 		auto* driver = new PrinterDriver(std::move(transport));
 		return driver;
@@ -14,29 +33,194 @@ extern "C" {
 		delete static_cast<PrinterDriver*>(printer);
 	}
 
-	PRINTER_DRIVER_API bool PrinterConnect(DriverHandle printer) {
+	PRINTER_DRIVER_API int PrinterScan(DriverHandle printer, int timeoutSeconds, int legoOnly, PrinterDeviceInfoC* outDevices, int maxDevices) {
+		if (!printer || !outDevices || maxDevices <= 0) {
+			return 0;
+		}
+
 		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->connect();
+		const auto devices = driver->scan(timeoutSeconds, legoOnly != 0);
+
+		const int count = std::min(static_cast<int>(devices.size()), maxDevices);
+		for (int i = 0; i < count; ++i) {
+			outDevices[i] = toCDevice(devices[i]);
+		}
+
+		return count;
+	}
+
+	PRINTER_DRIVER_API bool PrinterConnectAuto(DriverHandle printer, int timeoutMs)	{
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->connectAuto(timeoutMs);
+	}
+
+	PRINTER_DRIVER_API bool PrinterConnect(DriverHandle printer, const char* address) {
+		if (!printer || !address) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->connect(address);
+	}
+
+	PRINTER_DRIVER_API bool PrinterReconnectLast(DriverHandle printer) {
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->reconnectLast();
 	}
 
 	PRINTER_DRIVER_API bool PrinterDisconnect(DriverHandle printer) {
+		if (!printer) {
+			return false;
+		}
+		
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		return driver->disconnect();
 	}
 
 	PRINTER_DRIVER_API bool IsConnected(DriverHandle printer) {
+		if (!printer) {
+			return false;
+		}
+
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		return driver->isConnected();
+	}
+
+	PRINTER_DRIVER_API int PrinterGetConnectedAddress(DriverHandle printer, char* outAddress, int capacity)	{
+		if (!printer || !outAddress || capacity <= 0) {
+			return 0;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		copyString(outAddress, capacity, driver->getConnectedAddress());
+		return 1;
+	}
+
+	PRINTER_DRIVER_API int PrinterGetRecentHubCount(DriverHandle printer) {
+		if (!printer) {
+			return 0;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return static_cast<int>(driver->getRecentHubs().size());
+	}
+
+	PRINTER_DRIVER_API int PrinterGetRecentHub(DriverHandle printer, int index, PrinterDeviceInfoC* outHub) {
+		if (!printer || !outHub || index <= 0) {
+			return 0;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		const auto hubs = driver->getRecentHubs();
+		if (index >= static_cast<int>(hubs.size())) {
+			return 0;
+		}
+		*outHub = toCDevice(hubs[index]);
+		return 1;
+	}
+
+	PRINTER_DRIVER_API int PrinterDetectHubMode(DriverHandle printer, const char* address) {
+		if (!printer || !address) {
+			return 0;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return static_cast<int>(driver->detectHubMode(address));
+	}
+
+	PRINTER_DRIVER_API bool PrinterProbeRuntime(DriverHandle printer, const char* address, int timeoutMs) {
+		if (!printer || !address) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->probeRuntime(address, timeoutMs);
+	}
+
+	PRINTER_DRIVER_API int FlashFirmware(DriverHandle printer, const char* firmwareBootloaderPath, const char* address) {
+		if (!printer || !firmwareBootloaderPath) {
+			return 0;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->flashFirmware(std::filesystem::path(firmwareBootloaderPath), address ? address : "") ? 1 : 0;
+	}
+
+	PRINTER_DRIVER_API int UploadProgram(DriverHandle printer, const char* scriptPath, const char* address) {
+		if (!printer || !scriptPath) {
+			return 0;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->uploadProgram(std::filesystem::path(scriptPath), address ? address : "") ? 1 : 0;
+	}
+
+	PRINTER_DRIVER_API bool PrinterStartUserProgram(DriverHandle printer) {
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->startUserProgram();
+	}
+
+	PRINTER_DRIVER_API bool PrinterStopUserProgram(DriverHandle printer) {
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->stopUserProgram();
+	}
+
+	PRINTER_DRIVER_API bool DriverConnectRuntime(DriverHandle printer, const char* address) {
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->connectRuntime(address ? address : "");
+	}
+
+	PRINTER_DRIVER_API bool DriverDisconnectRuntime(DriverHandle printer) {
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		driver->disconnectRuntime();
+		return true;
+	}
+
+	PRINTER_DRIVER_API bool DriverSendRuntime(DriverHandle printer, const unsigned char* data, int length) {
+		if (!printer || !data || length <= 0) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->sendRuntime(data, static_cast<size_t>(length));
+	}
+
+	PRINTER_DRIVER_API bool PrinterSendMotorCommands(DriverHandle printer, const MotorCommand* commands, int count) {
+		if (!printer || !commands || count <= 0) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->sendMotorCommands(reinterpret_cast<const MotorCommand*>(commands), count);
 	}
 
 	PRINTER_DRIVER_API void PrinterRotateMotor(DriverHandle printer, MotorCommand* commands, int count)	{
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		driver->rotateMotor(commands, count);
-	}
-
-	PRINTER_DRIVER_API void PrinterSendCommand(DriverHandle printer, const unsigned char* command, int length) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		driver->sendCommand(command, length);
 	}
 
 	PRINTER_DRIVER_API void PrinterSetMotorSpeed(DriverHandle printer, unsigned char port, signed char speed) {

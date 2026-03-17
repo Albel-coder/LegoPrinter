@@ -4,9 +4,9 @@
 #include "protocol/BootloaderProtocol.h"
 #include "protocol/PrinterProtocol.h"
 #include "RuntimeSession.h"
+#include "../logging/LogManager.h"
 
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,8 +32,6 @@ struct ProgressInfo {
 
 class PrinterFirmware {
 public:
-	using ProgressCallback = std::function<void(const ProgressInfo)>;
-	using LogCallback = std::function<void(const std::string&)>;
 	using RuntimeCallback = std::function<void(const uint8_t* data, size_t length)>;
 
 	explicit PrinterFirmware(std::unique_ptr<ITransport> transport);
@@ -42,11 +40,9 @@ public:
 	std::vector<HubDescriptor> scanHubs(int timeoutSeconds = 10);
 	HubMode detectMode(const std::string& address);
 
-	bool flashFirmware(const std::filesystem::path& firmwareBootloaderPath,
-		const std::string& address, ProgressCallback progress = nullptr, LogCallback log = nullptr);
+	bool flashFirmware(const std::filesystem::path& firmwareBootloaderPath, const std::string& address);
 
-	bool uploadProgram(const std::filesystem::path& scriptFile,
-		const std::string& address, ProgressCallback progress = nullptr, LogCallback log = nullptr);
+	bool uploadProgram(const std::filesystem::path& scriptFile, const std::string& address);
 
 	bool connectRuntime(const std::string& address);
 	void disconnectRuntime();
@@ -57,7 +53,7 @@ public:
 
 	void setRuntimeCallback(RuntimeCallback callback);
 
-	bool restoreOfficialFirmwareInstructions(LogCallback log = nullptr);
+	bool restoreOfficialFirmwareInstructions();
 
 private:
 	std::unique_ptr<ITransport> transport;

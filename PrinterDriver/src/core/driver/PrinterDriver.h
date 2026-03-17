@@ -45,6 +45,9 @@ public:
 	std::vector<DeviceInfo> getRecentHubs() const;
 	std::vector<DeviceInfo> getLastScanResults() const;
 
+	HubMode detectHubMode(const std::string& address);
+	bool probeRuntime(const std::string& address, int timeoutMs = 1500);
+
 	// firmware / program
 	bool flashFirmware(const std::filesystem::path& firmwareBootloaderPath, const std::string& address = "");
 	bool uploadProgram(const std::filesystem::path& scriptFile, const std::string& address = "");

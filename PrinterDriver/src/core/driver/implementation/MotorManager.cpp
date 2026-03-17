@@ -88,7 +88,7 @@ void MotorManager::setSpeed(uint8_t port, int8_t speed) {
 		0x00        // Range max
 	};
 
-	transport.write(setupCommand.data(), setupCommand.size());
+	//transport.write(setupCommand.data(), setupCommand.size());
 
 	// Second Team: motor control
 	std::vector<uint8_t> motorCommand = {
@@ -101,7 +101,7 @@ void MotorManager::setSpeed(uint8_t port, int8_t speed) {
 		static_cast<uint8_t>(speed) // Speed
 	};
 
-	transport.write(motorCommand.data(), motorCommand.size());
+	//transport.write(motorCommand.data(), motorCommand.size());
 }
 
 double MotorManager::getPosition(uint8_t port) const {
@@ -148,7 +148,7 @@ void MotorManager::sendMotorCommand(const MotorCommand& command) {
 		0x00, // Range
 		0x00  // Range
 	};
-	transport.write(setupCommand.data(), setupCommand.size());
+	//transport.write(setupCommand.data(), setupCommand.size());
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
 	// Command 2: Rotate by a given angle
@@ -175,7 +175,7 @@ void MotorManager::sendMotorCommand(const MotorCommand& command) {
 	};
 
 	LOG_MOTOR("Sending motor command to port 0x%02X", command.port);
-	transport.write(payload.data(), payload.size());
+	//transport.write(payload.data(), payload.size());
 }
 
 void MotorManager::waitForCommandsCompletion(const MotorCommand* Commands, int count) {
