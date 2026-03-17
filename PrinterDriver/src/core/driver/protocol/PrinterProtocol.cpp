@@ -60,6 +60,11 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 }
 
 bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
+	if (!transport.isConnected()) {
+		LOG_ERROR("Printer upload: transport not connected");
+		return false;
+	}
+	
 	if (!discover()) {
 		LOG_ERROR("PrinterProtocol command characteristic not found");
 		return false;

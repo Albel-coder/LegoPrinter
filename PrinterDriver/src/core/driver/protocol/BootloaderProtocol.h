@@ -9,6 +9,7 @@ class BootloaderProtocol {
 public:
 	explicit BootloaderProtocol(ITransport& transport);
 
+	// transport must already be connected to the hub in bootloader / official mode
 	bool flashFirmware(const std::vector<uint8_t>& firmwareBootloader);
 
 private:

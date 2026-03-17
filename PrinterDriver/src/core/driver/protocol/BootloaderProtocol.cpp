@@ -8,7 +8,12 @@ BootloaderProtocol::BootloaderProtocol(ITransport& transport)
 	: transport(transport) {}
 
 bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmwareBootloader) {
-	if (!discover) {
+	if (!transport.isConnected()) {
+		LOG_ERROR("Bootloader flash: transport not connected");
+		return false;
+	}
+	
+	if (!discover()) {
 		LOG_ERROR("Bootloader characteristic not found");
 		return false;
 	}
@@ -22,7 +27,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmwareBootl
 
 	std::vector<uint8_t> info;
 	if (!sendCommand(protocol::BootloaderCommand::GetInfo, {}, &info)) {
-		LOG_ERROR("GET_INFO failed");
+		LOG_WARNING("GET_INFO failed");
 	}
 
 	// Payload format in this baseline:
