@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
+cmake_minimum_required(VERSION 4.0.3 FATAL_ERROR)
 
 project(LegoPrinter VERSION 1.0.0 DESCRIPTION "Lego Printer Native Library" LANGUAGES CXX)
 
@@ -64,6 +64,16 @@ set(CORE_SOURCE
 	
 	src/core/driver/PrinterDriver.h
 	src/core/driver/PrinterDriver.cpp
+	src/core/driver/PrinterFirmware.h
+	src/core/driver/PrinterFirmware.cpp
+	src/core/driver/RuntimeSession.h
+	src/core/driver/RuntimeSession.cpp
+	
+	src/core/driver/protocol/BootloaderProtocol.h
+	src/core/driver/protocol/BootloaderProtocol.cpp
+	src/core/driver/protocol/PrinterProtocol.h
+	src/core/driver/protocol/PrinterProtocol.cpp
+	src/core/driver/protocol/Constants.h
 	
 	src/core/driver/implementation/MotorManager.h
 	src/core/driver/implementation/MotorManager.cpp	
@@ -76,12 +86,25 @@ set(CORE_SOURCE
 )
 
 if(WIN32)
-	add_library(LegoPrinterCore SHARED
+
+	set(WIN_ALL_SOURCES
 		${CORE_SOURCE}
 		src/transport/TransportSimpleBLE.h
 		src/transport/TransportSimpleBLE.cpp
 		src/api/LegoDriverAPI.cpp
-	)	
+	)
+	
+	set(ABS_SOURCES "")
+    foreach(file_path ${WIN_ALL_SOURCES})
+        get_filename_component(abs_file ${file_path} ABSOLUTE)
+        list(APPEND ABS_SOURCES ${abs_file})
+    endforeach()
+
+    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "Source Files" FILES ${ABS_SOURCES})
+	
+	add_library(LegoPrinterCore SHARED 
+		${ABS_SOURCES}
+	)
 	
 	# Include directories
 	target_include_directories(LegoPrinterCore
