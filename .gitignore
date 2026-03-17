@@ -1,3 +1,46 @@
+# Builds
+*.exe
+*.exe.config
+*.dll
+*.pdb
+*.lib
+*.exp
+*.ilk
+*.so
+*.dylib
+*.a
+*.o
+*.obj
+*.ipdb
+*.iobj
+
+# logging
+*.log
+*.tlog
+*.lastbuildstate
+*.cache
+*.ilk
+
+# tmp files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+
+# for cmake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestFile.cmake
+MakeFile
+*.cmake
+!CMakeLists.txt
+build/
+*/build/
+*~build/
+
 PrinterDriver/build/CMakeCache.txt
 PrinterDriver/build/CMakeFiles/4.0.3/VCTargetsPath.txt
 PrinterDriver/build/CMakeFiles/TargetDirectories.txt
@@ -6,8 +49,37 @@ PrinterDriver/build/LegoPrinterCore.dir/MinSizeRel/objects.txt
 PrinterDriver/build/LegoPrinterCore.dir/RelWithDebInfo/objects.txt
 PrinterDriver/build/LegoPrinterCore.dir/Release/objects.txt
 Interpreter/Interpreter/*
-*.log
-*.tmp
-*.temp
-*.swp
-*.swo
+
+GcodeGenerator/build/
+
+#Android (IntelliJ / Gradle)
+/Android/.idea/
+/Android/.gradle/
+/Android/local.properties
+/Android/*iml
+/Android/app/build/
+/Android/app/src/main/jniLibs/
+/Android/app/proguard-rules.pro
+
+#Windows (C# / .NET / Visual Studio)
+/Windows/LPStudio/.vs/
+/Windows/LPStudio/bin/
+/Windows/LPStudio/obj/
+/Windows/LPStudio/packeges/
+/Windows/LPStudio/*.csproj.user
+/Windows/LPStudio/*.suo
+/Windows/LPStudio/*.user
+/Windows/LPStudio/CalibrationUserControl.resx
+/Windows/LPStudio/DeviceUserControl.resx
+/Windows/LPStudio/MainForm.resx
+/Windows/LPStudio/PrepareUserControl.resx
+/Windows/LPStudio/PreviewUserControl.resx
+
+# Updater project
+/LegoPrinter.Updater/.vs/
+/LegoPrinter.Updater/bin/
+/LegoPrinter.Updater/obj/
+
+/saves/
+/Fonts/
+/MainLogo32x32.png
