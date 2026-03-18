@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Ports;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -13,6 +14,25 @@ using static PrinterController;
 public class PrinterController : IDisposable
 {
     // Data structures for interfacing with C++ DLLs  
+
+    public enum HubMode
+    {
+        Unknown = 0,
+        LegoOfficial = 1,
+        Bootloader = 2,
+        PrinterRuntime = 3
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1, CharSet = CharSet.Ansi)]
+    public struct PrinterDeviceInfo
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string Address;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string Name;
+        public int Rssi;
+        public int IsLegoHub;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct MotorCommand
@@ -109,7 +129,96 @@ public class PrinterController : IDisposable
     }
 
     // ========== NEW FUNCTIONS ==========
-    
+
+    public List<PrinterDeviceInfo> Scan(int timeoutSeconds, bool legoOnly = true)
+    {
+        const int maxDevices = 32;
+        PrinterDeviceInfo[] buffer = new PrinterDeviceInfo[maxDevices];
+        int count = SafeCall(() => PrinterScan(PrinterHandle, timeoutSeconds, legoOnly ? 1 : 0, buffer, maxDevices), 0);
+        var result = new List<PrinterDeviceInfo>();
+        for (int i = 0; i < count && i < maxDevices; i++)
+        {
+            result.Add(buffer[i]);
+        }
+        return result;
+    }
+
+    public bool ConnectAuto(int timeoutMs) =>
+        SafeCall(() => PrinterConnectAuto(PrinterHandle, timeoutMs), false);
+
+    public bool Connect(string address) => 
+        SafeCall(() => PrinterConnect(PrinterHandle, address), false);
+
+    public bool ReconnectLast() =>
+        SafeCall(() => PrinterReconnectLast(PrinterHandle), false);
+
+    public bool Disconnect() => 
+        SafeCall(() => PrinterDisconnect(PrinterHandle), false);
+
+    public bool IsPrinterConnect() 
+        => SafeCall(() => IsConnected(PrinterHandle), false);
+
+    public string GetConnectedAddress()
+    {
+        var stringBuilder = new StringBuilder(64);
+        int result = SafeCall(() => PrinterGetConnectedAddress(PrinterHandle, stringBuilder, stringBuilder.Capacity), 0);
+        return result != 0 ? stringBuilder.ToString() : null;   
+    }
+
+    public List<PrinterDeviceInfo> GetRecentHubs()
+    {
+        int count = SafeCall(() => PrinterGetRecentHubCount(PrinterHandle), 0);
+        var list = new List<PrinterDeviceInfo>();
+        for (int i = 0; i < count; i++)
+        {
+            if (PrinterGetRecentHub(PrinterHandle, i, out PrinterDeviceInfo hub) != 0)
+            {
+                list.Add(hub);
+            }
+        }
+        return list;
+    }
+
+    public HubMode DetectHubMode(string address) =>
+        (HubMode)SafeCall(() => PrinterDetectHubMode(PrinterHandle, address), (int)HubMode.Unknown);
+
+    public bool ProbeRuntime(string address, int timeoutMs) =>
+        SafeCall(() => PrinterProbeRuntime(PrinterHandle, address, timeoutMs), false);
+
+    public bool FlashFirmware(string firmwareZipPath, string address = "") =>
+        SafeCall(() => PrinterFlashFirmware(PrinterHandle, firmwareZipPath, address), false);
+
+    public bool UploadProgram(string scriptPath, string address = "") =>
+        SafeCall(() => PrinterUploadProgram(PrinterHandle, scriptPath, address), false);
+
+    public bool StartUserProgram() =>
+        SafeCall(() => PrinterStartUserProgram(PrinterHandle), false);
+
+    public bool StopUserProgram() =>
+        SafeCall(() => PrinterStopUserProgram(PrinterHandle), false);
+
+    public bool ConnectRuntime(string address) =>
+        SafeCall(() => PrinterConnectRuntime(PrinterHandle, address), false);
+
+    public bool SendRuntime(byte[] data) =>
+        SafeCall(() => PrinterSendRuntime(PrinterHandle, data, data.Length), false);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // Motor speed control
     public void SetMotorSpeed(byte Port, sbyte Speed)
     {
@@ -377,11 +486,8 @@ public class PrinterController : IDisposable
             return SafeCall(() => RunPrinterTest(PrinterHandle, TestType), false);
         }
     }
-    public void PrintConnectionInfo() => SafeCall(() => { PrinterConnectionInfo(PrinterHandle); return true; }, false);
-    public bool Connect() => SafeCall(() => PrinterConnect(PrinterHandle), false);
-    public bool IsPrinterConnect() => SafeCall(() => IsConnected(PrinterHandle), false);
-    public bool Disconnect() => SafeCall(() => PrinterDisconnect(PrinterHandle), false);
-
+    public void PrintConnectionInfo() => SafeCall(() => { PrinterConnectionInfo(PrinterHandle); return true; }, false);    
+        
     public bool RequestBatteryLevel()
     {
         lock (SyncRoot)
@@ -453,8 +559,20 @@ public class PrinterController : IDisposable
 
     // Connection functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int PrinterScan(IntPtr printer, int timeoutSeconds, int legoOnly, 
+        [Out] PrinterDeviceInfo[] outDevices, int maxDevices);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterConnect(IntPtr printer);
+    private static extern bool PrinterConnectAuto(IntPtr printer, int timeoutMs);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterConnect(IntPtr printer, string address);
+       
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterReconnectLast(IntPtr printer);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
@@ -463,6 +581,57 @@ public class PrinterController : IDisposable
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool IsConnected(IntPtr printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int PrinterGetConnectedAddress(IntPtr printer, StringBuilder outAddress, int capacity);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int PrinterGetRecentHubCount(IntPtr printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int PrinterGetRecentHub(IntPtr printer, int index, out PrinterDeviceInfo outHub);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern int PrinterDetectHubMode(IntPtr printer, string address);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterProbeRuntime(IntPtr printer, string address, int timeoutMs);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterFlashFirmware(IntPtr printer, string firmwareBootloaderPath, string address);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterUploadProgram(IntPtr printer, string scriptPath, string address);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterStartUserProgram(IntPtr printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterStopUserProgram(IntPtr printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterConnectRuntime(IntPtr printer, string address);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void PrinterDisconnectRuntime(IntPtr printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterSendRuntime(IntPtr printer, [MarshalAs(UnmanagedType.LPArray)] byte[] data, int length);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterSendMotorCommands(IntPtr printer,
+        [MarshalAs(UnmanagedType.LPArray)] MotorCommand[] commands, int count);
+
+
+
 
     // Functions for controlling motors
 
