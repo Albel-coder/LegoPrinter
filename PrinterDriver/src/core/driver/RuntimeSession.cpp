@@ -44,6 +44,10 @@ bool RuntimeSession::discover() {
 bool RuntimeSession::connect(const std::string& address) {
 	LOG_BLUETOOTH("Runtime connect: %s", address.c_str());
 
+	if (connected) {
+		disconnect();
+	}
+
 	if (transport.isConnected() && transport.getConnectedAddress() != address) {
 		transport.disconnect();
 	}
@@ -69,7 +73,10 @@ bool RuntimeSession::connect(const std::string& address) {
 		return false;
 	}
 
+	subscribed = true;
+	connected = true;
 	connectedAddress = address;
+
 	LOG_INFO("Runtime connected");
 	return true;
 }
@@ -77,11 +84,37 @@ bool RuntimeSession::connect(const std::string& address) {
 void RuntimeSession::disconnect() {
 	LOG_BLUETOOTH("Runtime disconnect");
 
-	if (transport.isConnected() && !nusTx.characteristicUuid.empty()) {
-		transport.unsubscribe(nusTx);
+	if (!connected && !subscribed && !transport.isConnected()) {
+		LOG_BLUETOOTH("Transport already disconnected, clearing state");
+		connectedAddress.clear();
+		nusRx = {};
+		nusTx = {};
+		callback = nullptr;
+		return;
 	}
-	if (transport.isConnected()) {
-		transport.disconnect();
+
+	LOG_BLUETOOTH("Runtime disconnect");
+
+	// Flip flags first so a re-entrant call won`t do work twice
+	const bool wasSubscribed = subscribed.exchange(false);
+	connected.store(false);
+
+	try {
+		if (wasSubscribed && transport.isConnected() && !nusTx.characteristicUuid.empty()) {
+			transport.unsubscribe(nusTx);
+		}
+	}
+	catch (...)	{
+		LOG_WARNING("Runtime disconnect: unsubscribe failed");
+	}
+
+	try {
+		if (transport.isConnected()) {
+			transport.disconnect();
+		}
+	}
+	catch (...) {
+		LOG_WARNING("Runtime disconnect: transport disconnect failed");
 	}
 
 	connectedAddress.clear();
@@ -91,7 +124,7 @@ void RuntimeSession::disconnect() {
 }
 
 bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse) {
-	if (!transport.isConnected() || nusRx.characteristicUuid.empty()) {
+	if (!connected && !transport.isConnected() || nusRx.characteristicUuid.empty()) {
 		LOG_ERROR("Runtime send: not connected");
 		return false;
 	}
@@ -119,7 +152,7 @@ void RuntimeSession::setCallback(RuntimeCallback callback) {
 }
 
 bool RuntimeSession::isConnected() const {
-	return transport.isConnected();
+	return connected && transport.isConnected();
 }
 
 void RuntimeSession::onData(const Characteristic&, const uint8_t* data, size_t length) {

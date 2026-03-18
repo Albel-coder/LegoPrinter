@@ -4,7 +4,20 @@
 #include <chrono>
 #include <cctype>
 #include <cstring>
+#include <fstream>
 #include <thread>
+#include <iterator>
+
+static std::vector<uint8_t> readBinaryFile(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return {};
+    }
+
+    return { 
+        std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() 
+    };
+}
 
 PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) 
     : transport(std::move(transport)),
@@ -329,60 +342,13 @@ bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
     return ready;
 }
 
-bool PrinterDriver::flashFirmware(const std::filesystem::path& firmwareBootloaderPath, const std::string& address) {
-    const std::string target = resolveAddress(address);
-    if (target.empty()) {
-        LOG_ERROR("No target address for firmware flash");
-        return false;
-    }
+bool PrinterDriver::flashFirmware(const std::string& firmwareBootloaderPath, const std::string& address) {
+    
 
-    LOG_INFO("flashFirmware^ %s -> %s", firmwareBootloaderPath.string().c_str(), target.c_str());
+    const bool result = transport->isConnected();
 
-    // Make sure runtime is not holding the transport open
-    disconnectRuntime();
 
-    if (!transport->connect(target)) {
-        LOG_ERROR("Failed to connect before flash");
-        return false;
-    }
-
-    // NOTE:
-    // firmwareBootloaderPath should point to extracted firmware bootloader / bin
-    // if we pass a .zip, extract the bootloader first before calling this method
-    std::vector<uint8_t> firmwareBootloader;
-    {
-        FILE* file = nullptr;
-#ifdef _WIN32
-        fopen_s(&file, firmwareBootloaderPath.string().c_str(), "rb");
-#else
-        file = fopen(firmwareBootloaderPath.string(),c_str(), "rb");
-#endif // _WIN32
-
-        if (!file) {
-            LOG_ERROR("Failed to open firmware bootloader");
-            transport->disconnect();
-            return false;
-        }
-
-        fseek(file, 0, SEEK_END);
-        const long size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-
-        if (size <= 0) {
-            fclose(file);
-            LOG_ERROR("Empty firmware bootloader");
-            return false;
-        }
-
-        firmwareBootloader.resize(static_cast<size_t>(size));
-        fread(firmwareBootloader.data(), 1, firmwareBootloader.size(), file);
-        fclose(file);
-    }
-
-    const bool result = bootloader->flashFirmware(firmwareBootloader);
-    transport->disconnect();
-
-    if (result) {
+    if (!result) {
         LOG_ERROR("flashFirmware failed");
     }
     else {
@@ -392,14 +358,14 @@ bool PrinterDriver::flashFirmware(const std::filesystem::path& firmwareBootloade
     return result;
 }
 
-bool PrinterDriver::uploadProgram(const std::filesystem::path& scriptFile, const std::string& address) {
+bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::string& address) {
     const std::string target = resolveAddress(address);
     if (target.empty()) {
         LOG_ERROR("No target address for program upload");
         return false;
     }
 
-    LOG_INFO("uploadProgram: %s -> %s", scriptFile.string().c_str(), target.c_str());
+    LOG_INFO("uploadProgram: %s -> %s", scriptFile.c_str(), target.c_str());
 
     disconnectRuntime();
 
@@ -408,38 +374,14 @@ bool PrinterDriver::uploadProgram(const std::filesystem::path& scriptFile, const
         return false;
     }
 
-    std::vector<uint8_t> scriptBootloader;
-    {
-        FILE* file = nullptr;
-#ifdef _WIN32
-        fopen_s(&file, scriptFile.string().c_str(), "rb");
-#else
-        fopen(scriptFile.string().c_str(), "rb");
-#endif // _WIN32
-
-        if (!file) {
-            LOG_ERROR("Failed to open script file");
-            transport->disconnect();
-            return false;
-        }
-
-        fseek(file, 0, SEEK_END);
-        const long size = ftell(file);
-        fseek(file, 0, SEEK_SET);
-
-        if (size <= 0) {
-            fclose(file);
-            LOG_ERROR("Empty script file");
-            transport->disconnect();
-            return false;
-        }
-
-        scriptBootloader.resize(static_cast<size_t>(size));
-        fread(scriptBootloader.data(), 1, scriptBootloader.size(), file);
-        fclose(file);
+    std::vector<uint8_t> scriptData = readBinaryFile(scriptFile);
+    if (scriptData.empty()) {
+        LOG_ERROR("Failed to read script file or file is empty: %s", scriptFile.c_str());
+        transport->disconnect();
+        return false;
     }
 
-    const bool result = printerProtocol->uploadProgram(scriptBootloader);
+    const bool result = printerProtocol->uploadProgram(scriptData);
     transport->disconnect();
 
     if (!result) {
@@ -509,8 +451,14 @@ bool PrinterDriver::connectRuntime(const std::string& address) {
 }
 
 void PrinterDriver::disconnectRuntime() {
-    if (runtime) {
+    LOG_INFO("disconnectRuntime called");
+    if (runtime && runtime->isConnected()) {
+        LOG_INFO("runtime object exists, calling disconnect");
         runtime->disconnect();
+        LOG_INFO("runtime disconnect finished");
+    }
+    else {
+        LOG_WARNING("runtime is null, nothing to disconnect");
     }
 }
 

@@ -65,7 +65,7 @@ std::vector<HubDescriptor> PrinterFirmware::scanHubs(int timeoutSeconds) {
 				hub.mode = HubMode::PybricksRuntime;
 				break;
 			}
-			if (uuid == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
+			if (uuid == protocol::LWP3_HUB_SERVICE_UUID) {
 				hub.mode = HubMode::LegoOfficial;
 				break;
 			}
@@ -122,7 +122,7 @@ HubMode PrinterFirmware::detectMode(const std::string& address) {
 			mode = HubMode::PybricksRuntime;
 			break;
 		}
-		if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
+		if (service == protocol::LWP3_HUB_SERVICE_UUID) {
 			transport->disconnect();
 			mode = HubMode::LegoOfficial;
 			break;

@@ -4,6 +4,7 @@
 
 #include <functional>
 #include <string>
+#include <atomic>
 
 class RuntimeSession {
 public:
@@ -27,6 +28,9 @@ private:
 	Characteristic nusRx;
 	Characteristic nusTx;
 	std::string connectedAddress;
+
+	std::atomic<bool> connected{ false };
+	std::atomic<bool> subscribed{ false };
 
 	bool discover();
 	void onData(const Characteristic& characteristic, const uint8_t* data, size_t length);
