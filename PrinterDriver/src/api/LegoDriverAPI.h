@@ -94,8 +94,8 @@ extern "C" {
     PRINTER_DRIVER_API int PrinterDetectHubMode(DriverHandle printer, const char* address);
     PRINTER_DRIVER_API bool PrinterProbeRuntime(DriverHandle printer, const char* address, int timeoutMs);
 
-    PRINTER_DRIVER_API int FlashFirmware(DriverHandle printer, const char* firmwareBootloaderPath, const char* address);
-    PRINTER_DRIVER_API int UploadProgram(DriverHandle printer, const char* scriptPath, const char* address);
+    PRINTER_DRIVER_API bool PrinterFlashFirmware(DriverHandle printer, const char* firmwareBootloaderPath, const char* address);
+    PRINTER_DRIVER_API bool PrinterUploadProgram(DriverHandle printer, const char* scriptPath, const char* address);
 
     PRINTER_DRIVER_API bool PrinterStartUserProgram(DriverHandle printer);
     PRINTER_DRIVER_API bool PrinterStopUserProgram(DriverHandle printer);

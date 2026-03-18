@@ -145,22 +145,23 @@ extern "C" {
 		return driver->probeRuntime(address, timeoutMs);
 	}
 
-	PRINTER_DRIVER_API int FlashFirmware(DriverHandle printer, const char* firmwareBootloaderPath, const char* address) {
-		if (!printer || !firmwareBootloaderPath) {
-			return 0;
+	PRINTER_DRIVER_API bool PrinterFlashFirmware(DriverHandle printer, const char* firmwareBootloaderPath, const char* address) {
+		if (!printer || !firmwareBootloaderPath || !address) {
+			return false;
 		}
 
 		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->flashFirmware(std::filesystem::path(firmwareBootloaderPath), address ? address : "") ? 1 : 0;
+		return driver->flashFirmware(firmwareBootloaderPath, address);
+		return true;
 	}
 
-	PRINTER_DRIVER_API int UploadProgram(DriverHandle printer, const char* scriptPath, const char* address) {
-		if (!printer || !scriptPath) {
-			return 0;
+	PRINTER_DRIVER_API bool PrinterUploadProgram(DriverHandle printer, const char* scriptPath, const char* address) {
+		if (!printer || !scriptPath || !address) {
+			return false;
 		}
 
 		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->uploadProgram(std::filesystem::path(scriptPath), address ? address : "") ? 1 : 0;
+		return driver->uploadProgram(scriptPath, address);
 	}
 
 	PRINTER_DRIVER_API bool PrinterStartUserProgram(DriverHandle printer) {
