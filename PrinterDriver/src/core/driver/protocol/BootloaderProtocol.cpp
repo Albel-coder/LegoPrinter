@@ -5,63 +5,10 @@
 #include <thread>
 
 BootloaderProtocol::BootloaderProtocol(ITransport& transport) 
-	: transport(transport) {}
+: transport(transport) {}
 
 bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmwareBootloader) {
-	if (!transport.isConnected()) {
-		LOG_ERROR("Bootloader flash: transport not connected");
-		return false;
-	}
-	
-	if (!discover()) {
-		LOG_ERROR("Bootloader characteristic not found");
-		return false;
-	}
-
-	LOG_INFO("Bootloader flash started (%zu bytes)", firmwareBootloader.size());
-
-	if (!sendCommand(protocol::BootloaderCommand::InitLoader, {}, nullptr)) {
-		LOG_ERROR("INIT_LOADER failed");
-		return false;
-	}
-
-	std::vector<uint8_t> info;
-	if (!sendCommand(protocol::BootloaderCommand::GetInfo, {}, &info)) {
-		LOG_WARNING("GET_INFO failed");
-	}
-
-	// Payload format in this baseline:
-	// [offset u32 little-endian][chunk bytes...]
-	const size_t maxWrite = transport.getMaxWriteSize();
-	const size_t payloadLimit = (maxWrite > 8) ? (maxWrite - 4) : 16; // 4 bytes offset
-	size_t sent = 0;
-
-	while (sent < firmwareBootloader.size()) {
-		const size_t chunk = std::min(payloadLimit, firmwareBootloader.size() - sent);
-
-		std::vector<uint8_t> payload;
-		payload.reserve(4 + chunk);
-
-		const uint32_t offset = static_cast<uint32_t>(sent);
-		payload.push_back(static_cast<uint8_t>(offset & 0xFF));
-		payload.push_back(static_cast<uint8_t>((offset >> 8) & 0xFF));
-		payload.push_back(static_cast<uint8_t>((offset >> 16) & 0xFF));
-		payload.push_back(static_cast<uint8_t>((offset >> 24) & 0xFF));
-		payload.insert(payload.end(), firmwareBootloader.begin() + sent, firmwareBootloader.begin() + sent + chunk);
-	
-		if (!sendCommand(protocol::BootloaderCommand::ProgramFlash, payload, nullptr)) {
-			LOG_ERROR("PROGRAM_FLASH failed at offset=%zu", sent);
-			return false;
-		}
-
-		sent += chunk;
-		LOG_INFO("Bootloader progress: %zu / %zu", sent, firmwareBootloader.size());
-	}
-
-	if (!sendCommand(protocol::BootloaderCommand::StartApp, {}, nullptr)) {
-		LOG_ERROR("START_APPLICATION failed");
-		return false;
-	}
+	LOG_INFO("transport.isConnected() = %d", transport.isConnected());
 	
 	LOG_INFO("Bootloader flash finished");
 	return true;

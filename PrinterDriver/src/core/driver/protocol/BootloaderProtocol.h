@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../core/driver/interfaces/ITransport.h"
+#include "../logging/LogManager.h"
 #include "Constants.h"
 
 #include <vector>
@@ -11,6 +12,10 @@ public:
 
 	// transport must already be connected to the hub in bootloader / official mode
 	bool flashFirmware(const std::vector<uint8_t>& firmwareBootloader);
+
+	void testBootloader() const {
+		LOG_INFO("testBootloader called on %p", this);
+	}
 
 private:
 	ITransport& transport;
