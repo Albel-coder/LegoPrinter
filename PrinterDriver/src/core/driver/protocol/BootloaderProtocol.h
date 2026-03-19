@@ -8,7 +8,7 @@
 
 class BootloaderProtocol {
 public:
-	explicit BootloaderProtocol(ITransport& transport);
+	explicit BootloaderProtocol(ITransport& transportPointer);
 
 	// transport must already be connected to the hub in bootloader / official mode
 	bool flashFirmware(const std::vector<uint8_t>& firmwareBootloader);
@@ -23,7 +23,7 @@ private:
 
 	bool discover();
 	bool sendCommand(protocol::BootloaderCommand command,
-		const std::vector<uint8_t>& payload, std::vector<uint8_t>* response = nullptr);
+		const std::vector<uint8_t>& payload, std::vector<uint8_t>* response = nullptr, bool withResponse = true);
 
 	std::vector<uint8_t> makePacket(protocol::BootloaderCommand command,
 		const std::vector<uint8_t>& payload) const;

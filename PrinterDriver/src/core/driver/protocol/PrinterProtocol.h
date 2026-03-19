@@ -7,7 +7,7 @@
 
 class PrinterProtocol {
 public:
-	explicit PrinterProtocol(ITransport& transport);
+	explicit PrinterProtocol(ITransport& transportPointer);
 
 	bool discover();
 

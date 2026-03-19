@@ -5,8 +5,8 @@
 #include <chrono>
 #include <thread>
 
-PrinterProtocol::PrinterProtocol(ITransport& transport)
-	: transport(transport) { }
+PrinterProtocol::PrinterProtocol(ITransport& transportPointer)
+	: transport(transportPointer) { }
 
 bool PrinterProtocol::discover() {
 	if (!transport.isConnected()) {
