@@ -64,8 +64,6 @@ set(CORE_SOURCE
 	
 	src/core/driver/PrinterDriver.h
 	src/core/driver/PrinterDriver.cpp
-	src/core/driver/PrinterFirmware.h
-	src/core/driver/PrinterFirmware.cpp
 	src/core/driver/RuntimeSession.h
 	src/core/driver/RuntimeSession.cpp
 	
