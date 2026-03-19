@@ -19,15 +19,15 @@ static std::vector<uint8_t> readBinaryFile(const std::string& path) {
     };
 }
 
-PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transport) 
-    : transport(std::move(transport)),
-    motorManager(std::make_unique<MotorManager>(*transport)) {
+PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transportPointer) 
+    : transport(std::move(transportPointer)) {
 
-    gLog.setLogCategories(LOG_CATEGORY_ALL);
-
-    bootloader = std::make_unique<BootloaderProtocol>(*transport);
-    printerProtocol = std::make_unique<PrinterProtocol>(*transport);
+    motorManager = std::make_unique<MotorManager>(*transport);
+    bootloaderProtocol = std::make_unique<BootloaderProtocol>(*transport);
     runtime = std::make_unique<RuntimeSession>(*transport);
+    printerProtocol = std::make_unique<PrinterProtocol>(*transport);
+    
+    gLog.setLogCategories(LOG_CATEGORY_ALL);
 
     LOG_INFO("PrinterImplementation created");
 }
@@ -105,7 +105,7 @@ std::string PrinterDriver::resolveAddress(const std::string& address) const {
 
 std::vector<DeviceInfo> PrinterDriver::scan(int timeoutSeconds, bool legoOnly) {
     scanResults.clear();
-    LOG_BLUETOOTH("scan(timeoutSeconds=%d, legoOnly=%d)", timeoutSeconds, legoOnly ? "true" : "false");
+    LOG_BLUETOOTH("scan(timeoutSeconds=%d, legoOnly=%s)", timeoutSeconds, legoOnly ? "true" : "false");
 
     if (!transport->startScan(timeoutSeconds)) {
         LOG_ERROR("Failed to start scan");
@@ -126,7 +126,8 @@ bool PrinterDriver::connectAuto(int timeoutMs) {
     LOG_BLUETOOTH("connectAuto(timeoutMs=%d)", timeoutMs);
 
     if (transport->isConnected()) {
-        LOG_BLUETOOTH("connectAuto: already connected to %s", transport->getConnectedAddress());
+        LOG_BLUETOOTH("connectAuto: already connected to %s", transport->getConnectedAddress().c_str());
+        bool disconnectResult = transport->disconnect();
         return true;
     }
 
@@ -235,11 +236,13 @@ bool PrinterDriver::reconnectLast() {
 }
 
 bool PrinterDriver::disconnect() {
-    LOG_BLUETOOTH("disconnect()");
-    disconnectRuntime();
+    LOG_BLUETOOTH("disconnect()");    
 
-    if (transport) {
-        transport->disconnect();
+    if (transport->isConnected()) {
+        return transport->disconnect();
+    }
+    else {
+        return true;
     }
 
     connectedAddress.clear();
@@ -267,15 +270,8 @@ std::vector<DeviceInfo> PrinterDriver::getLastScanResults() const {
 }
 
 HubMode PrinterDriver::detectHubMode(const std::string& address) {
-    if (address.empty()) {
-        LOG_ERROR("detectHubMode: empty address");
-        return HubMode::Unknown;
-    }
-
-    LOG_BLUETOOTH("detectHubMode(%s)", address.c_str());
-
-    if (!transport->connect(address)) {
-        LOG_WARNING("detectHubMode: connect failed");
+    if (!transport->isConnected() || transport->getConnectedAddress() != address) {
+        LOG_WARNING("detectHubMode: not connected to this address, returning Unknown mode");
         return HubMode::Unknown;
     }
 
@@ -283,7 +279,7 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
     HubMode mode = HubMode::Unknown;
 
     for (const auto& service : services) {
-        if (service == protocol::LWP3_BOOTLOADER_CHAR_UUID) {
+        if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
             mode = HubMode::Bootloader;
         }
         if (service == protocol::PYBRICKS_SERVICE_UUID) {
@@ -294,7 +290,6 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
         }
     }
 
-    transport->disconnect();
     LOG_INFO("detectHubMode: %d", static_cast<int>(mode));
     return mode;
 }
@@ -307,8 +302,20 @@ bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
 
     LOG_BLUETOOTH("probeRuntime(%s, %dms)", address.c_str(), timeoutMs);
 
+    if (transport->isConnected() && transport->getConnectedAddress() != address) {
+        bool disconnectResult = transport->disconnect();
+    }
+
+    if (!transport->isConnected()) {
+        if (!transport->connect(address)) {
+            LOG_WARNING("probeRuntime: connect failed");
+            return false;
+        }
+    }
+
     if (!runtime->connect(address)) {
         LOG_WARNING("probeRuntime: runtime connect failed");
+        bool disconnectResult = transport->disconnect();
         return false;
     }
 
@@ -330,23 +337,49 @@ bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    runtime->disconnect();
-
     if (!ready) {
         LOG_WARNING("probeRuntime: no ready marker");
-    }
-    else {
-        LOG_INFO("probeRuntime: ready");
+        runtime->disconnect();
+        bool disconnectResult = transport->disconnect();
+        return false;
     }
 
-    return ready;
+    LOG_INFO("probeRuntime: ready");
+    return true;
 }
 
 bool PrinterDriver::flashFirmware(const std::string& firmwareBootloaderPath, const std::string& address) {
-    
+    const std::string target = resolveAddress(address);
+    if (target.empty()) {
+        LOG_ERROR("No target address for firmware flash");
+        return false;
+    }    
 
-    const bool result = transport->isConnected();
+    if (!transport->isConnected() || transport->getConnectedAddress() != target) {
+        LOG_ERROR("Transport not connected to the target hub. Please connect first");
+        return false;
+    }
 
+    auto mode = detectHubMode(target);
+    if (mode != HubMode::Bootloader) {
+        LOG_ERROR("Hub is not in bootloader mode. Please restart it with the button to enter bootloader");
+        return false;
+    }
+
+    LOG_INFO("flashFirmware: %s -> %s", firmwareBootloaderPath.c_str(), target.c_str());
+
+    // NOTE:
+    // firmwareBootloaderPath should point to extracted firmware bootloader / bin
+    // if we pass a .zip, extract the bootloader first before calling this method
+
+    std::vector<uint8_t> firmware = readBinaryFile(firmwareBootloaderPath);
+    if (firmware.empty()) {
+        LOG_ERROR("Failed to read firmware file or file is empty: %s", firmwareBootloaderPath.c_str());
+        bool disconnectResult = transport->disconnect();
+        return false;
+    }
+
+    const bool result = bootloaderProtocol->flashFirmware(firmware);
 
     if (!result) {
         LOG_ERROR("flashFirmware failed");
@@ -365,24 +398,27 @@ bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::stri
         return false;
     }
 
-    LOG_INFO("uploadProgram: %s -> %s", scriptFile.c_str(), target.c_str());
-
-    disconnectRuntime();
-
-    if (!transport->connect(target)) {
-        LOG_ERROR("Failed to connect before upload");
+    if (!transport->isConnected() || transport->getConnectedAddress() != target) {
+        LOG_ERROR("Transport not connected to the target hub. Please connect first");
         return false;
     }
+
+    auto mode = detectHubMode(target);
+    if (mode != HubMode::PybricksRuntime) {
+        LOG_ERROR("Hub is not in Pybricks runtime mode. Please flash firmware first or restart the hub");
+        return false;
+    }
+
+    LOG_INFO("uploadProgram: %s -> %s", scriptFile.c_str(), target.c_str());
 
     std::vector<uint8_t> scriptData = readBinaryFile(scriptFile);
     if (scriptData.empty()) {
         LOG_ERROR("Failed to read script file or file is empty: %s", scriptFile.c_str());
-        transport->disconnect();
+        bool disconnectResult = transport->disconnect();
         return false;
     }
 
     const bool result = printerProtocol->uploadProgram(scriptData);
-    transport->disconnect();
 
     if (!result) {
         LOG_ERROR("uploadProgram failed");
@@ -438,7 +474,10 @@ bool PrinterDriver::connectRuntime(const std::string& address) {
         return false;
     }
 
-    LOG_BLUETOOTH("connectRuntime(%s)", target.c_str());
+    if (!transport->isConnected() || transport->getConnectedAddress() != target) {
+        LOG_ERROR("Transport not connected to the target hub. Please connect first");
+        return false;
+    }
 
     if (!runtime->connect(target)) {
         LOG_ERROR("connectRuntime failed");
@@ -451,23 +490,10 @@ bool PrinterDriver::connectRuntime(const std::string& address) {
 }
 
 void PrinterDriver::disconnectRuntime() {
-    LOG_INFO("disconnectRuntime called");
-    if (runtime && runtime->isConnected()) {
-        LOG_INFO("runtime object exists, calling disconnect");
-        runtime->disconnect();
-        LOG_INFO("runtime disconnect finished");
-    }
-    else {
-        LOG_WARNING("runtime is null, nothing to disconnect");
-    }
+    runtime->disconnect();
 }
 
 bool PrinterDriver::sendRuntime(const uint8_t* data, size_t length) {
-    if (!runtime || !runtime->isConnected()) {
-        LOG_ERROR("Runtime not connected");
-        return false;
-    }
-
     const bool result = runtime->send(data, length, false);
     if (result) {
         LOG_ERROR("sendRuntime failed");
@@ -482,10 +508,7 @@ bool PrinterDriver::sendMotorCommands(const MotorCommand* commands, int count) {
         return false;
     }
 
-    if (!runtime || !runtime->isConnected()) {
-        LOG_ERROR("Runtime not connected");
-        return false;
-    }
+
 
     std::vector<uint8_t> packet;
     packet.reserve(2 + static_cast<size_t>(count) * 10);
