@@ -53,6 +53,8 @@ namespace LPStudio
                 interpreterController = new InterpreterController(printerController.GetPrinterHandle());
                 InitializeComponent();
 
+                textBoxConsole.MaxLength = 0;
+
                 batteryLabel = new BatteryLabel();
                 batteryLabel.Location = this.labelBattery.Location;
                 batteryLabel.Size = this.labelBattery.Size;
@@ -80,74 +82,238 @@ namespace LPStudio
         }
         private async void connectButton_Click(object sender, EventArgs e)
         {
-            if (printerController.IsPrinterConnect() == false)
+            connectButton.Enabled = false;
+
+            if (!printerController.IsPrinterConnect())
             {
-                this.connectButton.Enabled = false;
-                this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(227)))), ((int)(((byte)(235)))), ((int)(((byte)(12)))));
-                this.connectButton.Text = "connecting...";
+                connectButton.BackColor = Color.FromArgb(227, 235, 12);
+                connectButton.Text = "Connecting...";
 
                 try
                 {
-                    bool isConnected = await Task.Run(() => printerController.Connect());
-
-                    if (isConnected)
+                    bool connected = await Task.Run(() => printerController.ConnectAuto(10000));
+                    if (!connected)
                     {
-                        this.connectButton.Enabled = true;
-                        this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(234)))), ((int)(((byte)(84)))), ((int)(((byte)(85)))));
-                        this.connectButton.Text = "disconnect";
+                        MessageBox.Show("No Lego hub found!");
 
-                        batteryLabel.SetPrinterController(printerController);
+                        connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                        connectButton.Text = "Connect";
+                        connectButton.Enabled = true;
 
-                        await Task.Delay(1000);
+                        return;
                     }
+
+                    string address = printerController.GetConnectedAddress();
+                    if (string.IsNullOrEmpty(address))
+                    {
+                        throw new Exception("Connected, but address is empty");
+                    }
+
+                    connectButton.Text = "Checking hub mode...";
+                    var mode = await Task.Run(() => printerController.DetectHubMode(address));
+                    
+                    if (mode != PrinterController.HubMode.PrinterRuntime)
+                    {
+                        var needFirmware = (mode == PrinterController.HubMode.LegoOfficial || mode == PrinterController.HubMode.Bootloader);
+                        if (!needFirmware)
+                        {
+                            bool runtimeReady = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
+                            if (!runtimeReady)
+                            {
+                                MessageBox.Show("Hub is in an unknown state. Please restart it and try again");
+                                bool disconnect = await Task.Run(() => printerController.Disconnect());
+
+                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                                connectButton.Text = "Connect";
+                                connectButton.Enabled = true;
+
+                                return;
+                            }
+
+                        }
+                        else
+                        {
+                            var result = MessageBox.Show(
+                                "This hub needs to be flashed with firmware to work with the printer\n\n" + 
+                                "Do you want to install the firmware now?",
+                                "Firmware required",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Question);
+
+                            if (result != DialogResult.Yes)
+                            {
+                                await Task.Run(() => printerController.Disconnect());
+
+                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                                connectButton.Text = "Connect";
+                                connectButton.Enabled = true;
+
+                                return;
+                            }
+
+                            connectButton.Text = "Installing firmware...";
+                            connectButton.BackColor = Color.FromArgb(255, 165, 0);
+
+                            string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "printer-firmware-v3.6.1.zip");
+
+                            bool firmwareOk = await Task.Run(() => printerController.FlashFirmware(firmwarePath, address));
+                            if (!firmwareOk)
+                            {
+                                MessageBox.Show("Firmware installation failed. Please check the console for details", "Error");
+
+                                bool disconnectOk = await Task.Run(() => printerController.Disconnect());
+
+                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                                connectButton.Text = "Connect";
+                                connectButton.Enabled = true;
+
+                                return;
+                            } 
+
+                            connectButton.Text = "Restarting...";
+                            await Task.Delay(5000);
+
+                            bool disconnect = await Task.Run(() => printerController.Disconnect());
+
+                            connected = await Task.Run(() => printerController.ConnectAuto(5000));
+                            if (!connected)
+                            {
+                                MessageBox.Show("Hub did not reappear after firmware flash. Please turn it off and on manually");
+
+                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                                connectButton.Text = "Connect";
+                                connectButton.Enabled = true;
+
+                                return;
+                            }
+                            address = printerController.GetConnectedAddress();
+                        }
+                    }
+
+                    connectButton.Text = "Checking runtime...";
+                    bool runtimePresent = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
+
+                    if (!runtimePresent)
+                    {
+                        var result = MessageBox.Show(
+                            "The printer control program is not installed on the hub\n\n" + 
+                            "Do you want to upload it now?",
+                            "Runtime required",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Question);
+
+                        if (result != DialogResult.Yes)
+                        {
+                            await Task.Run(() => printerController.Disconnect());
+
+                            connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                            connectButton.Text = "Connect";
+                            connectButton.Enabled = true;
+
+                            return;
+                        }
+
+                        connectButton.Text = "Uploading runtime...";
+                        connectButton.BackColor = Color.FromArgb(255, 165, 0);
+
+                        string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.py");
+                        bool uploadOk = await Task.Run(() => printerController.UploadProgram(scriptPath, address));
+                        if (!uploadOk)
+                        {
+                            MessageBox.Show("Failed to upload runtime program. Check console.");
+
+                            await Task.Run(() => printerController.Disconnect());
+
+                            connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                            connectButton.Text = "Connect";
+                            connectButton.Enabled = true;
+
+                            return;
+                        }
+
+                        bool started = await Task.Run(() => printerController.StartUserProgram());
+                        if (!started)
+                        {
+                            MessageBox.Show("Runtime program uploaded but failed to start");
+                        }
+                        
+                    }
+
+                    await Task.Delay(1000);
+
+                    runtimePresent = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
+                    if (!runtimePresent)
+                    {
+                        MessageBox.Show("Runtime did not become ready after upload.");
+
+                        await Task.Run(() => printerController.Disconnect());
+
+                        connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                        connectButton.Text = "Connect";
+                        connectButton.Enabled = true;
+
+                        return;
+                    }
+
+                    connectButton.Text = "Connecting to runtime...";
+                    bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
+                    if (!runtimeConnected)
+                    {
+                        MessageBox.Show("Failed to establish runtime communication with the hub");
+                        await Task.Run(() => printerController.Disconnect());
+
+                        connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                        connectButton.Text = "Connect";
+                        connectButton.Enabled = true;
+                        return;
+                    }
+
+
+                    connectButton.BackColor = Color.FromArgb(234, 84, 85);
+                    connectButton.Text = "Disconnect";
+                    connectButton.Enabled = true;
+
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("connect exception" + ex);
-                    this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(29)))), ((int)(((byte)(175)))), ((int)(((byte)(30)))));
-                    this.connectButton.Enabled = true;
-                    this.connectButton.Text = "Connect";
-                    throw;
-                }
+                    Console.WriteLine(ex.ToString());
 
-                if (!printerController.IsPrinterConnect())
-                {
-                    this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(29)))), ((int)(((byte)(175)))), ((int)(((byte)(30)))));
-                    this.connectButton.Enabled = true;
-                    this.connectButton.Text = "Connect";
+                    await Task.Run(() => printerController.Disconnect());
+
+                    connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                    connectButton.Text = "Connect";
+                    connectButton.Enabled = true;
+
+                    return;
                 }
             }
             else
             {
-                this.connectButton.Enabled = false;
-                this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(227)))), ((int)(((byte)(235)))), ((int)(((byte)(12)))));
-                this.connectButton.Text = "disconnecting...";
+                connectButton.BackColor = Color.FromArgb(227, 235, 12);
+                connectButton.Text = "Disconnecting...";
+
                 try
                 {
-                    bool isDisconnected = await Task.Run(() => printerController.Disconnect());
-
-                    if (isDisconnected)
+                    bool disconnected = await Task.Run(() => printerController.Disconnect());
+                    if (!disconnected)
                     {
-                        this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(29)))), ((int)(((byte)(175)))), ((int)(((byte)(30)))));
-                        this.connectButton.Enabled = true;
-                        this.connectButton.Text = "Connect";
-
-                        batteryLabel.SetPrinterController(null);
+                        MessageBox.Show("Disconnect failed");
                     }
-                }
-                catch (Exception)
-                {
-                    this.connectButton.Enabled = true;
-                    this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(234)))), ((int)(((byte)(84)))), ((int)(((byte)(85)))));
-                    this.connectButton.Text = "disconnect";
-                    throw;
-                }
 
-                if (printerController.IsPrinterConnect())
+                    connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                    connectButton.Text = "Connect";
+                    connectButton.Enabled = true;
+
+                    return;
+                }
+                catch (Exception ex)
                 {
-                    this.connectButton.Enabled = true;
-                    this.connectButton.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(234)))), ((int)(((byte)(84)))), ((int)(((byte)(85)))));
-                    this.connectButton.Text = "disconnect";
+                    Console.WriteLine($"Error: {ex.ToString()}");
+                    connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                    connectButton.Text = "Connect";
+                    connectButton.Enabled = true;
+
+                    return;
                 }
             }
         }
@@ -177,38 +343,43 @@ namespace LPStudio
                 }
             }
         }
+
+        // In the form/controller class, create a global counter for the number of records read
+        private long totalProcessedLogs = 0;
+
         private void UpdateConsoleDisplayInternal()
         {
-            try
+            // Get the total number of records that are currently in the C++ buffer
+            int currentAvailable = printerController.GetLogCount();
+
+            // If the buffer in C++ was cleared (ClearLog)
+            if (currentAvailable == 0 && lastDriverLogCount > 0)
             {
-                // Update driver logs
-                int currentDriverLogCount = printerController.GetLogCount();
-
-                if (currentDriverLogCount < lastDriverLogCount)
-                {
-                    // Driver logs have been cleared
-                    ClearTextBoxSafe();
-                    lastDriverLogCount = 0;
-
-                    if (currentDriverLogCount > 0)
-                    {
-                        AppendDriverLogs(0, currentDriverLogCount);
-                        lastDriverLogCount = currentDriverLogCount;
-                    }
-
-                    return;
-                }
-
-                if (currentDriverLogCount > lastDriverLogCount)
-                {
-                    int newDriverLogs = currentDriverLogCount - lastDriverLogCount;
-                    AppendDriverLogs(lastDriverLogCount, newDriverLogs);
-                    lastDriverLogCount = currentDriverLogCount;
-                }
+                ClearTextBoxSafe();
+                totalProcessedLogs = 0;
+                lastDriverLogCount = 0;
+                return;
             }
-            catch (Exception)
+
+            // We need to figure out how many NEW records have appeared since the last time.
+            // But since the buffer is circular, index 0 in C++ always points to the oldest available record.
+
+            // The simplest and most reliable method for a TextBox:
+            // Simply grab everything newer than our last read position.
+            if (currentAvailable > 0)
             {
-                throw;
+                // If we missed too many (the buffer in C++ rotated faster than the timer fired)
+                // then we just take the last available records.
+                int logsToRead = currentAvailable;
+
+                // The logic here is: if we've already read the logs, we subtract what we've already seen.
+                // But remember that GetLogEntry(0) is always the "oldest available."
+                // Therefore, it's easiest to read the tail:
+                AppendDriverLogs(0, currentAvailable);
+
+                // IMPORTANT: After this, you need to have a "Clear Read" method in C++
+                // or switch to absolute indexes (Sequence Numbers).
+                printerController.ClearLog(); // If possible, clear the C++ buffer after reading
             }
         }
 
@@ -294,28 +465,13 @@ namespace LPStudio
         }
         private void LimitLogSize()
         {
-            // Limit the log for performance, but do NOT clear it completely
-            // Simply delete old lines if there are too many of them
-            const int MAX_LINES = 2000;
-            const int KEEP_LINES = 1500;
-
-            if (textBoxConsole.Lines.Length > MAX_LINES)
+            const int MAX_CHARS = 100000; // Limit by characters, it's faster
+            if (textBoxConsole.TextLength > MAX_CHARS)
             {
-                var lines = textBoxConsole.Lines;
-                int removeCount = lines.Length - KEEP_LINES;
-
-                if (removeCount > 0)
-                {
-                    // Create new lines without old ones
-                    var newLines = new string[KEEP_LINES];
-                    Array.Copy(lines, removeCount, newLines, 0, KEEP_LINES);
-
-                    // Update the TextBox
-                    textBoxConsole.Lines = newLines;
-
-                    // Adjust the counter (approximately)
-                    lastLogCount = Math.Max(0, lastLogCount - removeCount);
-                }
+                // Remove the first 20% of the text
+                textBoxConsole.Select(0, MAX_CHARS / 5);
+                textBoxConsole.SelectedText = "";
+                // The caret will remain at the end, AppendText will continue writing downwards
             }
         }
         public bool AutoScrollEnabled { get; set; } = true;

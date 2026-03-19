@@ -88,7 +88,7 @@
             // 
             // labelBattery
             // 
-            this.labelBattery.Location = new System.Drawing.Point(158, 56);
+            this.labelBattery.Location = new System.Drawing.Point(229, 56);
             this.labelBattery.Name = "labelBattery";
             this.labelBattery.Size = new System.Drawing.Size(53, 32);
             this.labelBattery.TabIndex = 2;
@@ -124,9 +124,9 @@
             this.connectButton.FlatAppearance.BorderSize = 0;
             this.connectButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.connectButton.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(255)))), ((int)(((byte)(255)))));
-            this.connectButton.Location = new System.Drawing.Point(13, 56);
+            this.connectButton.Location = new System.Drawing.Point(13, 50);
             this.connectButton.Name = "connectButton";
-            this.connectButton.Size = new System.Drawing.Size(126, 32);
+            this.connectButton.Size = new System.Drawing.Size(151, 44);
             this.connectButton.TabIndex = 0;
             this.connectButton.Text = "connect";
             this.connectButton.UseVisualStyleBackColor = false;
