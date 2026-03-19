@@ -7,7 +7,7 @@
 
 class MotorManager : public IMotorManager {
 public:
-	explicit MotorManager(ITransport& transport);
+	explicit MotorManager(ITransport& transportPointer);
 	~MotorManager();
 
 	void handleNotification(const uint8_t* data, size_t length) override;

@@ -3,7 +3,7 @@
 #include "interfaces/ITransport.h"
 #include "../logging/LogManager.h"
 #include "../core/driver/protocol/BootloaderProtocol.h"
-#include "../core/driver/PrinterFirmware.h"
+#include "../core/driver/protocol/PrinterProtocol.h"
 #include "../core/driver/RuntimeSession.h"
 #include "../api/LegoDriverAPI.h"
 #include "implementation/MotorManager.h"
@@ -14,12 +14,19 @@
 #include <string>
 #include <vector>
 
+enum class HubMode {
+	Unknown,
+	LegoOfficial,
+	Bootloader,
+	PybricksRuntime
+};
+
 class PrinterDriver {
 private:
 	std::unique_ptr<ITransport> transport;
 	std::unique_ptr<MotorManager> motorManager;	
+	std::unique_ptr<BootloaderProtocol> bootloaderProtocol;
 	std::unique_ptr<RuntimeSession> runtime;
-	std::unique_ptr<BootloaderProtocol> bootloader;
 	std::unique_ptr<PrinterProtocol> printerProtocol;
 
 	std::vector<DeviceInfo> scanResults;
@@ -29,7 +36,7 @@ private:
 	std::string lastKnownAddress;
 	
 public:
-	explicit PrinterDriver(std::unique_ptr<ITransport> transport);
+	explicit PrinterDriver(std::unique_ptr<ITransport> transportPointer);
 	~PrinterDriver();
 
 	// scanning / connection
@@ -59,7 +66,6 @@ public:
 	}
 
 	// runtime / raw commands
-
 	void disconnectRuntime();
 	bool connectRuntime(const std::string& address);
 	bool sendRuntime(const uint8_t* data, size_t length);

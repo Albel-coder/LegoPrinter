@@ -1,6 +1,6 @@
 #include "MotorManager.h"
 
-MotorManager::MotorManager(ITransport& transport) : transport(transport) {
+MotorManager::MotorManager(ITransport& transportPointer) : transport(transportPointer) {
 }
 
 MotorManager::~MotorManager() = default;

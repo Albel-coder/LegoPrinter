@@ -42,7 +42,9 @@ std::vector<DeviceInfo> TransportSimpleBLE::getScanResults() const {
 }
 
 bool TransportSimpleBLE::connect(const std::string& address) {
-    disconnect();
+    if (isConnected()) {
+        return true;
+    }
 
     SimpleBLE::Peripheral printerPeripheral;
 
@@ -81,28 +83,45 @@ bool TransportSimpleBLE::connect(const std::string& address) {
 }
 
 bool TransportSimpleBLE::disconnect() {
+    LOG_BLUETOOTH("TransportSimpleBLE::disconnect: start");
     std::lock_guard<std::mutex> lock(stateMutex);
 
     if (peripheral.initialized()) {
         try {
             if (peripheral.is_connected()) {
+                LOG_BLUETOOTH("Calling peripheral.disconnect()");
                 peripheral.disconnect();
+                LOG_BLUETOOTH("Peripheral already disconnected");
             }
         }
-        catch (...) {}
+        catch (const std::exception& ex) {
+            LOG_ERROR("Exception during peripheral disconnect: %s", ex.what());
+        }
+        catch (...) {
+            LOG_ERROR("Unknown exception during peripheral disconnect");
+        }
+    }
+    else {
+        LOG_BLUETOOTH("Peripheral not initialized");
     }
 
+    LOG_BLUETOOTH("Clearing subscriptions and cache");
     subscriptions.clear();
     clearCache();
     connectedAddress.clear();
+    peripheral = SimpleBLE::Peripheral();
 
     if (connectionCallback) {
+        LOG_BLUETOOTH("Calling connectionCallback(false)");
         connectionCallback(false, "");
     }
+
+    LOG_BLUETOOTH("TransportSimpleBLE::disconnect: exit");
     return true;
 }
 
 bool TransportSimpleBLE::isConnected() {
+    std::lock_guard<std::mutex> lock(stateMutex);
     try {
         return peripheral.initialized() && peripheral.is_connected();
     }
@@ -132,6 +151,7 @@ std::vector<Characteristic> TransportSimpleBLE::getCharacteristics(const std::st
 }
 
 bool TransportSimpleBLE::read(const Characteristic& characteristic, std::vector<uint8_t>& out) {
+    std::lock_guard<std::mutex> lock(stateMutex);
     if (!peripheral.is_connected()) {
         return false;
     }
@@ -146,6 +166,7 @@ bool TransportSimpleBLE::read(const Characteristic& characteristic, std::vector<
 }
 
 bool TransportSimpleBLE::write(const Characteristic& characteristic, const uint8_t* data, size_t length, bool withResponse) {
+    std::lock_guard<std::mutex> lock(stateMutex);
     if (!peripheral.is_connected()) {
         return false;
     }
@@ -209,6 +230,7 @@ bool TransportSimpleBLE::unsubscribe(const Characteristic& characteristic) {
 }
 
 size_t TransportSimpleBLE::getMaxWriteSize() const {
+    std::lock_guard<std::mutex> lock(stateMutex);
     return maxWriteSize;
 }
 
@@ -274,6 +296,7 @@ void TransportSimpleBLE::scanWorker(int timeoutSeconds) {
 }
 
 bool TransportSimpleBLE::findPeripheralByAddress(const std::string& address, SimpleBLE::Peripheral& out) {
+    std::lock_guard<std::mutex> lock(stateMutex);
     try {
         auto adapters = SimpleBLE::Adapter::get_adapters();
         if (adapters.empty()) return false;
@@ -318,6 +341,7 @@ void TransportSimpleBLE::cacheServicesAndCharacteristics() {
 }
 
 void TransportSimpleBLE::clearCache() {
+    std::lock_guard<std::mutex> lock(stateMutex);
     cachedCharacteristics.clear();
     cachedServices.clear();
 }
