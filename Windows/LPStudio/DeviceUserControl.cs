@@ -91,7 +91,7 @@ namespace LPStudio
 
                 try
                 {
-                    bool connected = await Task.Run(() => printerController.ConnectAuto(10000));
+                    bool connected = await Task.Run(() => printerController.ConnectAuto(10000, true));
                     if (!connected)
                     {
                         MessageBox.Show("No Lego hub found!");
@@ -154,7 +154,7 @@ namespace LPStudio
                             connectButton.Text = "Installing firmware...";
                             connectButton.BackColor = Color.FromArgb(255, 165, 0);
 
-                            string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "printer-firmware-v3.6.1.zip");
+                            string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "printer-firmware-v3.6.1/firmware-base.bin");
 
                             bool firmwareOk = await Task.Run(() => printerController.FlashFirmware(firmwarePath, address));
                             if (!firmwareOk)
@@ -171,11 +171,13 @@ namespace LPStudio
                             } 
 
                             connectButton.Text = "Restarting...";
-                            await Task.Delay(5000);
+                            await Task.Delay(10000);
 
                             bool disconnect = await Task.Run(() => printerController.Disconnect());
+                            
+                            await Task.Delay(5000);
 
-                            connected = await Task.Run(() => printerController.ConnectAuto(5000));
+                            connected = await Task.Run(() => printerController.ConnectAuto(10000, false));
                             if (!connected)
                             {
                                 MessageBox.Show("Hub did not reappear after firmware flash. Please turn it off and on manually");

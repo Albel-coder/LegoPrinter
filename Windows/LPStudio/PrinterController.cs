@@ -143,8 +143,8 @@ public class PrinterController : IDisposable
         return result;
     }
 
-    public bool ConnectAuto(int timeoutMs) =>
-        SafeCall(() => PrinterConnectAuto(PrinterHandle, timeoutMs), false);
+    public bool ConnectAuto(int timeoutMs, bool legoOnly = true) =>
+        SafeCall(() => PrinterConnectAuto(PrinterHandle, timeoutMs, legoOnly ? 1 : 0), false);
 
     public bool Connect(string address) => 
         SafeCall(() => PrinterConnect(PrinterHandle, address), false);
@@ -564,7 +564,7 @@ public class PrinterController : IDisposable
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool PrinterConnectAuto(IntPtr printer, int timeoutMs);
+    private static extern bool PrinterConnectAuto(IntPtr printer, int timeoutMs, int legoOnly);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
