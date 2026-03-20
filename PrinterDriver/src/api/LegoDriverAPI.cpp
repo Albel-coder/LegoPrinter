@@ -49,13 +49,13 @@ extern "C" {
 		return count;
 	}
 
-	PRINTER_DRIVER_API bool PrinterConnectAuto(DriverHandle printer, int timeoutMs)	{
+	PRINTER_DRIVER_API bool PrinterConnectAuto(DriverHandle printer, int timeoutMs, bool legoOnly)	{
 		if (!printer) {
 			return false;
 		}
 
 		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->connectAuto(timeoutMs);
+		return driver->connectAuto(timeoutMs, legoOnly);
 	}
 
 	PRINTER_DRIVER_API bool PrinterConnect(DriverHandle printer, const char* address) {

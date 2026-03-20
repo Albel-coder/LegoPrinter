@@ -81,7 +81,7 @@ extern "C" {
 
     PRINTER_DRIVER_API int PrinterScan(DriverHandle printer, int timeoutSeconds, int legoOnly, PrinterDeviceInfoC* outDevices, int maxDevices);
 
-    PRINTER_DRIVER_API bool PrinterConnectAuto(DriverHandle printer, int timeoutMs);
+    PRINTER_DRIVER_API bool PrinterConnectAuto(DriverHandle printer, int timeoutMs, bool legoOnly);
     PRINTER_DRIVER_API bool PrinterConnect(DriverHandle printer, const char* address);
     PRINTER_DRIVER_API bool PrinterReconnectLast(DriverHandle printer);
     PRINTER_DRIVER_API bool PrinterDisconnect(DriverHandle printer);

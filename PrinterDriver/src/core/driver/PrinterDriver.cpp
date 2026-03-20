@@ -122,7 +122,7 @@ std::vector<DeviceInfo> PrinterDriver::scan(int timeoutSeconds, bool legoOnly) {
     return scanResults;
 }
 
-bool PrinterDriver::connectAuto(int timeoutMs) {
+bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
     LOG_BLUETOOTH("connectAuto(timeoutMs=%d)", timeoutMs);
 
     if (transport->isConnected()) {
@@ -159,6 +159,11 @@ bool PrinterDriver::connectAuto(int timeoutMs) {
             }
         }
 
+        if (current.empty() && legoOnly) {
+            LOG_BLUETOOTH("connectAuto: no LEGO hubs found, trying all devices");
+            current = filterAndSortHubs(transport->getScanResults(), legoOnly);
+        }
+
         for (const auto& device : current) {
             if (std::find(tried.begin(), tried.end(), device.address) != tried.end()) {
                 continue;
@@ -184,7 +189,7 @@ bool PrinterDriver::connectAuto(int timeoutMs) {
     }
 
     transport->stopScan();
-    LOG_ERROR("No LEGO hub found");
+    LOG_ERROR("No hub found");
     return false;
 }
 
@@ -237,16 +242,14 @@ bool PrinterDriver::reconnectLast() {
 
 bool PrinterDriver::disconnect() {
     LOG_BLUETOOTH("disconnect()");    
+    bool result = true;
 
     if (transport->isConnected()) {
-        return transport->disconnect();
-    }
-    else {
-        return true;
+        result = transport->disconnect();
     }
 
     connectedAddress.clear();
-    return true;
+    return result;
 }
 
 bool PrinterDriver::isConnected() {

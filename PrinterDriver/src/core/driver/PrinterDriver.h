@@ -41,7 +41,7 @@ public:
 
 	// scanning / connection
 	std::vector<DeviceInfo> scan(int timeoutSeconds = 2, bool legoOnly = true);
-	bool connectAuto(int timeoutMs = 4000);
+	bool connectAuto(int timeoutMs = 5000, bool legoOnly = true);
 	bool connect(const std::string& address);
 	bool reconnectLast();
 	bool disconnect();
