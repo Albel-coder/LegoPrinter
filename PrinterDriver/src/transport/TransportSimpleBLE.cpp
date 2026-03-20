@@ -70,6 +70,10 @@ bool TransportSimpleBLE::connect(const std::string& address) {
 
         peripheral = printerPeripheral;
         connectedAddress = address;
+
+        maxWriteSize = 32;
+        LOG_BLUETOOTH("maxWriteSize = %zu", maxWriteSize);
+
         cacheServicesAndCharacteristics();
 
         if (connectionCallback) {
@@ -84,15 +88,29 @@ bool TransportSimpleBLE::connect(const std::string& address) {
 
 bool TransportSimpleBLE::disconnect() {
     LOG_BLUETOOTH("TransportSimpleBLE::disconnect: start");
-    std::lock_guard<std::mutex> lock(stateMutex);
 
-    if (peripheral.initialized()) {
-        try {
-            if (peripheral.is_connected()) {
-                LOG_BLUETOOTH("Calling peripheral.disconnect()");
-                peripheral.disconnect();
-                LOG_BLUETOOTH("Peripheral already disconnected");
+    bool wasConnected = false;
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        wasConnected = peripheral.initialized() && peripheral.is_connected();
+        if (wasConnected) {
+            for (const auto& [key, cb] : subscriptions) {
+                try {
+                    peripheral.unsubscribe(key.serviceUuid, key.characteristicUuid);
+                }
+                catch (const std::exception& ex) {
+                    LOG_ERROR("Exception during unsubscribe: %s", ex.what());
+                }
+                catch (...) {}
             }
+        }
+    }
+
+    if (wasConnected) {
+        try {
+            LOG_BLUETOOTH("Calling peripheral.disconnect()");
+            peripheral.disconnect();
+            LOG_BLUETOOTH("peripheral.disconnect() returned");
         }
         catch (const std::exception& ex) {
             LOG_ERROR("Exception during peripheral disconnect: %s", ex.what());
@@ -101,15 +119,13 @@ bool TransportSimpleBLE::disconnect() {
             LOG_ERROR("Unknown exception during peripheral disconnect");
         }
     }
-    else {
-        LOG_BLUETOOTH("Peripheral not initialized");
-    }
 
-    LOG_BLUETOOTH("Clearing subscriptions and cache");
-    subscriptions.clear();
-    clearCache();
-    connectedAddress.clear();
-    peripheral = SimpleBLE::Peripheral();
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        clearCache();
+        connectedAddress.clear();
+        peripheral = SimpleBLE::Peripheral();
+    }
 
     if (connectionCallback) {
         LOG_BLUETOOTH("Calling connectionCallback(false)");
@@ -269,7 +285,7 @@ void TransportSimpleBLE::scanWorker(int timeoutSeconds) {
                     scanResults.push_back(std::move(device));
                 }
 
-                discoveredPeripherals[device.address] = peripheral;
+                discoveredPeripherals[device.address] = scannedPeripheral;
             }
         });
 

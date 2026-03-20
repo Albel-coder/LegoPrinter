@@ -82,5 +82,5 @@ private:
 
     std::map<std::string, SimpleBLE::Peripheral> discoveredPeripherals;
 
-    size_t maxWriteSize = 20;
+    size_t maxWriteSize = 32;
 };
