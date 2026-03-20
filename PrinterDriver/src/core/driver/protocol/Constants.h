@@ -27,6 +27,7 @@ namespace protocol {
     };
 
     enum class BootloaderCommand : uint8_t {
+        CheckSum = 0x11,
         InitLoader = 0x44,
         ProgramFlash = 0x22,
         StartApp = 0x33,
