@@ -279,22 +279,25 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
     }
 
     const auto services = transport->getServices();
-    HubMode mode = HubMode::Unknown;
+    bool hasLegoOfficial = false;
 
     for (const auto& service : services) {
-        if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
-            mode = HubMode::Bootloader;
-        }
         if (service == protocol::PYBRICKS_SERVICE_UUID) {
-            mode = HubMode::PybricksRuntime;
+            return HubMode::PybricksRuntime;
+        }
+        if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
+            return HubMode::Bootloader;
         }
         if (service == protocol::LWP3_HUB_SERVICE_UUID) {
-            mode = HubMode::LegoOfficial;
+            hasLegoOfficial = true;
         }
     }
 
-    LOG_INFO("detectHubMode: %d", static_cast<int>(mode));
-    return mode;
+    if (hasLegoOfficial) {
+        return HubMode::LegoOfficial;
+    }
+
+    return HubMode::Unknown;
 }
 
 bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
