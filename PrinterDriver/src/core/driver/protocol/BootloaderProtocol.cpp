@@ -31,7 +31,7 @@ BootloaderProtocol::BootloaderProtocol(ITransport& transportPointer)
 
 bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 	if (!transport.isConnected() || !discover()) {
-		LOG_ERROR("Bootloader flash: transport not connected");
+		LOG_ERROR("Bootloader flash: transport not connected or discover failed");
 		return false;
 	}
 
@@ -75,8 +75,19 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 			gotResponse = false;
 		}
 
-		if (response.size() < 1 || response[0] != static_cast<uint8_t>(command)) {
-			LOG_ERROR("Invalid response header: expected 0x%02X, got 0x%02X", static_cast<uint8_t>(command), response[0]);
+		if (response.size() < 2) {
+			LOG_ERROR("Response too short");
+			return false;
+		}
+
+		if (response[0] != 0x01 && response[0] != 0x05) {
+			LOG_ERROR("Invalid response header 0x%02X", response[2]);
+			return false;
+		}
+
+		uint8_t status = response[1];
+		if (status != 0x00) {
+			LOG_ERROR("Command error status 0x%02X", status);
 			return false;
 		}
 
@@ -141,7 +152,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 				return gotResponse; 
 			});
 
-			if (!success || response.size() < 2 || response[0] != 0x22 || response[1] != 0x00) {
+			if (!success || response.size() < 2 || (response[0] != 0x01 && response[0] != 0x05) || response[1] != 0x00) {
 				LOG_ERROR("Hub did not confirm write at offset %zu (Status: %02X)",
 					sent, (response.size() > 1 ? response[1] : 0xFF));
 				return false;
@@ -177,20 +188,24 @@ bool BootloaderProtocol::discover() {
 		return false;
 	}
 
-	bootloaderChar = {};
-
 	LOG_BLUETOOTH("Bootloader discover: checking services");
-
 	for (const auto& service : transport.getServices()) {
-		if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
-			const auto chars = transport.getCharacteristics(service);
+		LOG_BLUETOOTH(" Service: %s", service.c_str());
+		for (const auto& character : transport.getCharacteristics(service)) {
+			LOG_BLUETOOTH("    Char: %s", character.characteristicUuid.c_str());
 
-			for (const auto& characteristic : chars) {
-				if (characteristic.characteristicUuid == protocol::LWP3_BOOTLOADER_CHAR_UUID) {
-					bootloaderChar = characteristic;
-					LOG_BLUETOOTH("Bootloader characteristic found");
-					return true;
-				}
+			if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID &&
+				character.characteristicUuid == protocol::LWP3_BOOTLOADER_CHAR_UUID) {
+				bootloaderChar = character;
+				LOG_BLUETOOTH("Bootloader characteristic found (bootloader)");
+				return true;
+			}
+
+			if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID &&
+				character.characteristicUuid == protocol::LWP3_COMMAND_CHAR_UUID) {
+				bootloaderChar = character;
+				LOG_BLUETOOTH("Bootloader characteristic found (hub command)");
+				return true;
 			}
 		}
 	}
@@ -258,6 +273,9 @@ bool BootloaderProtocol::sendCommand(protocol::BootloaderCommand command, const 
 
 std::vector<uint8_t> BootloaderProtocol::makePacket(protocol::BootloaderCommand command, const std::vector<uint8_t>& payload) const {
 	std::vector<uint8_t> packet;
+	packet.reserve(3 + payload.size());
+	packet.push_back(0x00);		// LWP3 header: request
+	packet.push_back(0x00);		// hub_id (usually 0)
 	packet.push_back(static_cast<uint8_t>(command));
 	packet.insert(packet.end(), payload.begin(), payload.end());
 
