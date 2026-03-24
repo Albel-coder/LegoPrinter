@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 #include <iomanip>
+#include <array>
 
 using namespace std::chrono_literals;
 
@@ -139,6 +140,8 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                 lastRawData.clear();
                 gotNotification = false;
                 bootloaderError = false;
+                bootloaderErrorCommand = 0xFF;
+                bootloaderErrorCode = 0xFF;
             }
 
             auto packet = makePacket(command, payload);
@@ -161,27 +164,45 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                 }
                 return false;
             }
-            if (rawData.size() < 2) {
-                LOG_ERROR("Response too short");
-                return false;
-            }
-
-            uint8_t responseCommand = rawData[0];
-            uint8_t status = rawData[1];
             
-            if (responseCommand == 0x05) {
-                LOG_ERROR("Bootloader error: code = 0x%02X", status);
+            auto frame = parseFrame(rawData);
+            if (!frame) {
+                LOG_ERROR("Invalid frame");
                 return false;
             }
 
-            if (responseCommand != command) {
-                LOG_ERROR("Unexpected response command 0x%02X", responseCommand);
+            if (frame->messageType == 0x05) {
+                uint8_t commandError = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
+                uint8_t error = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
+                LOG_ERROR("Bootloader error: command = 0x%02X error = 0x%02X", commandError, error);
                 return false;
             }
 
-            if (status != 0x00) {
-                LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, status);
-                return false;
+            switch (command) {
+            case 0x11: // Erase Flash
+            case 0x44: // Initiate Loader
+            case 0x22: // Program Flash
+                if (frame->payload.size() < 2 || frame->payload[1] != 0x00) {
+                    LOG_ERROR("Command 0x%02X failed, status = 0x%02X", command, frame->payload.size() > 1 ? frame->payload[1] : 0xFF);
+                    return false;
+                }
+                break;
+
+            case 0x55: // GetInfo
+                if (frame->payload.size() < 17) {
+                    LOG_ERROR("GetInfo: invalid payload size %zu", frame->payload.size());
+                    return false;
+                }
+                break;
+            case 0x66:
+                if (frame->payload.size() < 5) {
+                    LOG_ERROR("Checksum: invalid payload size %zu", frame->payload.size());
+                    return false;
+                }
+                break;
+
+            default:
+                break;
             }
 
             return true;
@@ -235,40 +256,24 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     uint32_t firmwareSize = static_cast<uint32_t>(firmware.size());
     uint32_t alignedSize = ((firmwareSize + 1023) / 1024) * 1024;
-    
-    std::vector<uint8_t> sizePayload;
-    sizePayload.push_back(static_cast<uint8_t>(alignedSize & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((alignedSize >> 8) & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((alignedSize >> 16) & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>(alignedSize >> 24) & 0xFF);
 
-    // Erase Flash (0x11)
-    uint32_t eraseAddress = 0x08008000;
-    uint32_t eraseLength = alignedSize;
-    std::vector<uint8_t> erasePayload;
-    erasePayload.push_back(eraseAddress & 0xFF);
-    erasePayload.push_back((eraseAddress >> 8) & 0xFF);
-    erasePayload.push_back((eraseAddress >> 16) & 0xFF);
-    erasePayload.push_back((eraseAddress >> 24) & 0xFF);
-    erasePayload.push_back(eraseLength & 0xFF);
-    erasePayload.push_back((eraseLength >> 8) & 0xFF);
-    erasePayload.push_back((eraseLength >> 16) & 0xFF);
-    erasePayload.push_back((eraseLength >> 24) & 0xFF);
+    std::vector<uint8_t> initiatePayload(8);
 
-    // Initiate Loader = 0x44
-    if (!sendAndWait(0x44, sizePayload, 5s)) {
+    initiatePayload[0] = firmwareSize & 0xFF;
+    initiatePayload[1] = (firmwareSize >> 8) & 0xFF;
+    initiatePayload[2] = (firmwareSize >> 16) & 0xFF;
+    initiatePayload[3] = (firmwareSize >> 24) & 0xFF;
+
+    initiatePayload[4] = alignedSize & 0xFF;
+    initiatePayload[5] = (alignedSize >> 8) & 0xFF;
+    initiatePayload[6] = (alignedSize >> 16) & 0xFF;
+    initiatePayload[7] = (alignedSize >> 24) & 0xFF;
+
+    if (!sendAndWait(0x44, initiatePayload, 5s)) {
         LOG_ERROR("Initiate Loader failed");
         cleanup();
         return false;
     }
-
-    if (!sendAndWait(0x11, erasePayload, 5s)) {
-        LOG_ERROR("Erase Flash failed");
-        cleanup();
-        return false;
-    }
-
-    std::this_thread::sleep_for(200ms);   
 
     // Get Info = subcommand 0x55
     if (!sendAndWait(0x55, {}, 5s)) {
