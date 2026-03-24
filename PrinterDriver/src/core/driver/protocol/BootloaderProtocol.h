@@ -22,9 +22,8 @@ private:
 	Characteristic bootloaderChar;
 
 	bool discover();
-	bool sendCommand(protocol::BootloaderCommand command,
-		const std::vector<uint8_t>& payload, std::vector<uint8_t>* response = nullptr, bool withResponse = true);
 
-	std::vector<uint8_t> makePacket(protocol::BootloaderCommand command,
+	std::vector<uint8_t> BootloaderProtocol::makePacket(
+		uint8_t subCommand,
 		const std::vector<uint8_t>& payload) const;
 };
