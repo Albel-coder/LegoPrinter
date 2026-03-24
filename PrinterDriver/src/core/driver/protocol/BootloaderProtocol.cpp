@@ -234,10 +234,17 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     };
 
     uint32_t firmwareSize = static_cast<uint32_t>(firmware.size());
+    uint32_t alignedSize = ((firmwareSize + 1023) / 1024) * 1024;
     
+    std::vector<uint8_t> sizePayload;
+    sizePayload.push_back(static_cast<uint8_t>(alignedSize & 0xFF));
+    sizePayload.push_back(static_cast<uint8_t>((alignedSize >> 8) & 0xFF));
+    sizePayload.push_back(static_cast<uint8_t>((alignedSize >> 16) & 0xFF));
+    sizePayload.push_back(static_cast<uint8_t>(alignedSize >> 24) & 0xFF);
+
     // Erase Flash (0x11)
     uint32_t eraseAddress = 0x08008000;
-    uint32_t eraseLength = ((firmwareSize + 1023) / 1024) * 1024; // выровнено по 1KB
+    uint32_t eraseLength = alignedSize;
     std::vector<uint8_t> erasePayload;
     erasePayload.push_back(eraseAddress & 0xFF);
     erasePayload.push_back((eraseAddress >> 8) & 0xFF);
@@ -248,24 +255,20 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     erasePayload.push_back((eraseLength >> 16) & 0xFF);
     erasePayload.push_back((eraseLength >> 24) & 0xFF);
 
-    if (!sendAndWait(0x11, erasePayload, 5s)) {
-        LOG_ERROR("Erase Flash failed");
-        cleanup();
-        return false;
-    }
-    
-    std::vector<uint8_t> sizePayload;
-    sizePayload.push_back(static_cast<uint8_t>(firmwareSize & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((firmwareSize >> 8) & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((firmwareSize >> 16) & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>(firmwareSize >> 24) & 0xFF);
-
     // Initiate Loader = 0x44
     if (!sendAndWait(0x44, sizePayload, 5s)) {
         LOG_ERROR("Initiate Loader failed");
         cleanup();
         return false;
     }
+
+    if (!sendAndWait(0x11, erasePayload, 5s)) {
+        LOG_ERROR("Erase Flash failed");
+        cleanup();
+        return false;
+    }
+
+    std::this_thread::sleep_for(200ms);   
 
     // Get Info = subcommand 0x55
     if (!sendAndWait(0x55, {}, 5s)) {
