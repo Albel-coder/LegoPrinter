@@ -1,11 +1,53 @@
 #include "BootloaderProtocol.h"
 #include "../logging/LogManager.h"
 
+#include <algorithm>
 #include <chrono>
-#include <thread>
+#include <condition_variable>
+#include <cstdint>
 #include <mutex>
+#include <optional>
+#include <sstream>
+#include <thread>
+#include <vector>
+#include <iomanip>
 
 using namespace std::chrono_literals;
+
+namespace {
+	struct BootloaderFrame {
+		uint8_t length{};
+		uint8_t hubId{};
+		uint8_t messageType{};
+		std::vector<uint8_t> payload;
+	};
+
+	static void logHex(const char* prefix, const std::vector<uint8_t>& data) {
+		std::ostringstream oss;
+		oss << prefix << " [";
+		for (size_t i = 0; i < data.size(); ++i) {
+			oss << "0x" << std::hex << std::uppercase
+				<< std::setw(2) << std::setfill('0')
+				<< static_cast<int>(data[i]);
+			if (i + 1 < data.size()) oss << ' ';
+		}
+		oss << "]";
+		LOG_BLUETOOTH("%s", oss.str().c_str());
+	}
+
+	static std::optional<BootloaderFrame> parseFrame(const std::vector<uint8_t>& rawData) {
+		if (rawData.size() < 3) {
+			return std::nullopt;
+		}
+
+		BootloaderFrame frame;
+		frame.length = rawData[0];
+		frame.hubId = rawData[1];
+		frame.messageType = rawData[2];
+		frame.payload.assign(rawData.begin() + 3, rawData.end());
+		return frame;
+	}
+} // namespace
 
 // Calculating CRC-16-CCITT
 static uint16_t crr16CCITT(const uint16_t* data, size_t length) {
@@ -30,156 +72,233 @@ BootloaderProtocol::BootloaderProtocol(ITransport& transportPointer)
 : transport(transportPointer) {}
 
 bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
-	if (!transport.isConnected() || !discover()) {
-		LOG_ERROR("Bootloader flash: transport not connected or discover failed");
-		return false;
-	}
+    if (!transport.isConnected() || !discover()) {
+        LOG_ERROR("Bootloader flash: transport not connected or discover failed");
+        return false;
+    }
 
-	std::mutex firmwareMutex;
-	std::condition_variable variable;
-	std::vector<uint8_t> response;
-	bool gotResponse = false;
+    std::mutex firmwareMutex;
+    std::condition_variable cv;
 
-	auto callback = [&](const Characteristic&, const uint8_t* data, size_t length) {
-		std::lock_guard<std::mutex> lock(firmwareMutex);
-		LOG_BLUETOOTH("Bootloader notification: length=%zu", length);
-		for (size_t i = 0; i < length && i < 16; ++i) {
-			LOG_BLUETOOTH(" data[%zu] = 0x%02X", i, data[i]);
-		}
-		response.assign(data, data + length);
-		gotResponse = true;
-		variable.notify_all();
-	};
+    std::vector<uint8_t> lastRaw;
+    bool gotNotification = false;
+    bool bootloaderError = false;
+    uint8_t bootloaderErrorCommand = 0xFF;
+    uint8_t bootloaderErrorCode = 0xFF;
 
-	if (!transport.subscribe(bootloaderChar, callback)) {
-		LOG_ERROR("Failed to subscribe to bootloader character");
-		return false;
-	}
+    auto callback = [&](const Characteristic&, const uint8_t* data, size_t length) {
+        std::lock_guard<std::mutex> lock(firmwareMutex);
 
-	auto sendAndWait = [&](protocol::BootloaderCommand command, const std::vector<uint8_t>& payload) -> bool {
-		auto packet = makePacket(command, payload);
-		LOG_BLUETOOTH("Sending LWP3 command 0x%02X, packet size = %zu", static_cast<uint8_t>(command), packet.size());
-		if (!transport.write(bootloaderChar, packet.data(), packet.size(), true)) {
-			LOG_ERROR("Write failed for command 0x%02X", static_cast<uint8_t>(command));
-			return false;
-		}
+        lastRaw.assign(data, data + length);
+        gotNotification = true;
 
-		{
-			std::unique_lock<std::mutex> lock(firmwareMutex);
-			if (!variable.wait_for(lock, std::chrono::seconds(5), [&] {
-				return gotResponse;
-			})) {
-				LOG_ERROR("Timeout waiting for response to command 0x%02X", static_cast<uint8_t>(command));
-				return false;
-			}
-			gotResponse = false;
-		}
+        auto frame = parseFrame(lastRaw);
+        if (frame && frame->messageType == 0x05) {
+            bootloaderError = true;
+            if (frame->payload.size() > 0) bootloaderErrorCommand = frame->payload[0];
+            if (frame->payload.size() > 1) bootloaderErrorCode = frame->payload[1];
+        }
 
-		if (response.size() < 2) {
-			LOG_ERROR("Response too short");
-			return false;
-		}
+        logHex("RX", lastRaw);
+        cv.notify_all();
+        };
 
-		if (response[0] != 0x01 && response[0] != 0x05) {
-			LOG_ERROR("Invalid response header 0x%02X", response[2]);
-			return false;
-		}
+    if (!transport.subscribe(bootloaderChar, callback)) {
+        LOG_ERROR("Failed to subscribe to bootloader characteristic");
+        return false;
+    }
 
-		uint8_t status = response[1];
-		if (status != 0x00) {
-			LOG_ERROR("Command error status 0x%02X", status);
-			return false;
-		}
+    auto cleanup = [&]() {
+        transport.unsubscribe(bootloaderChar);
+        };
 
-		return true;
-	};	
+    auto waitForNotification = [&](std::chrono::milliseconds timeout, std::vector<uint8_t>& out) -> bool {
+        std::unique_lock<std::mutex> lock(firmwareMutex);
 
-	if (!sendAndWait(protocol::BootloaderCommand::GetInfo, {})) {
-		LOG_ERROR("GetInfo failed - bootloader not responding");
-		transport.unsubscribe(bootloaderChar);
-		return false;
-	}
-	
-	if (!sendAndWait(protocol::BootloaderCommand::InitLoader, {})) {
-		LOG_ERROR("InitLoader failed");
-		transport.unsubscribe(bootloaderChar);
-		return false;
-	}
+        const bool ok = cv.wait_for(lock, timeout, [&] {
+            return gotNotification || bootloaderError;
+            });
 
-	if (!sendAndWait(protocol::BootloaderCommand::CheckSum, {})) {
-		LOG_WARNING("CheckSum failed, but maybe firmware is okay");
-	}
+        if (!ok) {
+            return false;
+        }
 
-	LOG_INFO("Bootloader responded");
+        if (bootloaderError) {
+            return false;
+        }
 
-	const size_t maxWrite = transport.getMaxWriteSize();
+        out = lastRaw;
+        gotNotification = false;
+        return true;
+        };
 
-	size_t sent = 0;
-	const size_t FLASH_CHUNK_SIZE = 11;
-	uint32_t baseAddress = 0x08008000;
+    auto sendAndWait = [&](protocol::BootloaderCommand command,
+        const std::vector<uint8_t>& payload,
+        std::chrono::milliseconds timeout = 5s) -> bool
+        {
+            {
+                std::lock_guard<std::mutex> lock(firmwareMutex);
+                lastRaw.clear();
+                gotNotification = false;
+                bootloaderError = false;
+                bootloaderErrorCommand = 0xFF;
+                bootloaderErrorCode = 0xFF;
+            }
 
-	while (sent < firmware.size()) {
-		size_t chunk = std::min(FLASH_CHUNK_SIZE, firmware.size() - sent);
-		std::vector<uint8_t> payload;
-		payload.reserve(4 + FLASH_CHUNK_SIZE);
-		uint32_t offset = baseAddress + sent;
-		payload.push_back(offset & 0xFF);
-		payload.push_back((offset >> 8) & 0xFF);
-		payload.push_back((offset >> 16) & 0xFF);
-		payload.push_back((offset >> 24) & 0xFF);
-		payload.insert(payload.end(), firmware.begin() + sent, firmware.begin() + sent + chunk);
+            auto packet = makePacket(command, payload);
+            logHex("TX", packet);
 
-		while (payload.size() < (4 + FLASH_CHUNK_SIZE)) {
-			payload.push_back(0xFF);
-		}
+            if (!transport.write(bootloaderChar, packet.data(), packet.size(), true)) {
+                LOG_ERROR("Write failed for command 0x%02X", static_cast<uint8_t>(command));
+                return false;
+            }
 
-		{
-			std::lock_guard<std::mutex> lock(firmwareMutex);
-			gotResponse = false;
-			response.clear(); 
-		}
+            std::vector<uint8_t> raw;
+            if (!waitForNotification(timeout, raw)) {
+                std::lock_guard<std::mutex> lock(firmwareMutex);
+                if (bootloaderError) {
+                    LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X",
+                        bootloaderErrorCommand, bootloaderErrorCode);
+                }
+                else {
+                    LOG_ERROR("Timeout waiting for response to command 0x%02X",
+                        static_cast<uint8_t>(command));
+                }
+                return false;
+            }
 
-		auto packet = makePacket(protocol::BootloaderCommand::ProgramFlash, payload);
+            auto frame = parseFrame(raw);
+            if (!frame) {
+                LOG_ERROR("Invalid frame");
+                return false;
+            }
 
-		if (!transport.write(bootloaderChar, packet.data(), packet.size(), false)) {
-			LOG_ERROR("WriteCommand failed at offset %zu", sent);
-			return false;
-		}
+            if (frame->messageType == 0x05) {
+                uint8_t cmdErr = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
+                uint8_t err = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
+                LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X", cmdErr, err);
+                return false;
+            }
 
-		{
-			std::unique_lock<std::mutex> lock(firmwareMutex);
-			bool success = variable.wait_for(lock, 2s, [&]{ 
-				return gotResponse; 
-			});
+            if (frame->messageType != static_cast<uint8_t>(command)) {
+                LOG_ERROR("Unexpected reply type 0x%02X for command 0x%02X",
+                    frame->messageType, static_cast<uint8_t>(command));
+                return false;
+            }
 
-			if (!success || response.size() < 2 || (response[0] != 0x01 && response[0] != 0x05) || response[1] != 0x00) {
-				LOG_ERROR("Hub did not confirm write at offset %zu (Status: %02X)",
-					sent, (response.size() > 1 ? response[1] : 0xFF));
-				return false;
-			}
-			gotResponse = false;
-		}
+            return true;
+        };
 
-		sent += chunk;
-		LOG_INFO("Progress: %zu / %zu", sent, firmware.size());
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-	}
+    auto sendFireAndForget = [&](protocol::BootloaderCommand command,
+        const std::vector<uint8_t>& payload) -> bool
+        {
+            {
+                std::lock_guard<std::mutex> lock(firmwareMutex);
+                lastRaw.clear();
+                gotNotification = false;
+                bootloaderError = false;
+                bootloaderErrorCommand = 0xFF;
+                bootloaderErrorCode = 0xFF;
+            }
 
-	LOG_INFO("Verifying checksum...");
-	if (!sendAndWait(protocol::BootloaderCommand::CheckSum, {})) {
-		LOG_WARNING("CheckSum failed, but maybe firmware is okay");
-	}
+            auto packet = makePacket(command, payload);
+            logHex("TX", packet);
 
-	LOG_INFO("Starting application...");
-	if (!sendAndWait(protocol::BootloaderCommand::StartApp, {})) {
-		LOG_ERROR("Start application failed");
-		transport.unsubscribe(bootloaderChar);
-		return false;
-	}
+            if (!transport.write(bootloaderChar, packet.data(), packet.size(), true)) {
+                LOG_ERROR("Write failed for command 0x%02X", static_cast<uint8_t>(command));
+                return false;
+            }
 
-	transport.unsubscribe(bootloaderChar);
-	LOG_INFO("Firmware flashed successfully");
-	return true;
+            std::vector<uint8_t> raw;
+            if (waitForNotification(50ms, raw)) {
+                auto frame = parseFrame(raw);
+                if (frame && frame->messageType == 0x05) {
+                    uint8_t cmdErr = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
+                    uint8_t err = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
+                    LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X", cmdErr, err);
+                    return false;
+                }
+            }
+            else {
+                std::lock_guard<std::mutex> lock(firmwareMutex);
+                if (bootloaderError) {
+                    LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X",
+                        bootloaderErrorCommand, bootloaderErrorCode);
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+    if (!sendAndWait(protocol::BootloaderCommand::GetInfo, {}, 5s)) {
+        LOG_ERROR("GetInfo failed - bootloader not responding");
+        cleanup();
+        return false;
+    }
+
+    if (!sendAndWait(protocol::BootloaderCommand::InitLoader, {}, 5s)) {
+        LOG_ERROR("InitLoader failed");
+        cleanup();
+        return false;
+    }
+
+    if (!sendAndWait(protocol::BootloaderCommand::CheckSum, {}, 5s)) {
+        LOG_WARNING("CheckSum failed, continuing");
+    }
+
+    LOG_INFO("Bootloader responded");
+
+    const size_t FLASH_CHUNK_SIZE = 11;
+    const uint32_t baseAddress = 0x08008000;
+
+    size_t sent = 0;
+    while (sent < firmware.size()) {
+        const size_t chunk = std::min(FLASH_CHUNK_SIZE, firmware.size() - sent);
+
+        std::vector<uint8_t> payload;
+        payload.reserve(4 + FLASH_CHUNK_SIZE);
+
+        const uint32_t offset = baseAddress + static_cast<uint32_t>(sent);
+        payload.push_back(static_cast<uint8_t>(offset & 0xFF));
+        payload.push_back(static_cast<uint8_t>((offset >> 8) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((offset >> 16) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((offset >> 24) & 0xFF));
+
+        payload.insert(payload.end(),
+            firmware.begin() + static_cast<std::ptrdiff_t>(sent),
+            firmware.begin() + static_cast<std::ptrdiff_t>(sent + chunk));
+
+        while (payload.size() < 4 + FLASH_CHUNK_SIZE) {
+            payload.push_back(0xFF);
+        }
+
+        if (!sendFireAndForget(protocol::BootloaderCommand::ProgramFlash, payload)) {
+            LOG_ERROR("ProgramFlash failed at offset %zu", sent);
+            cleanup();
+            return false;
+        }
+
+        sent += chunk;
+        LOG_INFO("Progress: %zu / %zu", sent, firmware.size());
+        std::this_thread::sleep_for(10ms);
+    }
+
+    LOG_INFO("Verifying checksum...");
+    if (!sendAndWait(protocol::BootloaderCommand::CheckSum, {}, 5s)) {
+        LOG_WARNING("CheckSum failed, continuing");
+    }
+
+    LOG_INFO("Starting application...");
+    if (!sendFireAndForget(protocol::BootloaderCommand::StartApp, {})) {
+        LOG_ERROR("StartApp write failed");
+        cleanup();
+        return false;
+    }
+
+    cleanup();
+    LOG_INFO("Firmware flashed successfully");
+    return true;
 }
 
 bool BootloaderProtocol::discover() {
@@ -191,20 +310,17 @@ bool BootloaderProtocol::discover() {
 	LOG_BLUETOOTH("Bootloader discover: checking services");
 	for (const auto& service : transport.getServices()) {
 		LOG_BLUETOOTH(" Service: %s", service.c_str());
+
+		if (service != protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
+			continue;
+		}
+
 		for (const auto& character : transport.getCharacteristics(service)) {
 			LOG_BLUETOOTH("    Char: %s", character.characteristicUuid.c_str());
 
-			if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID &&
-				character.characteristicUuid == protocol::LWP3_BOOTLOADER_CHAR_UUID) {
+			if (character.characteristicUuid == protocol::LWP3_BOOTLOADER_CHAR_UUID) {
 				bootloaderChar = character;
-				LOG_BLUETOOTH("Bootloader characteristic found (bootloader)");
-				return true;
-			}
-
-			if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID &&
-				character.characteristicUuid == protocol::LWP3_COMMAND_CHAR_UUID) {
-				bootloaderChar = character;
-				LOG_BLUETOOTH("Bootloader characteristic found (hub command)");
+				LOG_BLUETOOTH("Bootloader characteristic found");
 				return true;
 			}
 		}
@@ -274,9 +390,10 @@ bool BootloaderProtocol::sendCommand(protocol::BootloaderCommand command, const 
 std::vector<uint8_t> BootloaderProtocol::makePacket(protocol::BootloaderCommand command, const std::vector<uint8_t>& payload) const {
 	std::vector<uint8_t> packet;
 	packet.reserve(3 + payload.size());
-	packet.push_back(0x00);		// LWP3 header: request
-	packet.push_back(0x00);		// hub_id (usually 0)
-	packet.push_back(static_cast<uint8_t>(command));
+
+	packet.push_back(static_cast<uint8_t>(3 + payload.size())); // LEGO common header length
+	packet.push_back(0x00);                                     // Hub ID
+	packet.push_back(static_cast<uint8_t>(command));            // Message Type
 	packet.insert(packet.end(), payload.begin(), payload.end());
 
 	return packet;
