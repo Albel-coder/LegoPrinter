@@ -78,9 +78,9 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     }
 
     std::mutex firmwareMutex;
-    std::condition_variable cv;
+    std::condition_variable conditionVariable;
 
-    std::vector<uint8_t> lastRaw;
+    std::vector<uint8_t> lastRawData;
     bool gotNotification = false;
     bool bootloaderError = false;
     uint8_t bootloaderErrorCommand = 0xFF;
@@ -89,19 +89,24 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     auto callback = [&](const Characteristic&, const uint8_t* data, size_t length) {
         std::lock_guard<std::mutex> lock(firmwareMutex);
 
-        lastRaw.assign(data, data + length);
+        lastRawData.assign(data, data + length);
         gotNotification = true;
 
-        auto frame = parseFrame(lastRaw);
+        auto frame = parseFrame(lastRawData);
         if (frame && frame->messageType == 0x05) {
+
             bootloaderError = true;
-            if (frame->payload.size() > 0) bootloaderErrorCommand = frame->payload[0];
-            if (frame->payload.size() > 1) bootloaderErrorCode = frame->payload[1];
+            if (frame->payload.size() > 0) {
+                bootloaderErrorCommand = frame->payload[0];
+            }
+            if (frame->payload.size() > 1) {
+                bootloaderErrorCode = frame->payload[1];
+            }
         }
 
-        logHex("RX", lastRaw);
-        cv.notify_all();
-        };
+        logHex("RX", lastRawData);
+        conditionVariable.notify_all();
+    };
 
     if (!transport.subscribe(bootloaderChar, callback)) {
         LOG_ERROR("Failed to subscribe to bootloader characteristic");
@@ -110,16 +115,16 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     auto cleanup = [&]() {
         transport.unsubscribe(bootloaderChar);
-        };
+    };
 
     auto waitForNotification = [&](std::chrono::milliseconds timeout, std::vector<uint8_t>& out) -> bool {
         std::unique_lock<std::mutex> lock(firmwareMutex);
 
-        const bool ok = cv.wait_for(lock, timeout, [&] {
+        const bool result = conditionVariable.wait_for(lock, timeout, [&] {
             return gotNotification || bootloaderError;
-            });
+        });
 
-        if (!ok) {
+        if (!result) {
             return false;
         }
 
@@ -127,10 +132,10 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
             return false;
         }
 
-        out = lastRaw;
+        out = lastRawData;
         gotNotification = false;
         return true;
-        };
+    };
 
     auto sendAndWait = [&](protocol::BootloaderCommand command,
         const std::vector<uint8_t>& payload,
@@ -138,7 +143,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         {
             {
                 std::lock_guard<std::mutex> lock(firmwareMutex);
-                lastRaw.clear();
+                lastRawData.clear();
                 gotNotification = false;
                 bootloaderError = false;
                 bootloaderErrorCommand = 0xFF;
@@ -153,8 +158,8 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                 return false;
             }
 
-            std::vector<uint8_t> raw;
-            if (!waitForNotification(timeout, raw)) {
+            std::vector<uint8_t> rawData;
+            if (!waitForNotification(timeout, rawData)) {
                 std::lock_guard<std::mutex> lock(firmwareMutex);
                 if (bootloaderError) {
                     LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X",
@@ -164,37 +169,41 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                     LOG_ERROR("Timeout waiting for response to command 0x%02X",
                         static_cast<uint8_t>(command));
                 }
+                
                 return false;
             }
 
-            auto frame = parseFrame(raw);
+            auto frame = parseFrame(rawData);
             if (!frame) {
                 LOG_ERROR("Invalid frame");
+                
                 return false;
             }
 
             if (frame->messageType == 0x05) {
-                uint8_t cmdErr = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
-                uint8_t err = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
-                LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X", cmdErr, err);
+                uint8_t commandError = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
+                uint8_t error = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
+                LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X", commandError, error);
+                
                 return false;
             }
 
             if (frame->messageType != static_cast<uint8_t>(command)) {
                 LOG_ERROR("Unexpected reply type 0x%02X for command 0x%02X",
                     frame->messageType, static_cast<uint8_t>(command));
+                
                 return false;
             }
 
             return true;
-        };
+    };
 
     auto sendFireAndForget = [&](protocol::BootloaderCommand command,
         const std::vector<uint8_t>& payload) -> bool
         {
             {
                 std::lock_guard<std::mutex> lock(firmwareMutex);
-                lastRaw.clear();
+                lastRawData.clear();
                 gotNotification = false;
                 bootloaderError = false;
                 bootloaderErrorCommand = 0xFF;
@@ -209,13 +218,13 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                 return false;
             }
 
-            std::vector<uint8_t> raw;
-            if (waitForNotification(50ms, raw)) {
-                auto frame = parseFrame(raw);
+            std::vector<uint8_t> rawData;
+            if (waitForNotification(50ms, rawData)) {
+                auto frame = parseFrame(rawData);
                 if (frame && frame->messageType == 0x05) {
-                    uint8_t cmdErr = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
-                    uint8_t err = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
-                    LOG_ERROR("Bootloader error: cmd=0x%02X err=0x%02X", cmdErr, err);
+                    uint8_t commandError = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
+                    uint8_t error = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
+                    LOG_ERROR("Bootloader error: command = 0x%02X error = 0x%02X", commandError, error);
                     return false;
                 }
             }
