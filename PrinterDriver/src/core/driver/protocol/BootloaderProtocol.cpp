@@ -165,12 +165,12 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                 LOG_ERROR("Response too short");
                 return false;
             }
-            
+
             uint8_t responseCommand = rawData[0];
+            uint8_t status = rawData[1];
+            
             if (responseCommand == 0x05) {
-                uint8_t errorCommand = rawData.size() > 2 ? rawData[2] : 0xFF;
-                uint8_t errorCode = rawData.size() > 3 ? rawData[3] : 0xFF;
-                LOG_ERROR("Bootloader error: command = 0x%02X error = 0x%02X", errorCommand, errorCode);
+                LOG_ERROR("Bootloader error: code = 0x%02X", status);
                 return false;
             }
 
@@ -179,16 +179,8 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
                 return false;
             }
 
-            auto frame = parseFrame(rawData);
-            if (!frame) {
-                LOG_ERROR("Invalid frame");
-                return false;
-            }
-
-            if (frame->messageType == 0x05) {
-                uint8_t commandError = frame->payload.size() > 0 ? frame->payload[0] : 0xFF;
-                uint8_t errorCode = frame->payload.size() > 1 ? frame->payload[1] : 0xFF;
-                LOG_ERROR("Bootloader error: command = 0x%02X error =0x%02X", commandError, errorCode);
+            if (status != 0x00) {
+                LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, status);
                 return false;
             }
 
@@ -289,7 +281,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     LOG_INFO("Bootloader responded");
 
-    const size_t FLASH_CHUNK_SIZE = 11;
+    const size_t FLASH_CHUNK_SIZE = 16;
     const uint32_t baseAddress = 0x08008000;
 
     size_t sent = 0;
@@ -313,7 +305,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
             payload.push_back(0xFF);
         }
 
-        if (!sendFireAndForget(0x22, payload)) {
+        if (!sendAndWait(0x22, payload, 200ms)) {
             LOG_ERROR("ProgramFlash failed at offset %zu", sent);
             cleanup();
             return false;
@@ -330,8 +322,14 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     }
 
     LOG_INFO("Starting application...");
-    if (!sendFireAndForget(0x33, {})) {
-        LOG_ERROR("StartApp write failed");
+    auto startApplication = [&]() -> bool {
+        auto packet = makePacket(0x33, {});
+        logHex("TX", packet);
+        return transport.write(bootloaderChar, packet.data(), packet.size());
+    };
+
+    if (!startApplication()) {
+        LOG_ERROR("StartApplication write failed");
         cleanup();
         return false;
     }
