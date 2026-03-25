@@ -2,26 +2,46 @@
 #include "../logging/LogManager.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <condition_variable>
+#include <cctype>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <sstream>
 #include <thread>
 #include <vector>
-#include <iomanip>
-#include <array>
 
 using namespace std::chrono_literals;
 
 namespace {
 
+    constexpr uint8_t commandEraseFlash = 0x11;
+    constexpr uint8_t commandProgramFlash = 0x22;
+    constexpr uint8_t commandStartApplication = 0x33;
+    constexpr uint8_t commandInitializeLoader = 0x44;
+    constexpr uint8_t commandGetInfo = 0x55;
+    constexpr uint8_t commandGetChecksum = 0x66;
+    constexpr uint8_t commandDisconnect = 0x88;
+
+    constexpr uint32_t defaultTechnicFlashStart = 0x800800;
+    constexpr size_t programChunkSize = 32; // matches the common max write size on Technic control+ hubs
+
     struct BootloaderFrame {
-        uint8_t length{};
-        uint8_t hubId{};
-        uint8_t messageType{};
+        uint8_t command{};
         std::vector<uint8_t> payload;
+    };
+
+    struct BootloaderInfo {
+        int32_t version{};
+        uint32_t startAddress{};
+        uint8_t endAddress{};
+        uint8_t typeId{};
     };
 
     static void logHex(const char* prefix, const std::vector<uint8_t>& data) {
@@ -31,7 +51,9 @@ namespace {
             oss << "0x" << std::hex << std::uppercase
                 << std::setw(2) << std::setfill('0')
                 << static_cast<int>(data[i]);
-            if (i + 1 < data.size()) oss << ' ';
+            if (i + 1 < data.size()) {
+                oss << ' ';
+            }
         }
         oss << "]";
         LOG_BLUETOOTH("%s", oss.str().c_str());
@@ -43,11 +65,29 @@ namespace {
         }
 
         BootloaderFrame frame;
-        frame.length = rawData[0];
-        frame.hubId = rawData[1];
-        frame.messageType = rawData[2];
-        frame.payload.assign(rawData.begin() + 3, rawData.end());
+        frame.command = rawData[0];
+        frame.payload.assign(rawData.begin() + 1, rawData.end() + 1);
         return frame;
+    }
+
+    static std::vector<uint8_t> readBinaryFile(const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            LOG_ERROR("Failed to open file: %s", path.string().c_str());
+        }
+
+        return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    }
+
+    static std::string readTextFile(const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            LOG_ERROR("Failed to open file: ", path.string().c_str());
+        }
+
+        std::ostringstream string;
+        string << file.rdbuf();
+        return string.str();
     }
 
 } // namespace
