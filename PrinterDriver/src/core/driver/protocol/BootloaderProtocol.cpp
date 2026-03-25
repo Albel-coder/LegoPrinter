@@ -90,6 +90,34 @@ namespace {
         return string.str();
     }
 
+    static std::string trim(std::string string) {
+        auto notSpace = [](unsigned char character) {
+            return !std::isspace(character);
+        };
+        string.erase(string.begin(), std::find_if(string.begin(), string.end(), notSpace));
+        string.erase(std::find_if(string.rbegin(), string.rend(), notSpace).base(), string.end());
+        return string;
+    }
+
+    static std::optional<std::string> jsonStringField(const std::string& json, const std::string& key) {
+        std::regex regex("\"" + key + "\"\\s*:\\s*\"([^\"]*)\"");
+        std::smatch match;
+        if (!std::regex_search(json, match, regex) || match.size() < 2) {
+            return std::nullopt;
+        }
+        return match[1].str();
+    }
+
+    static std::optional<int64_t> jsonIntegerField(const std::string& json, const std::string& key) {
+        std::regex regex("\"" + key + "\"\\s*:\\s*(-?[0-9]+)");
+        std::smatch match;
+        if (!std::regex_search(json, match, regex)) {
+            return std::nullopt;
+        }
+
+        return std::stoll(match[1].str());
+    }
+
 } // namespace
 
 // Calculating CRC-16-CCITT
