@@ -118,6 +118,42 @@ namespace {
         return std::stoll(match[1].str());
     }
 
+    struct FirmwareMetadataLite {
+        std::string metadataVersion;
+        uint32_t deviceId{};
+        std::string checksumType{};
+        uint32_t hubNameOffset{};
+        uint32_t hubNameSize{};
+    };
+
+    static FirmwareMetadataLite parseFirmwareMetadata(const std::string& json) {
+        FirmwareMetadataLite metadata;
+
+        auto metadataVersion = jsonStringField(json, "metadata-version");
+        auto checksumType = jsonStringField(json, "checksum-type");
+        auto device = jsonIntegerField(json, "device-id");
+
+        if (!metadataVersion || !checksumType || !device) {
+            LOG_ERROR("firmware.metadata.json is missing required fields");
+        }
+
+        metadata.metadataVersion = *metadataVersion;
+        metadata.checksumType = *checksumType;
+        metadata.deviceId = static_cast<uint32_t>(*device);
+
+        if (auto version = jsonIntegerField(json, "checksum-size")) {
+            metadata.checksumType = static_cast<uint32_t>(*version);
+        }
+        if (auto version = jsonIntegerField(json, "hub-name-offset")) {
+            metadata.hubNameOffset = static_cast<uint32_t>(*version);
+        }
+        if (auto version = jsonIntegerField(json, "hub-name-size")) {
+            metadata.hubNameSize = static_cast<uint32_t>(*version);
+        }
+
+        return metadata;
+    }
+
 } // namespace
 
 // Calculating CRC-16-CCITT
