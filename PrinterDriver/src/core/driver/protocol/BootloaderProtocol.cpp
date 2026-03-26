@@ -304,9 +304,8 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     std::vector<uint8_t> lastRawData;
     bool gotNotification = false;
-    bool bootloaderError = false;
-    uint8_t bootloaderErrorCommand = 0xFF;
-    uint8_t bootloaderErrorCode = 0xFF;
+    bool gotError = false;
+    uint8_t errorCode = 0xFF;
 
     auto callback = [&](const Characteristic&, const uint8_t* data, size_t length) {
         std::lock_guard<std::mutex> lock(firmwareMutex);
@@ -314,9 +313,8 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         gotNotification = true;
 
         if (lastRawData.size() >= 2 && lastRawData[0] == 0x05) {
-            bootloaderError = true;
-            bootloaderErrorCommand = lastRawData[0];
-            bootloaderErrorCode = lastRawData[1];
+            gotError = true;
+            errorCode = lastRawData[1];
         }
 
         logHex("RX", lastRawData);
@@ -334,13 +332,105 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     auto waitForNotification = [&](std::chrono::milliseconds timeout, std::vector<uint8_t>& out) -> bool {
         std::unique_lock<std::mutex> lock(firmwareMutex);
-        if (!conditionVariable.wait_for(lock, timeout, [&] { return gotNotification || bootloaderError; })) {
+        if (!conditionVariable.wait_for(lock, timeout, [&] { 
+            return gotNotification || gotError; })) 
+        {
             return false;
         }
-        if (bootloaderError) return false;
+        if (gotError) {
+            return false;
+        }
         out = lastRawData;
         gotNotification = false;
         return true;
+    };
+
+    auto readResponse = [&](std::chrono::milliseconds timeout) -> std::optional<std::vector<uint8_t>> {
+        std::vector<uint8_t> raw;
+        if (!waitForNotification(timeout, raw)) {
+            std::lock_guard<std::mutex> lock(firmwareMutex);
+            if (gotError) {
+                LOG_ERROR("Bootloader error notification: code = 0x%02X", errorCode);
+            }
+
+            return std::nullopt;
+        }
+
+        return raw;
+    };
+
+    auto sendRequest = [&](uint8_t command,
+        const std::vector<uint8_t>& payload,
+        bool withResponse,
+        std::chrono::milliseconds timeout,
+        bool expectCommandReply = true) -> std::optional<std::vector<uint8_t>> 
+    {        
+        {
+            std::lock_guard<std::mutex> lock(firmwareMutex);
+            lastRawData.clear();
+            gotNotification = false;
+            gotError = false;
+            errorCode = 0xFF;
+        }
+
+        const auto packet = makePacket(command, payload);
+        logHex("TX", packet);
+
+        if (!transport.write(bootloaderChar, packet.data(), packet.size(), withResponse)) {
+            LOG_ERROR("Write failed for command 0x%02X", command);
+            return std::nullopt;
+        }
+
+        if (!expectCommandReply) {
+            return std::vector<uint8_t>{};
+        }
+
+        auto raw = readResponse(timeout);
+        if (!raw) {
+            LOG_ERROR("Timeout waiting for response to command 0x%02X", command);
+            return std::nullopt;
+        }
+
+        if ((*raw).empty()) {
+            LOG_ERROR("Empty response");
+            return std::nullopt;
+        }
+
+        if ((*raw)[0] == 0x05) {
+            LOG_ERROR("Bootloader error: code = 0x%02X", (*raw)[1]);
+            return std::nullopt;
+        }
+
+        if ((*raw)[0] != command) {
+            LOG_ERROR("Unexpected response command 0x%02X (expected 0x%02X)");
+            return std::nullopt;
+        }
+
+        return raw;
+    };
+
+    auto decodeGetInfo = [](const std::vector<uint8_t>& raw) -> std::optional<BootloaderInfo> {
+        if (raw.size() < 14) {
+            return std::nullopt;
+        }
+
+        BootloaderInfo info{};
+        info.version = static_cast<int32_t>(
+            static_cast<uint32_t>(raw[1]) |
+            (static_cast<uint32_t>(raw[2]) << 8) |
+            (static_cast<uint32_t>(raw[3]) << 16) |
+            (static_cast<uint32_t>(raw[4]) << 24));
+        info.startAddress = static_cast<uint32_t>(raw[5]) |
+            (static_cast<uint32_t>(raw[6]) << 8) |
+            (static_cast<uint32_t>(raw[7]) << 16) |
+            (static_cast<uint32_t>(raw[8]) << 24);
+        info.endAddress = static_cast<uint32_t>(raw[9]) |
+            (static_cast<uint32_t>(raw[10]) << 8) |
+            (static_cast<uint32_t>(raw[11]) << 16) |
+            (static_cast<uint32_t>(raw[12]) << 24);
+        info.typeId = raw[13];
+
+        return info;
     };
 
     auto sendCommand = [&](uint8_t command, const std::vector<uint8_t>& payload, std::chrono::milliseconds timeout = 5s) -> bool {
@@ -348,7 +438,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
             std::lock_guard<std::mutex> lock(firmwareMutex);
             lastRawData.clear();
             gotNotification = false;
-            bootloaderError = false;
+            gotError = false;
         }
 
         auto packet = makePacket(command, payload);
@@ -362,8 +452,8 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         std::vector<uint8_t> rawData;
         if (!waitForNotification(timeout, rawData)) {
             std::lock_guard<std::mutex> lock(firmwareMutex);
-            if (bootloaderError) {
-                LOG_ERROR("Bootloader error: code=0x%02X", bootloaderErrorCode);
+            if (gotError) {
+                LOG_ERROR("Bootloader error: code=0x%02X", errorCode);
             }
             else {
                 LOG_ERROR("Timeout waiting for response to command 0x%02X", command);
@@ -376,16 +466,16 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
             return false;
         }
 
-        uint8_t respCmd = rawData[0];
+        uint8_t responseCommand = rawData[0];
         uint8_t status = rawData[1];
 
-        if (respCmd == 0x05) {
+        if (responseCommand == 0x05) {
             LOG_ERROR("Bootloader error: code=0x%02X", status);
             return false;
         }
 
-        if (respCmd != command) {
-            LOG_ERROR("Unexpected response command 0x%02X", respCmd);
+        if (responseCommand != command) {
+            LOG_ERROR("Unexpected response command 0x%02X", responseCommand);
             return false;
         }
 
@@ -397,75 +487,117 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         return true;
     };
 
-    // Erase Flash
+    auto infoRaw = sendRequest(commandGetInfo, {}, true, 5s);
+    if (!infoRaw) {
+        cleanup();
+        return false;
+    }
+
+    auto infoOption = decodeGetInfo(*infoRaw);
+    if (!infoOption) {
+        LOG_ERROR("GET_INFO response too short");
+        cleanup();
+        return false;
+    }
+
+    const BootloaderInfo info = *infoOption;
+
+    LOG_BLUETOOTH("Bootloader info: version = %d start = 0x%08X type = 0x%02X", info.version, info.startAddress, info.endAddress, info.typeId);
+
     uint32_t firmwareSize = static_cast<uint32_t>(firmware.size());
-    uint32_t alignedSize = ((firmwareSize + 1023) / 1024) * 1024;
-    uint32_t eraseAddress = 0x08008000;
+    uint32_t alignedSize = ((firmwareSize + 1023u) / 1024u) * 1024u;
 
     std::vector<uint8_t> erasePayload;
-    erasePayload.push_back(eraseAddress & 0xFF);
-    erasePayload.push_back((eraseAddress >> 8) & 0xFF);
-    erasePayload.push_back((eraseAddress >> 16) & 0xFF);
-    erasePayload.push_back((eraseAddress >> 24) & 0xFF);
-    erasePayload.push_back(alignedSize & 0xFF);
-    erasePayload.push_back((alignedSize >> 8) & 0xFF);
-    erasePayload.push_back((alignedSize >> 16) & 0xFF);
-    erasePayload.push_back((alignedSize >> 24) & 0xFF);
+    erasePayload.reserve(8);
+    erasePayload.push_back(static_cast<uint8_t>(defaultTechnicFlashStart & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>((defaultTechnicFlashStart >> 8) & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>((defaultTechnicFlashStart >> 16) & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>((defaultTechnicFlashStart >> 24) & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>(alignedSize & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>((alignedSize >> 8) & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>((alignedSize >> 16) & 0xFF));
+    erasePayload.push_back(static_cast<uint8_t>((alignedSize >> 24) & 0xFF));
 
-    if (!sendCommand(0x11, erasePayload, 5s)) {
-        LOG_ERROR("Erase Flash failed");
+    if (!sendRequest(commandEraseFlash, erasePayload, true, 5s)) {
+        LOG_ERROR("Erase flash failed");
         cleanup();
         return false;
     }
+
     std::this_thread::sleep_for(200ms);
 
-    // Initiate Loader
-    std::vector<uint8_t> sizePayload;
-    sizePayload.push_back(static_cast<uint8_t>(firmwareSize & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((firmwareSize >> 8) & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((firmwareSize >> 16) & 0xFF));
-    sizePayload.push_back(static_cast<uint8_t>((firmwareSize >> 24) & 0xFF));
+    const std::vector<uint8_t> initializePayload = {
+        static_cast<uint8_t>(firmwareSize & 0xFF),
+        static_cast<uint8_t>((firmwareSize >> 8) & 0xFF),
+        static_cast<uint8_t>((firmwareSize >> 16) & 0xFF),
+        static_cast<uint8_t>((firmwareSize >> 24) & 0xFF),
+    };
 
-    if (!sendCommand(0x44, sizePayload, 5s)) {
-        LOG_ERROR("Initiate Loader failed");
+    if (!sendRequest(commandInitializeLoader, initializePayload, true, 5s)) {
+        LOG_ERROR("INIT_LOADER failed");
         cleanup();
         return false;
-    }
+    }    
 
-    // Program Flash
-    const size_t FLASH_CHUNK_SIZE = 16;
-    const uint32_t baseAddress = 0x08008000;
-    size_t sent = 0;
-    while (sent < firmware.size()) {
-        const size_t chunk = std::min(FLASH_CHUNK_SIZE, firmware.size() - sent);
+    const size_t maxDataSize = programChunkSize;
+    std::vector<uint8_t> firmwareBootloader(firmware.begin(), firmware.end());
+    std::vector<uint8_t> firmware_io = firmwareBootloader;
+    std::size_t offset = 0;
+    std::size_t chunkIndex = 0;
+    uint32_t address = info.startAddress;
+
+    while (offset < firmware.size()) {
+        const size_t chunkSize = std::min(maxDataSize, firmware.size() - sent);
+        bool isFinalChunk = (offset + chunkSize) == firmware.size();
+
+        if (chunkIndex % 10 == 0) {
+            (void)sendRequest(commandGetChecksum, {}, true, 500ms);
+        }
+
         std::vector<uint8_t> payload;
-        payload.reserve(4 + chunk);
-        const uint32_t offset = baseAddress + static_cast<uint32_t>(sent);
-        payload.push_back(static_cast<uint8_t>(offset & 0xFF));
-        payload.push_back(static_cast<uint8_t>((offset >> 8) & 0xFF));
-        payload.push_back(static_cast<uint8_t>((offset >> 16) & 0xFF));
-        payload.push_back(static_cast<uint8_t>((offset >> 24) & 0xFF));
+        payload.reserve(1 + 4 + chunkSize);
+        payload.push_back(static_cast<uint8_t>(chunkSize + 4);
+        payload.push_back(static_cast<uint8_t>(address & 0xFF));
+        payload.push_back(static_cast<uint8_t>((address >> 8) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((address >> 16) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((address >> 24) & 0xFF));
         payload.insert(payload.end(),
             firmware.begin() + static_cast<std::ptrdiff_t>(sent),
-            firmware.begin() + static_cast<std::ptrdiff_t>(sent + chunk));
-        while (payload.size() < 4 + FLASH_CHUNK_SIZE) {
-            payload.push_back(0xFF);
+            firmware.begin() + static_cast<std::ptrdiff_t>(sent + chunkSize));
+        
+        if (isFinalChunk) {
+            if (!sendRequest(commandProgramFlash, payload, false, 0ms, false)) {
+                LOG_ERROR("PROGRAM_FLASH failed at offset %zu", offset);
+                cleanup();
+                return false;
+            }
         }
-        if (!sendCommand(0x22, payload, 200ms)) {
-            LOG_ERROR("ProgramFlash failed at offset %zu", sent);
-            cleanup();
-            return false;
+        else {
+            auto reply = sendRequest(commandProgramFlash, payload, true, 5s);
+            if (!reply) {
+                LOG_ERROR("PROGRAM_FLASH final chunk failed at offset %zu", offset);
+                cleanup();
+                return false;
+            }
+
+            if (reply->size() >= 6) {
+                const uint8_t checksum = (*reply)[1];
+                const uint32_t count = static_cast<uint32_t>((*reply)[2]) |
+                    (static_cast<uint32_t>((*reply)[3]) << 8) |
+                    (static_cast<uint32_t>((*reply)[4]) << 16) |
+                    (static_cast<uint32_t>((*reply)[5]) << 24);
+                LOG_BLUETOOTH("Final PROGRAM_FLASH reply: checksum = 0x%02X count = %u", checksum, count);
+            }
         }
-        sent += chunk;
+
+        offset += chunkSize;
+        address += static_cast<uint32_t>(chunkSize);
+        ++chunkIndex;
         LOG_INFO("Progress: %zu / %zu", sent, firmware.size());
-        std::this_thread::sleep_for(10ms);
     }
 
-    // Start Application (without answer)
-    auto startAppPacket = makePacket(0x33, {});
-    logHex("TX", startAppPacket);
-    if (!transport.write(bootloaderChar, startAppPacket.data(), startAppPacket.size(), true)) {
-        LOG_ERROR("StartApp write failed");
+    if (!sendRequest(commandStartApplication, {}, false, 0ms, false)) {
+        LOG_ERROR("START_APPLICATION write failed");
         cleanup();
         return false;
     }
@@ -474,7 +606,6 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     LOG_INFO("Firmware flashed successfully");
     return true;
 }
-
 
 bool BootloaderProtocol::discover() {
     if (!transport.isConnected()) {
@@ -507,11 +638,9 @@ bool BootloaderProtocol::discover() {
 
 std::vector<uint8_t> BootloaderProtocol::makePacket(uint8_t command, const std::vector<uint8_t>& payload) const {
     std::vector<uint8_t> packet;
-    packet.reserve(2 + payload.size());
+    packet.reserve(1 + payload.size());
     packet.push_back(command);
-    packet.push_back(0x00);
     packet.insert(packet.end(), payload.begin(), payload.end());
 
     return packet;
 }
-
