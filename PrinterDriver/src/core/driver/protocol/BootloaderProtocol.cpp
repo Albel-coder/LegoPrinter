@@ -30,7 +30,7 @@ namespace {
     constexpr uint8_t commandDisconnect = 0x88;
 
     constexpr uint32_t defaultTechnicFlashStart = 0x800800;
-    constexpr size_t programChunkSize = 32; // matches the common max write size on Technic control+ hubs
+    constexpr size_t programChunkSize = 24; // matches the common max write size on Technic control+ hubs
 
     struct BootloaderFrame {
         uint8_t command{};
@@ -539,62 +539,45 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         return false;
     }    
 
-    const size_t maxDataSize = programChunkSize;
-    std::vector<uint8_t> firmwareBootloader(firmware.begin(), firmware.end());
-    std::vector<uint8_t> firmware_io = firmwareBootloader;
     std::size_t offset = 0;
-    std::size_t chunkIndex = 0;
     uint32_t address = info.startAddress;
+    std::size_t chunkIndex = 0;
 
     while (offset < firmware.size()) {
-        size_t chunkSize = std::min(maxDataSize, firmware.size() - offset);
+        size_t chunkSize = std::min(programChunkSize, firmware.size() - offset);
         bool isFinalChunk = (offset + chunkSize) == firmware.size();
 
-        if (chunkIndex % 10 == 0) {
-            (void)sendRequest(commandGetChecksum, {}, true, 500ms);
-        }
+        const size_t paddedChunkSize = (chunkSize + 3u) & ~size_t(3u);
 
         std::vector<uint8_t> payload;
-        payload.reserve(1 + 4 + chunkSize);
-        payload.push_back(static_cast<uint8_t>(chunkSize + 4));
+        payload.reserve(1 + 4 + paddedChunkSize);
+        payload.push_back(static_cast<uint8_t>(4 + paddedChunkSize));
         payload.push_back(static_cast<uint8_t>(address & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 8) & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 16) & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 24) & 0xFF));
+        
         payload.insert(payload.end(),
             firmware.begin() + static_cast<std::ptrdiff_t>(offset),
             firmware.begin() + static_cast<std::ptrdiff_t>(offset + chunkSize));
         
-        if (isFinalChunk) {
-            if (!sendRequest(commandProgramFlash, payload, false, 0ms, false)) {
-                LOG_ERROR("PROGRAM_FLASH failed at offset %zu", offset);
-                cleanup();
-                return false;
-            }
-        }
-        else {
-            auto reply = sendRequest(commandProgramFlash, payload, true, 5s);
-            if (!reply) {
-                LOG_ERROR("PROGRAM_FLASH final chunk failed at offset %zu", offset);
-                cleanup();
-                return false;
-            }
+        payload.resize(1 + 4 + paddedChunkSize, 0xFF);
 
-            if (reply->size() >= 6) {
-                const uint8_t checksum = (*reply)[1];
-                const uint32_t count = static_cast<uint32_t>((*reply)[2]) |
-                    (static_cast<uint32_t>((*reply)[3]) << 8) |
-                    (static_cast<uint32_t>((*reply)[4]) << 16) |
-                    (static_cast<uint32_t>((*reply)[5]) << 24);
-                LOG_BLUETOOTH("Final PROGRAM_FLASH reply: checksum = 0x%02X count = %u", checksum, count);
-            }
+        if (!sendRequest(commandProgramFlash, payload, isFinalChunk, 5s, false)) {
+            LOG_ERROR("PROGRAM_FLASH failed at offset %zu", offset);
+            cleanup();
+            return false;
         }
 
         offset += chunkSize;
         address += static_cast<uint32_t>(chunkSize);
         ++chunkIndex;
         LOG_INFO("Progress: %zu / %zu", offset, firmware.size());
+
+        std::this_thread::sleep_for(2ms);
     }
+
+    std::this_thread::sleep_for(200ms);
 
     if (!sendRequest(commandStartApplication, {}, false, 0ms, false)) {
         LOG_ERROR("START_APPLICATION write failed");
