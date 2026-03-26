@@ -547,7 +547,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
     uint32_t address = info.startAddress;
 
     while (offset < firmware.size()) {
-        const size_t chunkSize = std::min(maxDataSize, firmware.size() - sent);
+        size_t chunkSize = std::min(maxDataSize, firmware.size() - offset);
         bool isFinalChunk = (offset + chunkSize) == firmware.size();
 
         if (chunkIndex % 10 == 0) {
@@ -556,14 +556,14 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
         std::vector<uint8_t> payload;
         payload.reserve(1 + 4 + chunkSize);
-        payload.push_back(static_cast<uint8_t>(chunkSize + 4);
+        payload.push_back(static_cast<uint8_t>(chunkSize + 4));
         payload.push_back(static_cast<uint8_t>(address & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 8) & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 16) & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 24) & 0xFF));
         payload.insert(payload.end(),
-            firmware.begin() + static_cast<std::ptrdiff_t>(sent),
-            firmware.begin() + static_cast<std::ptrdiff_t>(sent + chunkSize));
+            firmware.begin() + static_cast<std::ptrdiff_t>(offset),
+            firmware.begin() + static_cast<std::ptrdiff_t>(offset + chunkSize));
         
         if (isFinalChunk) {
             if (!sendRequest(commandProgramFlash, payload, false, 0ms, false)) {
@@ -593,7 +593,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         offset += chunkSize;
         address += static_cast<uint32_t>(chunkSize);
         ++chunkIndex;
-        LOG_INFO("Progress: %zu / %zu", sent, firmware.size());
+        LOG_INFO("Progress: %zu / %zu", offset, firmware.size());
     }
 
     if (!sendRequest(commandStartApplication, {}, false, 0ms, false)) {
