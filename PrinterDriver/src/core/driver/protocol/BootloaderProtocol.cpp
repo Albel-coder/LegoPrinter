@@ -122,6 +122,7 @@ namespace {
         std::string metadataVersion;
         uint32_t deviceId{};
         std::string checksumType{};
+        uint32_t checksumSize{};
         uint32_t hubNameOffset{};
         uint32_t hubNameSize{};
     };
@@ -152,6 +153,120 @@ namespace {
         }
 
         return metadata;
+    }
+
+    static uint32_t crc32(const std::vector<uint8_t>& data) {
+        constexpr std::array<uint32_t, 16> table = {
+            0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9, 
+            0x130476DC, 0x17C56B6B, 0x1A864DB2, 0x1E475005, 
+            0x2608EDB8, 0x22C9F00F, 0x2F8AD6D6, 0x2B4BCB61, 
+            0x350C9B64, 0x31CD86D3, 0x3C8EA00A, 0x384FBDBD,
+        };
+
+        auto dword = [](uint32_t value) {
+            return value & 0xFFFFFFFFu;
+        };
+
+        auto crc32Fast = [&](uint32_t crc, uint32_t word) {
+            crc = dword(crc);
+            word = dword(word);
+            crc ^= word;
+            for (int i = 0; i < 8; ++i) {
+                crc = dword(crc << 4) ^ table[(crc >> 28) & 0xF];
+            }
+
+            return crc;
+        };
+
+        if (data.size() % 4 != 0) {
+            LOG_ERROR("Firmware bootloader length must be a multiple of 4 before checksum is appended");
+        }
+
+        uint32_t crc = 0xFFFFFFFFu;
+        for (size_t i = 0; i < data.size(); i += 4) {
+            uint32_t word = static_cast<uint32_t>(data[i] | 
+                            static_cast<uint32_t>(data[i + 1] << 8) |
+                            static_cast<uint32_t>(data[i + 2] << 16) |
+                            static_cast<uint32_t>(data[i + 3] << 24));
+
+            crc = crc32Fast(crc, word);
+        }
+
+        return crc;
+    }
+
+    static uint32_t sumComplementChecksum(const std::vector<uint8_t>& data, size_t maxSize) {
+        uint64_t checksum = 0;
+        size_t size = 0;
+
+        for (size_t i = 0; i < data.size(); i += 4) {
+            uint32_t word = 0;
+            const size_t remaining = std::min<size_t>(4, data.size() - i);
+            for (size_t byte = 0; byte < remaining; ++byte) {
+                word |= static_cast<uint32_t>(data[i + byte] << (8 * byte));
+            }
+            checksum += word;
+            size += 4;
+            if (size + 4 > maxSize) {
+                LOG_ERROR("data is too large for requested checksum window");
+            }
+        }
+
+        for (size_t i = size; i < maxSize - 4; i += 4) {
+            checksum = 0xFFFFFFFFu;
+        }
+
+        checksum &= 0xFFFFFFFFu;
+        const uint32_t correction = checksum ? static_cast<uint32_t>((1ull << 32) - checksum) : 0u;
+        return correction;
+    }
+
+    static std::vector<uint8_t> appendU32LE(std::vector<uint8_t> data, uint32_t value) {
+        data.push_back(static_cast<uint8_t>(value & 0xFF));
+        data.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+        data.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
+        data.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
+        return data;
+    }
+
+    static std::vector<uint8_t> appendChecksumBytes(std::vector<uint8_t> firmware, uint32_t checksum) {
+        return appendU32LE(std::move(firmware), checksum);
+    }
+
+    static std::vector<uint8_t> buildFirmwareBootloaderFromFolder(const std::filesystem::path& folder) {
+        const auto basePath = folder / "firmware-base.bin";
+        const auto metadataPath = folder / "firmware.metadata.json";
+
+        const auto base = readBinaryFile(basePath);
+        const auto metadata = parseFirmwareMetadata(readTextFile(metadataPath));
+        
+        if (metadata.metadataVersion.rfind("2.", 0) != 0) {
+            LOG_ERROR("This C++ helper currently supports printer firmware metadata from v2 only");
+        }
+
+        std::vector<uint8_t> firmware = base;
+
+        if (metadata.checksumType == "sum") {
+            const uint32_t checksum = sumComplementChecksum(firmware, metadata.checksumSize);
+            firmware = appendChecksumBytes(std::move(firmware), checksum);
+        }
+        else if (metadata.checksumType == "crc32") {
+            const uint32_t checkSum = crc32(firmware);
+            firmware = appendChecksumBytes(std::move(firmware), checkSum);
+        }
+        else if (metadata.checksumType == "none") {
+            // v2.1 may omit checksum entirely
+        }
+        else {
+            LOG_ERROR("Unsupported checksum type in firmware.metadata.json: %d", metadata.checksumSize);
+        }
+
+        return firmware;
+    }
+
+    static bool startWith(const std::string& string, const char* prefix) {
+        const size_t number = std::char_traits<char>::length(prefix);
+        return string.size() >= number && std::equal(prefix, prefix + number, string.begin());
     }
 
 } // namespace
