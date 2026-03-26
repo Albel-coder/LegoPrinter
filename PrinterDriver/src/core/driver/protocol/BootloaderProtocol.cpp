@@ -547,11 +547,9 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         size_t chunkSize = std::min(programChunkSize, firmware.size() - offset);
         bool isFinalChunk = (offset + chunkSize) == firmware.size();
 
-        const size_t paddedChunkSize = (chunkSize + 3u) & ~size_t(3u);
-
         std::vector<uint8_t> payload;
-        payload.reserve(1 + 4 + paddedChunkSize);
-        payload.push_back(static_cast<uint8_t>(4 + paddedChunkSize));
+        payload.reserve(1 + 4 + chunkSize);
+        payload.push_back(static_cast<uint8_t>(4 + chunkSize));
         payload.push_back(static_cast<uint8_t>(address & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 8) & 0xFF));
         payload.push_back(static_cast<uint8_t>((address >> 16) & 0xFF));
@@ -561,9 +559,9 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
             firmware.begin() + static_cast<std::ptrdiff_t>(offset),
             firmware.begin() + static_cast<std::ptrdiff_t>(offset + chunkSize));
         
-        payload.resize(1 + 4 + paddedChunkSize, 0xFF);
+        payload.resize(1 + 4 + chunkSize, 0xFF);
 
-        if (!sendRequest(commandProgramFlash, payload, isFinalChunk, 5s, false)) {
+        if (!sendRequest(commandProgramFlash, payload, false, isFinalChunk ? 5s : 0ms, isFinalChunk)) {
             LOG_ERROR("PROGRAM_FLASH failed at offset %zu", offset);
             cleanup();
             return false;
@@ -575,6 +573,9 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         LOG_INFO("Progress: %zu / %zu", offset, firmware.size());
 
         std::this_thread::sleep_for(2ms);
+        if (chunkIndex % 10 == 0 && !isFinalChunk) {
+            (void)sendRequest(commandGetChecksum, {}, false, 500ms, true);
+        }
     }
 
     std::this_thread::sleep_for(200ms);
