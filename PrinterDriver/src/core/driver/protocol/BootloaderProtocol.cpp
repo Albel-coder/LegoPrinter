@@ -1,3 +1,20 @@
+// Refactored bootloader flasher for LEGO Control+ / Technic hub (printer bootloader) 
+// Important: 
+// - This code flashes a composite firmware blob. 
+// - A raw firmware-base.bin is NOT enough by itself. 
+// - The blob should come from printer firmware builder output (firmware.zip -> firmware bootloader). 
+// Official bootloader command layout (for the LWP3 bootloader characteristic): 
+//   ERASE_FLASH   = 0x11 
+//   PROGRAM_FLASH = 0x22 
+//   START_APPLICATION = 0x33 
+//   INIT_LOADER   = 0x44 
+//   GET_INFO      = 0x55 
+//   GET_CHECKSUM  = 0x66 
+//   GET_FLASH_STATE = 0x77 
+//   DISCONNECT    = 0x88 
+// Packet format is: [command][payload...] 
+// There is NO extra 0x00 status byte in the request. The status/result comes back in the response.
+
 #include "BootloaderProtocol.h"
 #include "../logging/LogManager.h"
 
