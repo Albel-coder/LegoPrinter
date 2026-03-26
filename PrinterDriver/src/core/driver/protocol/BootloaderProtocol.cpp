@@ -271,25 +271,6 @@ namespace {
 
 } // namespace
 
-// Calculating CRC-16-CCITT
-static uint16_t crr16CCITT(const uint16_t* data, size_t length) {
-	uint16_t crc = 0xFFFF;
-	for (size_t i = 0; i < length; ++i) {
-		crc ^= (data[i] << 8);
-
-		for (int j = 0; j < 8; ++j) {
-			if (crc & 0x8000) {
-				crc = (crc << 1) ^ 0x1021;
-			}
-			else {
-				crc <<= 1;
-			}
-		}
-	}
-
-	return crc;
-}
-
 BootloaderProtocol::BootloaderProtocol(ITransport& transportPointer) 
 : transport(transportPointer) {}
 
@@ -431,60 +412,6 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         info.typeId = raw[13];
 
         return info;
-    };
-
-    auto sendCommand = [&](uint8_t command, const std::vector<uint8_t>& payload, std::chrono::milliseconds timeout = 5s) -> bool {
-        {
-            std::lock_guard<std::mutex> lock(firmwareMutex);
-            lastRawData.clear();
-            gotNotification = false;
-            gotError = false;
-        }
-
-        auto packet = makePacket(command, payload);
-        logHex("TX", packet);
-
-        if (!transport.write(bootloaderChar, packet.data(), packet.size(), true)) {
-            LOG_ERROR("Write failed for command 0x%02X", command);
-            return false;
-        }
-
-        std::vector<uint8_t> rawData;
-        if (!waitForNotification(timeout, rawData)) {
-            std::lock_guard<std::mutex> lock(firmwareMutex);
-            if (gotError) {
-                LOG_ERROR("Bootloader error: code=0x%02X", errorCode);
-            }
-            else {
-                LOG_ERROR("Timeout waiting for response to command 0x%02X", command);
-            }
-            return false;
-        }
-
-        if (rawData.size() < 2) {
-            LOG_ERROR("Response too short");
-            return false;
-        }
-
-        uint8_t responseCommand = rawData[0];
-        uint8_t status = rawData[1];
-
-        if (responseCommand == 0x05) {
-            LOG_ERROR("Bootloader error: code=0x%02X", status);
-            return false;
-        }
-
-        if (responseCommand != command) {
-            LOG_ERROR("Unexpected response command 0x%02X", responseCommand);
-            return false;
-        }
-
-        if (status != 0x00) {
-            LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, status);
-            return false;
-        }
-
-        return true;
     };
 
     auto infoRaw = sendRequest(commandGetInfo, {}, true, 5s);
