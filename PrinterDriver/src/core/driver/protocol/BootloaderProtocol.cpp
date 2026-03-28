@@ -47,6 +47,9 @@ namespace {
     constexpr uint8_t commandDisconnect = 0x88;
 
     constexpr uint32_t defaultTechnicFlashStart = 0x800800;
+    // With a 32-byte BLE characteristic write limit, the packet must fit:
+    // 1 byte command + 1 byte length + 4 bytes address + data bytes <= 32
+    // So the safe payload data size here is 24 bytes
     constexpr size_t programChunkSize = 24; // matches the common max write size on Technic control+ hubs
 
     struct BootloaderFrame {
@@ -139,7 +142,7 @@ namespace {
         std::string metadataVersion;
         uint32_t deviceId{};
         std::string checksumType{};
-        uint32_t checksumSize{};
+        uint32_t checksumSize{}; // only relevant for v2.x checksum appending
         uint32_t hubNameOffset{};
         uint32_t hubNameSize{};
     };
@@ -173,6 +176,7 @@ namespace {
     }
 
     static uint32_t crc32(const std::vector<uint8_t>& data) {
+        // Matches printerdev.tools.checksum.crc32_checksum() behavior for the bootloader content
         constexpr std::array<uint32_t, 16> table = {
             0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9, 
             0x130476DC, 0x17C56B6B, 0x1A864DB2, 0x1E475005, 
@@ -213,6 +217,7 @@ namespace {
     }
 
     static uint32_t sumComplementChecksum(const std::vector<uint8_t>& data, size_t maxSize) {
+        // Mirrors printerdev.tools.checksum.sum_complement()
         uint64_t checksum = 0;
         size_t size = 0;
 
@@ -250,6 +255,11 @@ namespace {
         return appendU32LE(std::move(firmware), checksum);
     }
 
+    // Builds a v2.x printer firmware bootloader from an extracted firmware folder.
+    // Supported inputs:
+    //  - firmware-base.bin
+    //  - firmware.metadata.json
+    // This intentionally focuses on the common v2.x path used by Technic Control+ hubs
     static std::vector<uint8_t> buildFirmwareBootloaderFromFolder(const std::filesystem::path& folder) {
         const auto basePath = folder / "firmware-base.bin";
         const auto metadataPath = folder / "firmware.metadata.json";
@@ -262,6 +272,9 @@ namespace {
         }
 
         std::vector<uint8_t> firmware = base;
+
+        // Optional hub name customization in supported if the metadata has offsets
+        // In this ready-to-use variant, we do not force a name.
 
         if (metadata.checksumType == "sum") {
             const uint32_t checksum = sumComplementChecksum(firmware, metadata.checksumSize);
@@ -448,6 +461,15 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     LOG_BLUETOOTH("Bootloader info: version = %d start = 0x%08X type = 0x%02X", info.version, info.startAddress, info.endAddress, info.typeId);
 
+    // Minimal validation for Control+ Technic target
+    // Printer tooling matches the firmware metadata device-id to the detected hub kind
+    // If you composite firmware bootloader contains a metadata file, this check is the place to validate it
+    // In this variant we do not re-parse the metadata here because flashfirmware() accepts a bootloader only for now
+
+    // For the technic hub this usually works with write-with-response, but printer uses
+    // no-response for most hubs and handles city hub specially
+    // we keep response mode enabled for better compatibility with your current transport layer
+
     uint32_t firmwareSize = static_cast<uint32_t>(firmware.size());
     uint32_t alignedSize = ((firmwareSize + 1023u) / 1024u) * 1024u;
 
@@ -470,6 +492,7 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
 
     std::this_thread::sleep_for(200ms);
 
+    // Important: payload is exactly 4 bytes little-endian firmware size
     const std::vector<uint8_t> initializePayload = {
         static_cast<uint8_t>(firmwareSize & 0xFF),
         static_cast<uint8_t>((firmwareSize >> 8) & 0xFF),
@@ -482,6 +505,10 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         cleanup();
         return false;
     }    
+
+    // The current packet format is:
+    // [0x22][length][address(4 bytes)][chunk data]
+    // With a 32-byte max write size, chunk data must stay at 24 bytes
 
     std::size_t offset = 0;
     uint32_t address = info.startAddress;
