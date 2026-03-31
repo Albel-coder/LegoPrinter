@@ -3,609 +3,503 @@
 const double PI = 3.1415926535897932;
 
 // Static constants
-const Complex Complex::Zero(0.0, 0.0);
-const Complex Complex::One(1.0, 0.0);
-const Complex Complex::I(0.0, 0.1);
+const Complex Complex::zero(0.0, 0.0);
+const Complex Complex::one(1.0, 0.0);
+const Complex Complex::i(0.0, 0.1);
 
-Complex::Complex(double r = 0.0, double i = 0.0)
-{
-    Real = r;
-    Imag = i;
+Complex::Complex(double realNumber = 0.0, double imageNumber = 0.0) {
+    real = realNumber;
+    imag = imageNumber;
 }
 
 // Arithmetic operators
-Complex Complex::operator+(const Complex& OtherNumber) const
-{
-    return Complex(Real + OtherNumber.Real, Imag + OtherNumber.Imag);
+Complex Complex::operator+(const Complex& otherNumber) const {
+    return Complex(real + otherNumber.real, imag + otherNumber.imag);
 }
 
-Complex Complex::operator-(const Complex& OtherNumber) const
-{
-    return Complex(Real - OtherNumber.Real, Imag - OtherNumber.Imag);
+Complex Complex::operator-(const Complex& otherNumber) const {
+    return Complex(real - otherNumber.real, imag - otherNumber.imag);
 }
 
-Complex Complex::operator*(const Complex& OtherNumber) const
-{
-    return Complex(Real * OtherNumber.Real - Imag * OtherNumber.Imag,
-        Real * OtherNumber.Imag + Imag * OtherNumber.Real);
+Complex Complex::operator*(const Complex& otherNumber) const {
+    return Complex(real * otherNumber.real - imag * otherNumber.imag,
+        real * otherNumber.imag + imag * otherNumber.real);
 }
 
-Complex Complex::operator/(const Complex& OtherNumber) const
-{
-    double RealResult = 0.0;
-    double ImagResult = 0.0;
+Complex Complex::operator/(const Complex& otherNumber) const {
+    double realResult = 0.0;
+    double imagResult = 0.0;
 
-    if ((OtherNumber.Real * OtherNumber.Real + OtherNumber.Imag * OtherNumber.Imag) != 0)
-    {
-        RealResult = (Real * OtherNumber.Real + Imag * OtherNumber.Imag) / (OtherNumber.Real * OtherNumber.Real + OtherNumber.Imag * OtherNumber.Imag);
-        ImagResult = (OtherNumber.Real * Imag - Real * OtherNumber.Imag) / (OtherNumber.Real * OtherNumber.Real + OtherNumber.Imag * OtherNumber.Imag);
+    if ((otherNumber.real * otherNumber.real + otherNumber.imag * otherNumber.imag) != 0) {
+        realResult = (real * otherNumber.real + imag * otherNumber.imag) / (otherNumber.real * otherNumber.real + otherNumber.imag * otherNumber.imag);
+        imagResult = (otherNumber.real * imag - real * otherNumber.imag) / (otherNumber.real * otherNumber.real + otherNumber.imag * otherNumber.imag);
     }
 
-    return Complex(RealResult, ImagResult);
+    return Complex(realResult, imagResult);
 }
 
 // Comparison Operators
-bool Complex::operator==(const Complex& OtherNumber) const
-{
-    if (Real == OtherNumber.Real && Imag == OtherNumber.Imag)
-    {
+bool Complex::operator==(const Complex& otherNumber) const {
+    if (real == otherNumber.real && imag == otherNumber.imag) {
         return true;
     }
-    else
-    {
+    else {
         return false;
     }
 }
 
-bool Complex::operator!=(const Complex& OtherNumber) const
-{
-    if (Real != OtherNumber.Real || Imag != OtherNumber.Imag)
-    {
+bool Complex::operator!=(const Complex& otherNumber) const {
+    if (real != otherNumber.real || imag != otherNumber.imag) {
         return true;
     }
-    else
-    {
+    else {
         return false;
     }
 }
 
-bool Complex::operator>(const Complex& OtherNumber) const
-{
-    return this->MagnitudeSqr() > OtherNumber.MagnitudeSqr();
+bool Complex::operator>(const Complex& otherNumber) const {
+    return this->magnitudeSqr() > otherNumber.magnitudeSqr();
 }
 
-bool Complex::operator<(const Complex& OtherNumber) const
-{
-    return this->MagnitudeSqr() < OtherNumber.MagnitudeSqr();
+bool Complex::operator<(const Complex& otherNumber) const {
+    return this->magnitudeSqr() < otherNumber.magnitudeSqr();
 }
 
-bool Complex::operator>=(const Complex& OtherNumber) const
-{
-    return this->MagnitudeSqr() >= OtherNumber.MagnitudeSqr();
+bool Complex::operator>=(const Complex& otherNumber) const {
+    return this->magnitudeSqr() >= otherNumber.magnitudeSqr();
 }
 
-bool Complex::operator<=(const Complex& OtherNumber) const
-{
-    return this->MagnitudeSqr() <= OtherNumber.MagnitudeSqr();
+bool Complex::operator<=(const Complex& otherNumber) const {
+    return this->magnitudeSqr() <= otherNumber.magnitudeSqr();
 }
 
 // Assignment Operators
-Complex& Complex::operator=(const Complex& OtherNumber)
-{
-    if (this != &OtherNumber)
-    {
-        Real = OtherNumber.Real;
-        Imag = OtherNumber.Imag;
+Complex& Complex::operator=(const Complex& otherNumber) {
+    if (this != &otherNumber) {
+        real = otherNumber.real;
+        imag = otherNumber.imag;
     }
+
     return *this;
 }
 
-Complex& Complex::operator+=(const Complex& OtherNumber)
-{
-    Real += OtherNumber.Real;
-    Imag += OtherNumber.Imag;
+Complex& Complex::operator+=(const Complex& otherNumber) {
+    real += otherNumber.real;
+    imag += otherNumber.imag;
+
     return *this;
 }
 
-Complex& Complex::operator-=(const Complex& OtherNumber)
-{
-    Real -= OtherNumber.Real;
-    Imag -= OtherNumber.Imag;
+Complex& Complex::operator-=(const Complex& otherNumber) {
+    real -= otherNumber.real;
+    imag -= otherNumber.imag;
+
     return *this;
 }
 
-Complex& Complex::operator*=(const Complex& OtherNumber)
-{
-    double NewReal = Real * OtherNumber.Real - Imag * OtherNumber.Imag;
-    double NewImag = Real * OtherNumber.Imag + Imag * OtherNumber.Real;
-    Real = NewReal;
-    Imag = NewImag;
+Complex& Complex::operator*=(const Complex& otherNumber) {
+    double newReal = real * otherNumber.real - imag * otherNumber.imag;
+    double newImag = real * otherNumber.imag + imag * otherNumber.real;
+    real = newReal;
+    imag = newImag;
+
     return *this;
 }
 
-Complex& Complex::operator/=(const Complex& OtherNumber)
-{
-    if (OtherNumber != 0)
-    {
-        *this = *this / OtherNumber;
+Complex& Complex::operator/=(const Complex& otherNumber) {
+    if (otherNumber != 0) {
+        *this = *this / otherNumber;
     }
 
     return *this;
 }
 
 // Unary operators
-Complex Complex::operator+()
-{
+Complex Complex::operator+() {
     return *this;
 }
 
-Complex Complex::operator-()
-{
-    return Complex(-Real, -Imag);
+Complex Complex::operator-() {
+    return Complex(-real, -imag);
 }
 
 // Increment/decrement operators
-Complex& Complex::operator++() // Prefix
-{
-    ++Real;
+Complex& Complex::operator++() { // Prefix
+    ++real;
     return *this;
 }
 
-Complex Complex::operator++(int) // Postfix
-{
+Complex Complex::operator++(int) { // Postfix
     Complex temp = *this;
-    ++Real;
+    ++real;
     return temp;
 }
 
-Complex& Complex::operator--() // Prefix
-{
-    --Real;
+Complex& Complex::operator--() { // Prefix
+    --real;
     return *this;
 }
 
-Complex Complex::operator--(int) // Postfix
-{
+Complex Complex::operator--(int) { // Postfix
     Complex temp = *this;
-    --Real;
+    --real;
     return temp;
 }
 
 // Access Methods
-double Complex::GetReal() const
-{
-    return Real;
+double Complex::getReal() const {
+    return real;
 }
 
-double Complex::GetImag() const
-{
-    return Imag;
+double Complex::getImag() const {
+    return imag;
 }
 
-void Complex::SetReal(double r)
-{
-    Real = r;
+void Complex::setReal(double realNumber) {
+    real = realNumber;
 }
 
-void Complex::SetImage(double i)
-{
-    Imag = i;
+void Complex::setImage(double imageNumber) {
+    imag = imageNumber;
 }
 
 // Basic mathematical operations
-double Complex::Magnitude() const
-{
-    return std::sqrt(Real * Real + Imag * Imag);
+double Complex::magnitude() const {
+    return std::sqrt(real * real + imag * imag);
 }
 
-double Complex::Phase() const
-{
-    return std::atan2(Imag, Real);
+double Complex::phase() const {
+    return std::atan2(imag, real);
 }
 
-Complex Complex::Conjugate() const
-{
-    return Complex(Real, -Imag);
+Complex Complex::conjugate() const {
+    return Complex(real, -imag);
 }
 
-double Complex::MagnitudeSqr() const
-{
-    return Real * Real + Imag * Imag;
+double Complex::magnitudeSqr() const {
+    return real * real + imag * imag;
 }
 
 // Obtaining components in polar form
-double Complex::GetMagnitude() const
-{
-    return Magnitude();
+double Complex::getMagnitude() const {
+    return magnitude();
 }
 
-double Complex::GetPhase() const
-{
-    return Phase();
+double Complex::getPhase() const {
+    return phase();
 }
 
 // Phase in degrees
-double Complex::GetPhaseDegrees() const
-{
-    return Phase() * 180.0 / PI;
+double Complex::getPhaseDegrees() const {
+    return phase() * 180.0 / PI;
 }
 
 // Setting a value using polar coordinates
-void Complex::SetPolar(double Magnitude, double Phase)
-{
-    Real = Magnitude * std::cos(Phase);
-    Imag = Magnitude * std::sin(Phase);
+void Complex::setPolar(double magnitude, double phase) {
+    real = magnitude * std::cos(phase);
+    imag = magnitude * std::sin(phase);
 }
 
-void Complex::NormalizedPhase()
-{
-    double Mag = Magnitude();
-    double phase = Phase();
+void Complex::normalizedPhase() {
+    double mag = magnitude();
+    double phaseValue = phase();
 
     // Phase normalization to the range [-PI/2, PI/2]
-    while (phase > PI)
-    {
-        phase -= 2 * PI;
+    while (phaseValue > PI) {
+        phaseValue -= 2 * PI;
     }
-    while (phase <= PI)
-    {
-        phase += 2 * PI;
+    while (phaseValue <= PI) {
+        phaseValue += 2 * PI;
     }
 
-    SetPolar(Mag, phase);
+    setPolar(mag, phaseValue);
 }
 
 // Rotation of a complex number by an angle
-Complex Complex::Rotate(double Angle) const
-{
-    return *this * FromPolar(1.0, Angle);
+Complex Complex::rotate(double angle) const {
+    return *this * fromPolar(1.0, angle);
 }
 
 // Trigonometric functions
-Complex Complex::Sin() const
-{
-    return Complex(std::sin(Real) * std::cosh(Imag),
-        std::cos(Real) * std::sinh(Imag));
+Complex Complex::sin() const {
+    return Complex(std::sin(real) * std::cosh(imag),
+        std::cos(real) * std::sinh(imag));
 }
 
-Complex Complex::Cos() const
-{
-    return Complex(std::cos(Real) * std::cosh(Imag), 
-        -std::sin(Real) * std::sinh(Imag));
+Complex Complex::cos() const {
+    return Complex(std::cos(real) * std::cosh(imag), 
+        -std::sin(real) * std::sinh(imag));
 }
 
-Complex Complex::Tan() const
-{
-    Complex cosValue = Cos();
-    if (cosValue != Zero)
-    {
-        return Sin() / cosValue;
+Complex Complex::tan() const {
+    Complex cosValue = cos();
+    if (cosValue != zero) {
+        return sin() / cosValue;
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Hyperbolic functions
-Complex Complex::Sinh() const
-{
-    return Complex(std::sinh(Real) * std::cos(Imag),
-        std::cosh(Real) * std::sin(Imag));
+Complex Complex::sinh() const {
+    return Complex(std::sinh(real) * std::cos(imag),
+        std::cosh(real) * std::sin(imag));
 }
 
-Complex Complex::Cosh() const
-{
-    return Complex(std::cosh(Real) * std::cos(Imag),
-        std::sinh(Real) * std::sin(Imag));
+Complex Complex::cosh() const {
+    return Complex(std::cosh(real) * std::cos(imag),
+        std::sinh(real) * std::sin(imag));
 }
 
-Complex Complex::Tanh() const
-{
-    Complex coshValue = Cosh();
-    if (coshValue != Zero)
-    {
-        return Sinh() / coshValue;
+Complex Complex::tanh() const {
+    Complex coshValue = cosh();
+    if (coshValue != zero) {
+        return sinh() / coshValue;
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Secant
-Complex Complex::Sec() const
-{
-    Complex cosValue = Cos();
-    if (cosValue != Zero)
-    {
-        return One / cosValue;
+Complex Complex::sec() const {
+    Complex cosValue = cos();
+    if (cosValue != zero) {
+        return one / cosValue;
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Cosecant
-Complex Complex::Csc() const
-{
-    Complex sinValue = Sin();
-    if (sinValue != Zero)
-    {
-        return One / sinValue;
+Complex Complex::csc() const {
+    Complex sinValue = sin();
+    if (sinValue != zero) {
+        return one / sinValue;
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Cotangent
-Complex Complex::Cot() const
-{
-    Complex tanValue = Tan();
-    if (tanValue != Zero)
-    {
-        return One / tanValue;
+Complex Complex::cot() const {
+    Complex tanValue = tan();
+    if (tanValue != zero) {
+        return one / tanValue;
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Exponential and logarithmic functions
-Complex Complex::Exp() const
-{
-    double ExpReal = std::exp(Real);
-    return Complex(ExpReal * std::cos(Imag),
-        ExpReal * std::sin(Imag));
+Complex Complex::exp() const {
+    double expReal = std::exp(real);
+    return Complex(expReal * std::cos(imag), expReal * std::sin(imag));
 }
 
-Complex Complex::Log() const
-{
-    return Complex(std::log(this->Magnitude()), this->Phase());
+Complex Complex::log() const {
+    return Complex(std::log(this->magnitude()), this->phase());
 }
 
-Complex Complex::Log10() const
-{
-    return this->Log() / std::log(10.0);
+Complex Complex::log10() const {
+    return this->log() / std::log(10.0);
 }
 
 // Power functions
-Complex Complex::Pow(double Exponent) const
-{
-    double Mag = std::pow(this->Magnitude(), Exponent);
-    double Phase = this->Phase() * Exponent;
-    return Complex(Mag * std::cos(Phase), Mag * std::sin(Phase));
+Complex Complex::pow(double exponent) const {
+    double mag = std::pow(this->magnitude(), exponent);
+    double phaseValue = this->phase() * exponent;
+
+    return Complex(mag * std::cos(phaseValue), mag * std::sin(phaseValue));
 }
 
-Complex Complex::Pow(const Complex& Exponent) const
-{
-    return (Exponent * this->Log()).Exp();
+Complex Complex::pow(const Complex& exponent) const {
+    return (exponent * this->log()).exp();
 }
 
-Complex Complex::Sqrt() const
-{
-    return this->Pow(0.5);
+Complex Complex::sqrt() const {
+    return this->pow(0.5);
 }
 
 // Inverse trigonometric functions
-Complex Complex::Asin() const
-{
+Complex Complex::asin() const {
     Complex i(0, 1);
-    return -i * ((*this * i + (One - this->Pow(2)).Sqrt()).Log());
+    return -i * ((*this * i + (one - this->pow(2)).sqrt()).log());
 }
 
-Complex Complex::Acos() const
-{
+Complex Complex::acos() const {
     Complex i(0, 1);
-    return (i * ((*this * i + (One - this->Pow(2)).Sqrt()).Log()) - (PI / 2));
+    return (i * ((*this * i + (one - this->pow(2)).sqrt()).log()) - (PI / 2));
 }
 
-Complex Complex::Atan() const
-{
+Complex Complex::atan() const {
     Complex i(0, 1);
-    if (i - *this != 0)
-    {
-        return (i / 2) * ((i + *this) / (i - *this)).Log();
+    if (i - *this != 0) {
+        return (i / 2) * ((i + *this) / (i - *this)).log();
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Area hyperbolic sine
-Complex Complex::Asinh() const
-{
-    return ((*this) + ((*this) * (*this) + One).Sqrt()).Log();
+Complex Complex::asinh() const {
+    return ((*this) + ((*this) * (*this) + one).sqrt()).log();
 }
 
 // Area hyperbolic cosine
-Complex Complex::Acosh() const
-{
-    return ((*this) + ((*this) * (*this) - One).Sqrt()).Log();
+Complex Complex::acosh() const {
+    return ((*this) + ((*this) * (*this) - one).sqrt()).log();
 }
 
 // Area hyperbolic tangent
-Complex Complex::Atanh() const
-{
-    if (*this == One || *this == -1 * One)
-    {
+Complex Complex::atanh() const {
+    if (*this == one || *this == -1 * one) {
         return Complex(0.0, 0.0);
     }
-    else
-    {
-        return (0.5) * ((One + (*this)) / (One - (*this))).Log();
+    else {
+        return (0.5) * ((one + (*this)) / (one - (*this))).log();
     }
 }
 
 // =====Helper Methods=====
 // Checking for a real number
-bool Complex::IsReal() const
-{
-    return Imag == 0.0;
+bool Complex::isReal() const {
+    return imag == 0.0;
 }
 
 // Testing for a purely imaginary number
-bool Complex::IsImaginary() const
-{
-    return Real == 0.0 && Imag != 0.0;
+bool Complex::isImaginary() const {
+    return real == 0.0 && imag != 0.0;
 }
 
 // Checking for zero
-bool Complex::IsZero() const
-{
-    return Real == 0.0 && Imag == 0.0;
+bool Complex::isZero() const {
+    return real == 0.0 && imag == 0.0;
 }
 
 // Limb check
-bool Complex::IsFinite() const
-{
-    return std::isfinite(Real) && std::isfinite(Imag);
+bool Complex::isFinite() const {
+    return std::isfinite(real) && std::isfinite(imag);
 }
 
 // String representation
-std::string Complex::ToString() const
-{
-    if (IsZero())
-    {
+std::string Complex::toString() const {
+    if (isZero()) {
         return "0";
     }
 
-    std::string Result;
-    if (Real != 0.0)
-    {
-        Result += std::to_string(Real);
+    std::string result;
+    if (real != 0.0) {
+        result += std::to_string(real);
     }
 
-    if (Imag != 0.0)
-    {
-        if (Imag > 0.0 && Real != 0.0)
-        {
-            Result += "+";
+    if (imag != 0.0) {
+        if (imag > 0.0 && real != 0.0) {
+            result += "+";
         }
-        if (Imag == 1.0)
-        {
-            Result += "i";
+        if (imag == 1.0) {
+            result += "i";
         }
-        else if (Imag == -1.0)
-        {
-            Result += "-i";
+        else if (imag == -1.0) {
+            result += "-i";
         }
-        else
-        {
-            Result += std::to_string(Imag) + "i";
+        else {
+            result += std::to_string(imag) + "i";
         }
     }
 
-    return Result;
+    return result;
 }
 
 // Static factory methods
-Complex Complex::FromPolar(double Magnitude, double Phase)
-{
-    return Complex(Magnitude * std::cos(Phase), Magnitude * std::sin(Phase));
+Complex Complex::fromPolar(double magnitude, double phase) {
+    return Complex(magnitude * std::cos(phase), magnitude * std::sin(phase));
 }
 
-Complex Complex::UnitReal()
-{
-    return One;
+Complex Complex::unitReal() {
+    return one;
 }
 
-Complex Complex::UnitImaginary()
-{
-    return I;
+Complex Complex::unitImaginary() {
+    return i;
 }
 
 // Root of the nth degree (all values)
-std::vector<Complex> Complex::Roots(int N) const
-{
-    if (N <= 0)
-    {
+std::vector<Complex> Complex::roots(int number) const {
+    if (number <= 0) {
         return {};
     }
 
-    std::vector<Complex> Roots;
-    double Mag = std::pow(Magnitude(), 1.0 / N);
-    double phase = Phase();
+    std::vector<Complex> roots;
+    double mag = std::pow(magnitude(), 1.0 / number);
+    double phaseValue = phase();
 
     double rootPhase;
-    for (int k = 0; k < N; k++)
-    {
-        rootPhase = (phase + 2 * PI * k) / N;
-        Roots.push_back(FromPolar(Mag, rootPhase));
+    for (int k = 0; k < number; k++) {
+        rootPhase = (phaseValue + 2 * PI * k) / number;
+        roots.push_back(fromPolar(mag, rootPhase));
     }
 
-    return Roots;
+    return roots;
 }
 
 // Generating roots of unity
-std::vector<Complex> Complex::RootsOfUnity(int N) const
-{
-    return Complex::One.Roots(N);
+std::vector<Complex> Complex::rootsOfUnity(int number) const {
+    return Complex::one.roots(number);
 }
 
 // Distance on a unit circle
-double Complex::DistanceTo(const Complex& OtherNumber) const
-{
-    return (*this - OtherNumber).Magnitude();
+double Complex::distanceTo(const Complex& otherNumber) const {
+    return (*this - otherNumber).magnitude();
 }
 
-bool Complex::IsOnUnitCircle(double Tolerance) const
-{
-    return std::abs(MagnitudeSqr() - 1.0) < Tolerance;
+bool Complex::isOnUnitCircle(double tolerance) const {
+    return std::abs(magnitudeSqr() - 1.0) < tolerance;
 }
 
 // In polar form
-std::string Complex::ToPolarString() const
-{
-    double mag = Magnitude();
-    double phase = Phase();
-    return std::to_string(mag) + " angle " + std::to_string(phase);
+std::string Complex::toPolarString() const {
+    double mag = magnitude();
+    double phaseValue = phase();
+    return std::to_string(mag) + " angle " + std::to_string(phaseValue);
 }
 
 // In exponential form
-std::string Complex::ToExponentString() const
-{
-    double mag = Magnitude();
-    double phase = Phase();
-    return std::to_string(mag) + "e^(i" + std::to_string(phase) + ")";
+std::string Complex::toExponentString() const {
+    double mag = magnitude();
+    double phaseValue = phase();
+    return std::to_string(mag) + "e^(i" + std::to_string(phaseValue) + ")";
 }
 
 // External operators for working with doubles
-Complex operator+(double ihs, const Complex rhs)
-{
+Complex operator+(double ihs, const Complex rhs) {
     return Complex(ihs) + rhs;
 }
 
-Complex operator-(double ihs, const Complex rhs)
-{
+Complex operator-(double ihs, const Complex rhs) {
     return Complex(ihs) - rhs;
 }
 
-Complex operator*(double ihs, const Complex rhs)
-{
+Complex operator*(double ihs, const Complex rhs) {
     return Complex(ihs) * rhs;
 }
 
-Complex operator/(double ihs, const Complex rhs)
-{
-    if (rhs != 0)
-    {
+Complex operator/(double ihs, const Complex rhs) {
+    if (rhs != 0) {
         return Complex(ihs) / rhs;
     }
-    else
-    {
+    else {
         return Complex(0.0, 0.0);
     }
 }
 
 // Streaming output
-std::ostream& operator<<(std::ostream& Output, const Complex& ComplexNumber)
-{
-    Output << ComplexNumber.ToString();
-    return Output;
+std::ostream& operator<<(std::ostream& output, const Complex& complexNumber) {
+    output << complexNumber.toString();
+    return output;
 }
