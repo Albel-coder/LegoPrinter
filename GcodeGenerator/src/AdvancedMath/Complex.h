@@ -7,32 +7,32 @@
 class Complex
 {
 private:
-    double Real;
-    double Imag;
+    double real;
+    double imag;
 
 public:
-    Complex(double r = 0.0, double i = 0.0);
+    Complex(double realNumber = 0.0, double imageNumber = 0.0);
 
     // Arithmetic operators
-    Complex operator+(const Complex& OtherNumber) const;
-    Complex operator-(const Complex& OtherNumber) const;
-    Complex operator*(const Complex& OtherNumber) const;
-    Complex operator/(const Complex& OtherNumber) const;
+    Complex operator+(const Complex& otherNumber) const;
+    Complex operator-(const Complex& otherNumber) const;
+    Complex operator*(const Complex& otherNumber) const;
+    Complex operator/(const Complex& otherNumber) const;
 
     // Comparison Operators
-    bool operator==(const Complex& OtherNumber) const;
-    bool operator!=(const Complex& OtherNumber) const;
-    bool operator>(const Complex& OtherNumber) const;
-    bool operator<(const Complex& OtherNumber) const;
-    bool operator>=(const Complex& OtherNumber) const;
-    bool operator<=(const Complex& OtherNumber) const;
+    bool operator==(const Complex& otherNumber) const;
+    bool operator!=(const Complex& otherNumber) const;
+    bool operator>(const Complex& otherNumber) const;
+    bool operator<(const Complex& otherNumber) const;
+    bool operator>=(const Complex& otherNumber) const;
+    bool operator<=(const Complex& otherNumber) const;
 
     // Assignment Operators
-    Complex& operator=(const Complex& OtherNumber);
-    Complex& operator+=(const Complex& OtherNumber);
-    Complex& operator-=(const Complex& OtherNumber);
-    Complex& operator*=(const Complex& OtherNumber);
-    Complex& operator/=(const Complex& OtherNumber);
+    Complex& operator=(const Complex& otherNumber);
+    Complex& operator+=(const Complex& otherNumber);
+    Complex& operator-=(const Complex& otherNumber);
+    Complex& operator*=(const Complex& otherNumber);
+    Complex& operator/=(const Complex& otherNumber);
 
     Complex operator+();
     Complex operator-();
@@ -43,93 +43,93 @@ public:
     Complex operator--(int);
 
     // Access Methods
-    double GetReal() const;
-    double GetImag() const;
-    void SetReal(double r);
-    void SetImage(double i);
+    double getReal() const;
+    double getImag() const;
+    void setReal(double realNumber);
+    void setImage(double imageNumber);
 
     // Additional Methods
-    double Magnitude() const;
-    double Phase() const;
-    Complex Conjugate() const;
-    double MagnitudeSqr() const;
+    double magnitude() const;
+    double phase() const;
+    Complex conjugate() const;
+    double magnitudeSqr() const;
 
     // Obtaining components in polar form
-    double GetMagnitude() const;
-    double GetPhase() const;
-    double GetPhaseDegrees() const; // Phase in degrees
+    double getMagnitude() const;
+    double getPhase() const;
+    double getPhaseDegrees() const; // Phase in degrees
 
     // Setting a value using polar coordinates
-    void SetPolar(double Magnitude, double Phase);
+    void setPolar(double magnitude, double phase);
     // Phase normalization to the range [-PI / 2, PI / 2]
-    void NormalizedPhase();
+    void normalizedPhase();
     // Rotation of a complex number by an angle
-    Complex Rotate(double Angle) const;
+    Complex rotate(double angle) const;
 
     // Trigonometric functions
-    Complex Sin() const;
-    Complex Cos() const;
-    Complex Tan() const;
+    Complex sin() const;
+    Complex cos() const;
+    Complex tan() const;
 
     // Hyperbolic functions
-    Complex Sinh() const;
-    Complex Cosh() const;
-    Complex Tanh() const;
+    Complex sinh() const;
+    Complex cosh() const;
+    Complex tanh() const;
 
-    Complex Sec() const; // Secant
-    Complex Csc() const; // Cosecant
-    Complex Cot() const; // Cotangent
+    Complex sec() const; // Secant
+    Complex csc() const; // Cosecant
+    Complex cot() const; // Cotangent
 
     // Exponential and logarithmic functions
-    Complex Exp() const;
-    Complex Log() const; // Basic logarithm
-    Complex Log10() const; //  Decimal logarithm
+    Complex exp() const;
+    Complex log() const; // Basic logarithm
+    Complex log10() const; //  Decimal logarithm
 
     // Power functions
-    Complex Pow(double Exponent) const;
-    Complex Pow(const Complex& Exponent) const;
-    Complex Sqrt() const;
+    Complex pow(double exponent) const;
+    Complex pow(const Complex& exponent) const;
+    Complex sqrt() const;
 
     // Inverse trigonometric functions
-    Complex Asin() const;
-    Complex Acos() const;
-    Complex Atan() const;
+    Complex asin() const;
+    Complex acos() const;
+    Complex atan() const;
 
-    Complex Asinh() const; // Area hyperbolic sine
-    Complex Acosh() const; // Area hyperbolic cosine
-    Complex Atanh() const; // Area hyperbolic tangent
+    Complex asinh() const; // Area hyperbolic sine
+    Complex acosh() const; // Area hyperbolic cosine
+    Complex atanh() const; // Area hyperbolic tangent
 
     // Auxiliary methods
-    bool IsReal() const;          // Checking for a real number
-    bool IsImaginary() const;     // Testing for a purely imaginary number
-    bool IsZero() const;          // Checking for zero
-    bool IsFinite() const;        // Limb check
-    std::string ToString() const; // String representation
+    bool isReal() const;          // Checking for a real number
+    bool isImaginary() const;     // Testing for a purely imaginary number
+    bool isZero() const;          // Checking for zero
+    bool isFinite() const;        // Limb check
+    std::string toString() const; // String representation
 
     // Static factory methods
-    static Complex FromPolar(double Magnitude, double Phase);
-    static Complex UnitReal();
-    static Complex UnitImaginary();
+    static Complex fromPolar(double magnitude, double phase);
+    static Complex unitReal();
+    static Complex unitImaginary();
 
     // Root of the nth degree (all values)
-    std::vector<Complex> Roots(int N) const;
+    std::vector<Complex> roots(int number) const;
     // Generating roots of unity
-    std::vector<Complex> RootsOfUnity(int N) const;
+    std::vector<Complex> rootsOfUnity(int nember) const;
 
     // Distance on a unit circle
-    double DistanceTo(const Complex& OtherNumber) const;
+    double distanceTo(const Complex& otherNumber) const;
 
-    bool IsOnUnitCircle(double Tolerance = 1e-10) const;
+    bool isOnUnitCircle(double tolerance = 1e-10) const;
 
-    std::string ToPolarString() const;     // In polar form
-    std::string ToExponentString() const;  // In exponential form
+    std::string toPolarString() const;     // In polar form
+    std::string toExponentString() const;  // In exponential form
 
     // Static constants
-    static const Complex Zero;
-    static const Complex One;
-    static const Complex I;    
+    static const Complex zero;
+    static const Complex one;
+    static const Complex i;    
 };
 
 
 // Streaming output
-std::ostream& operator<<(std::ostream& Output, const Complex& ComplexNumber);
+std::ostream& operator<<(std::ostream& output, const Complex& complexNumber);
