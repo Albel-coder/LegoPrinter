@@ -84,6 +84,25 @@ namespace LPStudio
         {
             connectButton.Enabled = false;
 
+            void resetConnectUi()
+            {
+                connectButton.BackColor = Color.FromArgb(29, 175, 30);
+                connectButton.Text = "Connect";
+                connectButton.Enabled = true;
+            }
+
+            async Task DisconnectSafe()
+            {
+                try
+                {
+                    await Task.Run(() => printerController.Disconnect());
+                }
+                catch
+                {
+                    // Best effort cleanup
+                }
+            }
+
             if (!printerController.IsPrinterConnect())
             {
                 connectButton.BackColor = Color.FromArgb(227, 235, 12);
@@ -95,11 +114,7 @@ namespace LPStudio
                     if (!connected)
                     {
                         MessageBox.Show("No Lego hub found!");
-
-                        connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                        connectButton.Text = "Connect";
-                        connectButton.Enabled = true;
-
+                        resetConnectUi();
                         return;
                     }
 
@@ -122,11 +137,7 @@ namespace LPStudio
                             {
                                 MessageBox.Show("Hub is in an unknown state. Please restart it and try again");
                                 bool disconnect = await Task.Run(() => printerController.Disconnect());
-
-                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                                connectButton.Text = "Connect";
-                                connectButton.Enabled = true;
-
+                                resetConnectUi();
                                 return;
                             }
 
@@ -143,11 +154,7 @@ namespace LPStudio
                             if (result != DialogResult.Yes)
                             {
                                 await Task.Run(() => printerController.Disconnect());
-
-                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                                connectButton.Text = "Connect";
-                                connectButton.Enabled = true;
-
+                                resetConnectUi();
                                 return;
                             }
 
@@ -162,11 +169,7 @@ namespace LPStudio
                                 MessageBox.Show("Firmware installation failed. Please check the console for details", "Error");
 
                                 bool disconnectOk = await Task.Run(() => printerController.Disconnect());
-
-                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                                connectButton.Text = "Connect";
-                                connectButton.Enabled = true;
-
+                                resetConnectUi();
                                 return;
                             } 
 
@@ -181,11 +184,7 @@ namespace LPStudio
                             if (!connected)
                             {
                                 MessageBox.Show("Hub did not reappear after firmware flash. Please turn it off and on manually");
-
-                                connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                                connectButton.Text = "Connect";
-                                connectButton.Enabled = true;
-
+                                resetConnectUi();
                                 return;
                             }
                             address = printerController.GetConnectedAddress();
@@ -207,11 +206,7 @@ namespace LPStudio
                         if (result != DialogResult.Yes)
                         {
                             await Task.Run(() => printerController.Disconnect());
-
-                            connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                            connectButton.Text = "Connect";
-                            connectButton.Enabled = true;
-
+                            resetConnectUi();
                             return;
                         }
 
@@ -225,11 +220,7 @@ namespace LPStudio
                             MessageBox.Show("Failed to upload runtime program. Check console.");
 
                             await Task.Run(() => printerController.Disconnect());
-
-                            connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                            connectButton.Text = "Connect";
-                            connectButton.Enabled = true;
-
+                            resetConnectUi();
                             return;
                         }
 
@@ -237,8 +228,7 @@ namespace LPStudio
                         if (!started)
                         {
                             MessageBox.Show("Runtime program uploaded but failed to start");
-                        }
-                        
+                        }                        
                     }
 
                     await Task.Delay(1000);
@@ -249,11 +239,7 @@ namespace LPStudio
                         MessageBox.Show("Runtime did not become ready after upload.");
 
                         await Task.Run(() => printerController.Disconnect());
-
-                        connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                        connectButton.Text = "Connect";
-                        connectButton.Enabled = true;
-
+                        resetConnectUi();
                         return;
                     }
 
@@ -263,29 +249,17 @@ namespace LPStudio
                     {
                         MessageBox.Show("Failed to establish runtime communication with the hub");
                         await Task.Run(() => printerController.Disconnect());
-
-                        connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                        connectButton.Text = "Connect";
-                        connectButton.Enabled = true;
+                        resetConnectUi();
                         return;
                     }
-
-
-                    connectButton.BackColor = Color.FromArgb(234, 84, 85);
-                    connectButton.Text = "Disconnect";
-                    connectButton.Enabled = true;
-
+                    resetConnectUi();
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine(ex.ToString());
 
                     await Task.Run(() => printerController.Disconnect());
-
-                    connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                    connectButton.Text = "Connect";
-                    connectButton.Enabled = true;
-
+                    resetConnectUi();
                     return;
                 }
             }
@@ -302,19 +276,13 @@ namespace LPStudio
                         MessageBox.Show("Disconnect failed");
                     }
 
-                    connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                    connectButton.Text = "Connect";
-                    connectButton.Enabled = true;
-
+                    resetConnectUi();
                     return;
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Error: {ex.ToString()}");
-                    connectButton.BackColor = Color.FromArgb(29, 175, 30);
-                    connectButton.Text = "Connect";
-                    connectButton.Enabled = true;
-
+                    resetConnectUi();
                     return;
                 }
             }
