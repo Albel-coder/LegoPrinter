@@ -7,37 +7,38 @@
 RuntimeSession::RuntimeSession(ITransport& transport)
 	: transport(transport) {}
 
+// Printer service
 bool RuntimeSession::discover() {
 	if (!transport.isConnected()) {
 		LOG_BLUETOOTH("Runtime discover: transport not connected");
 		return false;
 	}
 
-	nusRx = {};
-	nusTx = {};
+	printerCommandEvent = {};
+	printerCapabilities = {};
 
-	LOG_BLUETOOTH("Runtime discover: checking NUS service");
+	LOG_BLUETOOTH("Runtime discover: checking printer service");
 
 	for (const auto& service : transport.getServices()) {
-		if (service == protocol::NUS_SERVICE_UUID) {
+		if (service == protocol::PRINTER_SERVICE_UUID) {
 			
 			for (const auto& characteristic : transport.getCharacteristics(service)) {
-				if (characteristic.characteristicUuid == protocol::NUS_RX_UUID) {
-					nusRx = characteristic;
+				if (characteristic.characteristicUuid == protocol::PRINTER_COMMAND_EVENT_UUID) {
+					printerCommandEvent = characteristic;
 				}
-				else if (characteristic.characteristicUuid == protocol::NUS_TX_UUID) {
-					nusTx = characteristic;
+				else if (characteristic.characteristicUuid == protocol::PRINTER_CAPABILITIES_UUID) {
+					printerCapabilities = characteristic;
 				}
 			}
 		}
 	}
 
-	if (nusRx.characteristicUuid.empty() || nusTx.characteristicUuid.empty()) {
-		LOG_ERROR("Runtime discover: NUS RX/TX not found");
+	if (printerCommandEvent.characteristicUuid.empty() || printerCapabilities.characteristicUuid.empty()) {
+		LOG_ERROR("Runtime discover: printer command/event not found");
 		return false;
 	}
 
-	LOG_BLUETOOTH("Runtime discover: NUS RX/TX found");
+	LOG_BLUETOOTH("Runtime discover: printer command/event found");
 	return true;
 }
 
@@ -65,7 +66,7 @@ bool RuntimeSession::connect(const std::string& address) {
 		return false;
 	}
 
-	if (!transport.subscribe(nusTx, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
+	if (!transport.subscribe(printerCommandEvent, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
 		onData(characteristic, data, length);
 		})) {
 		LOG_ERROR("Runtime connect: subscribe failed");
@@ -87,8 +88,8 @@ void RuntimeSession::disconnect() {
 	if (!connected && !subscribed && !transport.isConnected()) {
 		LOG_BLUETOOTH("Transport already disconnected, clearing state");
 		connectedAddress.clear();
-		nusRx = {};
-		nusTx = {};
+		printerCapabilities = {};
+		printerCommandEvent = {};
 		callback = nullptr;
 		return;
 	}
@@ -100,8 +101,8 @@ void RuntimeSession::disconnect() {
 	connected.store(false);
 
 	try {
-		if (wasSubscribed && transport.isConnected() && !nusTx.characteristicUuid.empty()) {
-			transport.unsubscribe(nusTx);
+		if (wasSubscribed && transport.isConnected() && !printerCommandEvent.characteristicUuid.empty()) {
+			transport.unsubscribe(printerCommandEvent);
 		}
 	}
 	catch (...)	{
@@ -118,13 +119,13 @@ void RuntimeSession::disconnect() {
 	}
 
 	connectedAddress.clear();
-	nusRx = {};
-	nusTx = {};
+	printerCapabilities = {};
+	printerCommandEvent = {};
 	callback = nullptr;
 }
 
 bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse) {
-	if (!connected && !transport.isConnected() || nusRx.characteristicUuid.empty()) {
+	if (!connected && !transport.isConnected() || printerCapabilities.characteristicUuid.empty()) {
 		LOG_ERROR("Runtime send: not connected");
 		return false;
 	}
@@ -136,7 +137,7 @@ bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse)
 
 	while (offset < length) {
 		const size_t chunk = std::min(maxChunk, length - offset);
-		if (!transport.write(nusRx, data + offset, chunk, withResponse)) {
+		if (!transport.write(printerCapabilities, data + offset, chunk, withResponse)) {
 			LOG_ERROR("Runtime send: write failed at offset %zu", offset);
 			return false;
 		}

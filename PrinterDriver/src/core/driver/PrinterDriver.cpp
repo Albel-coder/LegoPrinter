@@ -282,7 +282,7 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
     bool hasLegoOfficial = false;
 
     for (const auto& service : services) {
-        if (service == protocol::PYBRICKS_SERVICE_UUID) {
+        if (service == protocol::PRINTER_SERVICE_UUID) {
             return HubMode::PybricksRuntime;
         }
         if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
@@ -501,7 +501,7 @@ void PrinterDriver::disconnectRuntime() {
 
 bool PrinterDriver::sendRuntime(const uint8_t* data, size_t length) {
     const bool result = runtime->send(data, length, false);
-    if (result) {
+    if (!result) {
         LOG_ERROR("sendRuntime failed");
     }
 
@@ -514,21 +514,7 @@ bool PrinterDriver::sendMotorCommands(const MotorCommand* commands, int count) {
         return false;
     }
 
-
-
-    std::vector<uint8_t> packet;
-    packet.reserve(2 + static_cast<size_t>(count) * 10);
-
-    packet.push_back(0x01); // COMMAND_MOVE for executor
-    packet.push_back(static_cast<uint8_t>(count));
-
-    for (int i = 0; i < count; ++i) {
-        const auto& command = commands[i];
-
-        LOG_MOTOR("command[%d]: port=%u speed=%d angle=%d flags=0x%02X", i, command.port, command.speed);
-
-
-    }
+    // TODO implement
 
     return true;
 }

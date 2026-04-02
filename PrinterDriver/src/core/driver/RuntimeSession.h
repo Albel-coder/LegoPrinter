@@ -25,8 +25,8 @@ private:
 	ITransport& transport;
 	RuntimeCallback callback;
 
-	Characteristic nusRx;
-	Characteristic nusTx;
+	Characteristic printerCommandEvent;
+	Characteristic printerCapabilities;
 	std::string connectedAddress;
 
 	std::atomic<bool> connected{ false };

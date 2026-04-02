@@ -20,13 +20,13 @@ bool PrinterProtocol::discover() {
 	LOG_BLUETOOTH("PrinterProtocol discover: checking services");
 
 	for (const auto& service : transport.getServices()) {
-		if (service == protocol::PYBRICKS_SERVICE_UUID) {
+		if (service == protocol::PRINTER_SERVICE_UUID) {
 
 			for (const auto& characteristic : transport.getCharacteristics(service)) {
-				if (characteristic.characteristicUuid == protocol::PYBRICKS_COMMAND_UUID) {
+				if (characteristic.characteristicUuid == protocol::PRINTER_COMMAND_EVENT_UUID) {
 					commandEvent = characteristic;
 				}
-				else if (characteristic.characteristicUuid == protocol::PYBRICKS_CAPABILITIES_UUID) {
+				else if (characteristic.characteristicUuid == protocol::PRINTER_CAPABILITIES_UUID) {
 					capabilities = characteristic;
 				}
 			}
@@ -93,7 +93,8 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	// Payload for WRITE_USER_RAM in this baseline:
 	// [offset u32 little-endian][chunk bytes...]
 	const size_t maxWrite = transport.getMaxWriteSize();
-	const size_t payloadLimit = (maxWrite > 8) ? (maxWrite - 4) : 16; // 4 bytes offset
+	const size_t payloadLimit = (maxWrite > 5) ? (maxWrite - 5) : 1; // offset
+	
 	size_t sent = 0;
 
 	while (sent < script.size()) {
