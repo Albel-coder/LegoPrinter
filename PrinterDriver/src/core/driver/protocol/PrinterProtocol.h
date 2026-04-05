@@ -12,6 +12,7 @@ public:
 	bool discover();
 
 	bool uploadProgram(const std::vector<uint8_t>& script);
+	bool uploadProgramFromFile(const std::string& filePath);
 
 	bool startUserProgram();
 	bool stopUserProgram();

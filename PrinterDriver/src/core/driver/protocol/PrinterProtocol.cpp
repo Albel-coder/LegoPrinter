@@ -3,7 +3,27 @@
 
 #include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <thread>
+
+using namespace std::chrono_literals;
+
+namespace {
+
+	static std::vector<uint8_t> readBinaryFile(const std::string& path) {
+		std::ifstream file(path, std::ios::binary);
+		if (file) {
+			return {};
+		}
+
+		return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+	}
+
+	static bool isLikelyMpy(const std::vector<uint8_t>& data) {
+		return data.size() >= 3 && data[0] == 'M' && data[1] == 'P' && data[2] == 'Y';
+	}
+
+} // namespace
 
 PrinterProtocol::PrinterProtocol(ITransport& transportPointer)
 	: transport(transportPointer) { }
@@ -17,28 +37,29 @@ bool PrinterProtocol::discover() {
 	commandEvent = {};
 	capabilities = {};
 
-	LOG_BLUETOOTH("PrinterProtocol discover: checking services");
+	LOG_BLUETOOTH("PrinterProtocol discover: checking Pybricks services");
 
 	for (const auto& service : transport.getServices()) {
-		if (service == protocol::PRINTER_SERVICE_UUID) {
+		if (service != protocol::PYBRICKS_SERVICE_UUID) {
+			continue;
+		}
 
-			for (const auto& characteristic : transport.getCharacteristics(service)) {
-				if (characteristic.characteristicUuid == protocol::PRINTER_COMMAND_EVENT_UUID) {
-					commandEvent = characteristic;
-				}
-				else if (characteristic.characteristicUuid == protocol::PRINTER_CAPABILITIES_UUID) {
-					capabilities = characteristic;
-				}
+		for (const auto& characteristic : transport.getCharacteristics(service)) {
+			if (characteristic.characteristicUuid == protocol::PYBRICKS_COMMAND_EVENT_UUID) {
+				commandEvent = characteristic;
+			}
+			else if (characteristic.characteristicUuid == protocol::PYBRICKS_HUB_CAPABILITIES_UUID) {
+				capabilities = characteristic;
 			}
 		}
 	}
 
 	if (commandEvent.characteristicUuid.empty()) {
-		LOG_ERROR("PrinterProtocol discover: command characteristic missing");
+		LOG_ERROR("PrinterProtocol discover: command/event missing");
 		return false;
 	}
 
-	LOG_BLUETOOTH("PrinterProtocol command characteristic found");
+	LOG_BLUETOOTH("PrinterProtocol command/event found");
 	return true;
 }
 
@@ -66,37 +87,39 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	}
 	
 	if (!discover()) {
-		LOG_ERROR("PrinterProtocol command characteristic not found");
+		LOG_ERROR("PrinterProtocol command/event not found");
+		return false;
+	}
+
+	if (script.empty()) {
+		LOG_ERROR("PrinterProtocol upload: compiled blob is empty");
 		return false;
 	}
 
 	LOG_INFO("PrinterProtocol upload started (%zu bytes)", script.size());
 
-	// Stop any currently running program before upload
-	if (!sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true)) {
-		LOG_WARNING("Could not stop current program before upload (continuing)");
-	}
+	// Optional: stop running program first
+	(void)sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true);
 
-	// Meta: [size u32 little-endian]
-	std::vector<uint8_t> meta;
-	const uint32_t size = static_cast<uint32_t>(script.size());
-	meta.push_back(static_cast<uint8_t>(size & 0xFF));
-	meta.push_back(static_cast<uint8_t>((size >> 8) & 0xFF));
-	meta.push_back(static_cast<uint8_t>((size >> 16) & 0xFF));
-	meta.push_back(static_cast<uint8_t>((size >> 24) & 0xFF));
+	// WRITE_USER_PROGRAM_META: size as u32 LE
+	const uint32_t programSize = static_cast<uint32_t>(script.size());
+	std::vector<uint8_t> meta = {
+		static_cast<uint8_t>(programSize & 0xFF),
+		static_cast<uint8_t>((programSize >> 8) & 0xFF),
+		static_cast<uint8_t>((programSize >> 16) & 0xFF),
+		static_cast<uint8_t>((programSize >> 24) & 0xFF),
+	};
 
 	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, true)) {
 		LOG_ERROR("WRITE_USER_PROGRAM_META failed");
 		return false;
 	}
 
-	// Payload for WRITE_USER_RAM in this baseline:
-	// [offset u32 little-endian][chunk bytes...]
+	// max write size includes command bytes + offset(4) + data
 	const size_t maxWrite = transport.getMaxWriteSize();
-	const size_t payloadLimit = (maxWrite > 5) ? (maxWrite - 5) : 1; // offset
+	const size_t payloadLimit = (maxWrite > 5) ? (maxWrite - 5) : 1;
 	
 	size_t sent = 0;
-
 	while (sent < script.size()) {
 		const size_t chunk = std::min(payloadLimit, script.size() - sent);
 
@@ -108,7 +131,10 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		payload.push_back(static_cast<uint8_t>((offset >> 8) & 0xFF));
 		payload.push_back(static_cast<uint8_t>((offset >> 16) & 0xFF));
 		payload.push_back(static_cast<uint8_t>((offset >> 24) & 0xFF));
-		payload.insert(payload.end(), script.begin() + sent, script.begin() + sent + chunk);
+
+		payload.insert(payload.end(), 
+			script.begin() + static_cast<std::ptrdiff_t>(sent), 
+			script.begin() + static_cast<std::ptrdiff_t>(sent + chunk));
 
 		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, false)) {
 			LOG_ERROR("COMMAND_WRITE_USER_RAM failed at offset=%zu", sent);
@@ -117,10 +143,31 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 
 		sent += chunk;
 		LOG_INFO("PrinterProtocol upload progress: %zu / %zu", sent, script.size());
+	
+		std::this_thread::sleep_for(5ms);
+	}
+
+	if (!sendCommand(protocol::PybricksCommand::StartUserProgram, {}, true)) {
+		LOG_ERROR("START_USER_PROGRAM failed");
+		return false;
 	}
 
 	LOG_INFO("PrinterProtocol upload finished");
 	return true;
+}
+
+bool PrinterProtocol::uploadProgramFromFile(const std::string& filePath) {
+	auto scriptData = readBinaryFile(filePath);
+	if (scriptData.empty()) {
+		LOG_ERROR("Failed to read program file or file is empty: %s", filePath.c_str());
+		return false;
+	}
+
+	if (!isLikelyMpy(scriptData)) {
+		LOG_WARNING("Program file does not look like .mpy, continuing anyway");
+	}
+
+	return uploadProgram(scriptData);
 }
 
 bool PrinterProtocol::startUserProgram() {
