@@ -213,7 +213,7 @@ namespace LPStudio
                         connectButton.Text = "Uploading runtime...";
                         connectButton.BackColor = Color.FromArgb(255, 165, 0);
 
-                        string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.py");
+                        string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.mpy");
                         bool uploadOk = await Task.Run(() => printerController.UploadProgram(scriptPath, address));
                         if (!uploadOk)
                         {
