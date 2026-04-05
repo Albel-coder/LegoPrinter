@@ -10,7 +10,7 @@ class RuntimeSession {
 public:
 	using RuntimeCallback = std::function<void(const uint8_t* data, size_t length)>;
 
-	explicit RuntimeSession(ITransport& transport);
+	explicit RuntimeSession(ITransport& transportPointer);
 
 	bool connect(const std::string& address);
 	void disconnect();
@@ -25,8 +25,8 @@ private:
 	ITransport& transport;
 	RuntimeCallback callback;
 
-	Characteristic printerCommandEvent;
-	Characteristic printerCapabilities;
+	Characteristic pybricksCommandEvent;
+	Characteristic pybricksCapabilities;
 	std::string connectedAddress;
 
 	std::atomic<bool> connected{ false };

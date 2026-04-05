@@ -4,41 +4,41 @@
 
 #include <algorithm>
 
-RuntimeSession::RuntimeSession(ITransport& transport)
-	: transport(transport) {}
+RuntimeSession::RuntimeSession(ITransport& transportPointer)
+	: transport(transportPointer) {}
 
-// Printer service
 bool RuntimeSession::discover() {
 	if (!transport.isConnected()) {
 		LOG_BLUETOOTH("Runtime discover: transport not connected");
 		return false;
 	}
 
-	printerCommandEvent = {};
-	printerCapabilities = {};
+	pybricksCommandEvent = {};
+	pybricksCapabilities = {};
 
-	LOG_BLUETOOTH("Runtime discover: checking printer service");
+	LOG_BLUETOOTH("Runtime discover: checking Pybricks service");
 
 	for (const auto& service : transport.getServices()) {
-		if (service == protocol::PRINTER_SERVICE_UUID) {
-			
-			for (const auto& characteristic : transport.getCharacteristics(service)) {
-				if (characteristic.characteristicUuid == protocol::PRINTER_COMMAND_EVENT_UUID) {
-					printerCommandEvent = characteristic;
-				}
-				else if (characteristic.characteristicUuid == protocol::PRINTER_CAPABILITIES_UUID) {
-					printerCapabilities = characteristic;
-				}
+		if (service != protocol::PYBRICKS_SERVICE_UUID) {
+			continue;
+		}
+
+		for (const auto& characteristic : transport.getCharacteristics(service)) {
+			if (characteristic.characteristicUuid == protocol::PYBRICKS_COMMAND_EVENT_UUID) {
+				pybricksCommandEvent = characteristic;
+			}
+			else if (characteristic.characteristicUuid == protocol::PYBRICKS_HUB_CAPABILITIES_UUID) {
+				pybricksCapabilities = characteristic; // read-only, don't write in it
 			}
 		}
 	}
 
-	if (printerCommandEvent.characteristicUuid.empty() || printerCapabilities.characteristicUuid.empty()) {
-		LOG_ERROR("Runtime discover: printer command/event not found");
+	if (pybricksCommandEvent.characteristicUuid.empty()) {
+		LOG_ERROR("Runtime discover: Pybricks command/event not found");
 		return false;
 	}
 
-	LOG_BLUETOOTH("Runtime discover: printer command/event found");
+	LOG_BLUETOOTH("Runtime discover: Pybricks command/event found");
 	return true;
 }
 
@@ -66,7 +66,7 @@ bool RuntimeSession::connect(const std::string& address) {
 		return false;
 	}
 
-	if (!transport.subscribe(printerCommandEvent, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
+	if (!transport.subscribe(pybricksCommandEvent, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
 		onData(characteristic, data, length);
 		})) {
 		LOG_ERROR("Runtime connect: subscribe failed");
@@ -85,31 +85,19 @@ bool RuntimeSession::connect(const std::string& address) {
 void RuntimeSession::disconnect() {
 	LOG_BLUETOOTH("Runtime disconnect");
 
-	if (!connected && !subscribed && !transport.isConnected()) {
-		LOG_BLUETOOTH("Transport already disconnected, clearing state");
-		connectedAddress.clear();
-		printerCapabilities = {};
-		printerCommandEvent = {};
-		callback = nullptr;
-		return;
-	}
-
-	LOG_BLUETOOTH("Runtime disconnect");
-
-	// Flip flags first so a re-entrant call won`t do work twice
 	const bool wasSubscribed = subscribed.exchange(false);
 	connected.store(false);
 
 	try {
-		if (wasSubscribed && transport.isConnected() && !printerCommandEvent.characteristicUuid.empty()) {
-			transport.unsubscribe(printerCommandEvent);
+		if (wasSubscribed && transport.isConnected() && !pybricksCommandEvent.characteristicUuid.empty()) {
+			transport.unsubscribe(pybricksCommandEvent);
 		}
 	}
-	catch (...)	{
+	catch (...) {
 		LOG_WARNING("Runtime disconnect: unsubscribe failed");
 	}
 
-	try {
+	try	{
 		if (transport.isConnected()) {
 			transport.disconnect();
 		}
@@ -119,13 +107,13 @@ void RuntimeSession::disconnect() {
 	}
 
 	connectedAddress.clear();
-	printerCapabilities = {};
-	printerCommandEvent = {};
+	pybricksCapabilities = {};
+	pybricksCommandEvent = {};
 	callback = nullptr;
 }
 
 bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse) {
-	if (!connected && !transport.isConnected() || printerCapabilities.characteristicUuid.empty()) {
+	if (!connected && !transport.isConnected() || pybricksCommandEvent.characteristicUuid.empty()) {
 		LOG_ERROR("Runtime send: not connected");
 		return false;
 	}
@@ -137,7 +125,7 @@ bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse)
 
 	while (offset < length) {
 		const size_t chunk = std::min(maxChunk, length - offset);
-		if (!transport.write(printerCapabilities, data + offset, chunk, withResponse)) {
+		if (!transport.write(pybricksCommandEvent, data + offset, chunk, withResponse)) {
 			LOG_ERROR("Runtime send: write failed at offset %zu", offset);
 			return false;
 		}
