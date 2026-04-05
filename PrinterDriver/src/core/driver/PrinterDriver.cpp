@@ -8,16 +8,22 @@
 #include <thread>
 #include <iterator>
 
-static std::vector<uint8_t> readBinaryFile(const std::string& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        return {};
+namespace {
+    static std::vector<uint8_t> readBinaryFile(const std::string& path) {
+        std::ifstream file(path, std::ios::binary);
+        if (!file.is_open()) {
+            return {};
+        }
+
+        return {
+            std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()
+        };
     }
 
-    return { 
-        std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() 
-    };
-}
+    static bool isLikelyMpy(const std::vector<uint8_t>& data) {
+        return data.size() >= 3 && data[0] == 'M' && data[1] == 'P' && data[2] == 'Y';
+    }
+} // namespace
 
 PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transportPointer) 
     : transport(std::move(transportPointer)) {
@@ -274,26 +280,21 @@ std::vector<DeviceInfo> PrinterDriver::getLastScanResults() const {
 
 HubMode PrinterDriver::detectHubMode(const std::string& address) {
     if (!transport->isConnected() || transport->getConnectedAddress() != address) {
-        LOG_WARNING("detectHubMode: not connected to this address, returning Unknown mode");
         return HubMode::Unknown;
     }
 
-    const auto services = transport->getServices();
-    bool hasLegoOfficial = false;
+    const std::vector<std::string> services = transport->getServices();
+    const bool hasBootloader = std::find(services.begin(), services.end(), protocol::LWP3_BOOTLOADER_SERVICE_UUID) != services.end();
+    const bool hasPybricks = std::find(services.begin(), services.end(), protocol::PYBRICKS_SERVICE_UUID) != services.end();
+    const bool hasLwp3Hub = std::find(services.begin(), services.end(), protocol::LWP3_HUB_SERVICE_UUID) != services.end();
 
-    for (const auto& service : services) {
-        if (service == protocol::PRINTER_SERVICE_UUID) {
-            return HubMode::PybricksRuntime;
-        }
-        if (service == protocol::LWP3_BOOTLOADER_SERVICE_UUID) {
-            return HubMode::Bootloader;
-        }
-        if (service == protocol::LWP3_HUB_SERVICE_UUID) {
-            hasLegoOfficial = true;
-        }
+    if (hasBootloader) {
+        return HubMode::Bootloader;
     }
-
-    if (hasLegoOfficial) {
+    if (hasPybricks) {
+        return HubMode::PybricksRuntime;
+    }
+    if (hasLwp3Hub) {
         return HubMode::LegoOfficial;
     }
 
@@ -411,7 +412,7 @@ bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::stri
 
     auto mode = detectHubMode(target);
     if (mode != HubMode::PybricksRuntime) {
-        LOG_ERROR("Hub is not in Pybricks runtime mode. Please flash firmware first or restart the hub");
+        LOG_ERROR("Hub is not in Pybricks runtime mode");
         return false;
     }
 
@@ -420,8 +421,11 @@ bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::stri
     std::vector<uint8_t> scriptData = readBinaryFile(scriptFile);
     if (scriptData.empty()) {
         LOG_ERROR("Failed to read script file or file is empty: %s", scriptFile.c_str());
-        bool disconnectResult = transport->disconnect();
         return false;
+    }
+
+    if (!isLikelyMpy(scriptData)) {
+        LOG_WARNING("The file does not look like a .mpy artifact");
     }
 
     const bool result = printerProtocol->uploadProgram(scriptData);
