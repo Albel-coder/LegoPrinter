@@ -125,6 +125,11 @@ std::vector<DeviceInfo> PrinterDriver::scan(int timeoutSeconds, bool legoOnly) {
     scanResults = filterAndSortHubs(rawData, legoOnly);
 
     LOG_BLUETOOTH("Scan finished, %zu candidate(s)", scanResults.size());
+    
+    for (const auto& device : scanResults) {
+        LOG_BLUETOOTH("  %s [%s] rssi = %d", device.name.c_str(), device.address.c_str(), device.rssi);
+    }
+    
     return scanResults;
 }
 
@@ -166,7 +171,7 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
         }
 
         if (current.empty() && legoOnly) {
-            LOG_BLUETOOTH("connectAuto: no LEGO hubs found, trying all devices");
+            //LOG_BLUETOOTH("connectAuto: no LEGO hubs found, trying all devices");
             current = filterAndSortHubs(transport->getScanResults(), legoOnly);
         }
 
@@ -247,7 +252,7 @@ bool PrinterDriver::reconnectLast() {
 }
 
 bool PrinterDriver::disconnect() {
-    LOG_BLUETOOTH("disconnect()");    
+    LOG_BLUETOOTH("disconnect (%s)",transport->getConnectedAddress().c_str());    
     bool result = true;
 
     if (transport->isConnected()) {
@@ -283,10 +288,19 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
         return HubMode::Unknown;
     }
 
+    LOG_INFO("detectHubMode (%s)", address.c_str());
+
     const std::vector<std::string> services = transport->getServices();
     const bool hasBootloader = std::find(services.begin(), services.end(), protocol::LWP3_BOOTLOADER_SERVICE_UUID) != services.end();
     const bool hasPybricks = std::find(services.begin(), services.end(), protocol::PYBRICKS_SERVICE_UUID) != services.end();
     const bool hasLwp3Hub = std::find(services.begin(), services.end(), protocol::LWP3_HUB_SERVICE_UUID) != services.end();
+
+    LOG_INFO("Services (%zu):", services.size());
+    for (const auto& service : services) {
+        LOG_INFO("  %s", service.c_str());
+    }
+
+    LOG_INFO("Flags: bootloader = %d, pybricks = %d, lwp3hub = %d", hasBootloader, hasPybricks, hasLwp3Hub);
 
     if (hasBootloader) {
         return HubMode::Bootloader;
