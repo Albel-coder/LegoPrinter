@@ -91,6 +91,12 @@ namespace LPStudio
                 connectButton.Enabled = true;
             }
 
+            void setConnectUi(string text, Color color)
+            {
+                connectButton.BackColor = color;
+                connectButton.Text = text;
+            }
+
             async Task DisconnectSafe()
             {
                 try
@@ -103,173 +109,47 @@ namespace LPStudio
                 }
             }
 
-            if (!printerController.IsPrinterConnect())
+            async Task<bool> WaitForHubModeAsync(PrinterController.HubMode expectedMode, int totalWaitMs = 60000, int connectTimeoutMs = 10000)
             {
-                connectButton.BackColor = Color.FromArgb(227, 235, 12);
-                connectButton.Text = "Connecting...";
+                const int stepMs = 2000;
 
-                try
+                for (int elapsed = 0; elapsed < totalWaitMs; elapsed += stepMs)
                 {
-                    bool connected = await Task.Run(() => printerController.ConnectAuto(10000, true));
+                    await Task.Delay(stepMs);
+
+                    bool connected = await Task.Run(() =>
+                    printerController.ConnectAuto(connectTimeoutMs, false));
                     if (!connected)
                     {
-                        MessageBox.Show("No Lego hub found!");
-                        resetConnectUi();
-                        return;
+                        continue;
                     }
 
                     string address = printerController.GetConnectedAddress();
-                    if (string.IsNullOrEmpty(address))
+                    if (string.IsNullOrWhiteSpace(address))
                     {
-                        throw new Exception("Connected, but address is empty");
+                        await DisconnectSafe();
+                        continue;
                     }
 
-                    connectButton.Text = "Checking hub mode...";
-                    var mode = await Task.Run(() => printerController.DetectHubMode(address));
-                    
-                    if (mode != PrinterController.HubMode.PrinterRuntime)
+                    var mode = await Task.Run(() =>
+                    printerController.DetectHubMode(address));
+                    if (mode == expectedMode)
                     {
-                        var needFirmware = (mode == PrinterController.HubMode.LegoOfficial || mode == PrinterController.HubMode.Bootloader);
-                        if (!needFirmware)
-                        {
-                            bool runtimeReady = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
-                            if (!runtimeReady)
-                            {
-                                MessageBox.Show("Hub is in an unknown state. Please restart it and try again");
-                                bool disconnect = await Task.Run(() => printerController.Disconnect());
-                                resetConnectUi();
-                                return;
-                            }
-
-                        }
-                        else
-                        {
-                            var result = MessageBox.Show(
-                                "This hub needs to be flashed with firmware to work with the printer\n\n" + 
-                                "Do you want to install the firmware now?",
-                                "Firmware required",
-                                MessageBoxButtons.YesNo,
-                                MessageBoxIcon.Question);
-
-                            if (result != DialogResult.Yes)
-                            {
-                                await Task.Run(() => printerController.Disconnect());
-                                resetConnectUi();
-                                return;
-                            }
-
-                            connectButton.Text = "Installing firmware...";
-                            connectButton.BackColor = Color.FromArgb(255, 165, 0);
-
-                            string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "printer-firmware-v3.6.1/firmware-base.bin");
-
-                            bool firmwareOk = await Task.Run(() => printerController.FlashFirmware(firmwarePath, address));
-                            if (!firmwareOk)
-                            {
-                                MessageBox.Show("Firmware installation failed. Please check the console for details", "Error");
-
-                                bool disconnectOk = await Task.Run(() => printerController.Disconnect());
-                                resetConnectUi();
-                                return;
-                            } 
-
-                            connectButton.Text = "Restarting...";
-                            await Task.Delay(10000);
-
-                            bool disconnect = await Task.Run(() => printerController.Disconnect());
-                            
-                            await Task.Delay(5000);
-
-                            connected = await Task.Run(() => printerController.ConnectAuto(10000, false));
-                            if (!connected)
-                            {
-                                MessageBox.Show("Hub did not reappear after firmware flash. Please turn it off and on manually");
-                                resetConnectUi();
-                                return;
-                            }
-                            address = printerController.GetConnectedAddress();
-                        }
+                        return true;
                     }
 
-                    connectButton.Text = "Checking runtime...";
-                    bool runtimePresent = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
-
-                    if (!runtimePresent)
-                    {
-                        var result = MessageBox.Show(
-                            "The printer control program is not installed on the hub\n\n" + 
-                            "Do you want to upload it now?",
-                            "Runtime required",
-                            MessageBoxButtons.YesNo,
-                            MessageBoxIcon.Question);
-
-                        if (result != DialogResult.Yes)
-                        {
-                            await Task.Run(() => printerController.Disconnect());
-                            resetConnectUi();
-                            return;
-                        }
-
-                        connectButton.Text = "Uploading runtime...";
-                        connectButton.BackColor = Color.FromArgb(255, 165, 0);
-
-                        string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.mpy");
-                        bool uploadOk = await Task.Run(() => printerController.UploadProgram(scriptPath, address));
-                        if (!uploadOk)
-                        {
-                            MessageBox.Show("Failed to upload runtime program. Check console.");
-
-                            await Task.Run(() => printerController.Disconnect());
-                            resetConnectUi();
-                            return;
-                        }
-
-                        bool started = await Task.Run(() => printerController.StartUserProgram());
-                        if (!started)
-                        {
-                            MessageBox.Show("Runtime program uploaded but failed to start");
-                        }                        
-                    }
-
-                    await Task.Delay(1000);
-
-                    runtimePresent = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
-                    if (!runtimePresent)
-                    {
-                        MessageBox.Show("Runtime did not become ready after upload.");
-
-                        await Task.Run(() => printerController.Disconnect());
-                        resetConnectUi();
-                        return;
-                    }
-
-                    connectButton.Text = "Connecting to runtime...";
-                    bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
-                    if (!runtimeConnected)
-                    {
-                        MessageBox.Show("Failed to establish runtime communication with the hub");
-                        await Task.Run(() => printerController.Disconnect());
-                        resetConnectUi();
-                        return;
-                    }
-                    resetConnectUi();
+                    await DisconnectSafe();
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.ToString());
 
-                    await Task.Run(() => printerController.Disconnect());
-                    resetConnectUi();
-                    return;
-                }
+                return false;
             }
-            else
-            {
-                connectButton.BackColor = Color.FromArgb(227, 235, 12);
-                connectButton.Text = "Disconnecting...";
 
-                try
+            try
+            {
+                if (printerController.IsPrinterConnect())
                 {
+                    setConnectUi("Disconnecting...", Color.FromArgb(227, 235, 12));
+
                     bool disconnected = await Task.Run(() => printerController.Disconnect());
                     if (!disconnected)
                     {
@@ -279,12 +159,147 @@ namespace LPStudio
                     resetConnectUi();
                     return;
                 }
-                catch (Exception ex)
+
+                setConnectUi("Connecting", Color.FromArgb(227, 235, 12));
+
+                bool connected = await Task.Run(() => printerController.ConnectAuto(10000, true));
+            
+                if (!connected)
                 {
-                    Console.WriteLine($"Error: {ex.ToString()}");
+                    MessageBox.Show("No hub found!");
                     resetConnectUi();
                     return;
                 }
+
+                string address = printerController.GetConnectedAddress();
+                if (string.IsNullOrWhiteSpace (address))
+                {
+                    throw new Exception("Connected, but address is empty");
+                }
+
+                setConnectUi("Checking hub mode...", Color.FromArgb(227, 235, 12));
+                var mode = await Task.Run(() => printerController.DetectHubMode(address));
+            
+                if (mode == PrinterController.HubMode.Bootloader || mode == PrinterController.HubMode.LegoOfficial)
+                {
+                    var result = MessageBox.Show("This hub needs to be flashed with firmware to work with the printer\n\nDo you want to install the firmware now?", "Firmware required", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+                    if (result != DialogResult.Yes)
+                    {
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;                    
+                    }
+
+                    setConnectUi("Installing firmware...", Color.FromArgb(225, 165, 0));
+
+                    string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "firmware.blob");
+
+                    bool firmwareResult = await Task.Run(() => printerController.FlashFirmware(firmwarePath, address));
+                    if (!firmwareResult)
+                    {
+                        MessageBox.Show("Firmware installation failed. Please check the console for details", "Error");
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+
+                    setConnectUi("Waiting for hub reboot...", Color.FromArgb(255, 165, 0));
+
+                    bool runtimeUp = await WaitForHubModeAsync(PrinterController.HubMode.PrinterRuntime, 60000, 10000);
+                    if (!runtimeUp)
+                    {
+                        MessageBox.Show("Hub did not come back in Pybricks runtime mode after flashing.\n\nTry power-cycling it once", "Runtime not ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+
+                    address = printerController.GetConnectedAddress();
+                    if (string.IsNullOrWhiteSpace(address))
+                    {
+                        throw new Exception("Reconnected, but address is empty");
+                    }
+                }
+                else if (mode != PrinterController.HubMode.PrinterRuntime)
+                {
+                    bool runtimeReady = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
+                    if (!runtimeReady)
+                    {
+                        MessageBox.Show("Hub is an unknown state. Please restart it and try again.");
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+                }
+
+                setConnectUi("Checking runtime...", Color.FromArgb(227, 235, 12));
+                bool runtimePresent = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
+            
+                if (!runtimePresent)
+                {
+                    var result = MessageBox.Show("The printer control program is not installed on the hub\n\nDo you want to upload it now?", "Runtime required", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+                    if (result != DialogResult.Yes)
+                    {
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+
+                    setConnectUi("Uploading runtime...", Color.FromArgb(255, 165, 0));
+
+                    string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.mpy");
+
+                    bool uploadResult = await Task.Run(() => printerController.UploadProgram(scriptPath, address));
+                    if (!uploadResult)
+                    {
+                        MessageBox.Show("Failed to upload runtime program. Check console.");
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+
+                    bool started = await Task.Run(() => printerController.StartUserProgram());
+                    if (!started)
+                    {
+                        MessageBox.Show("Runtime program uploaded but failed to start");
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+
+                    setConnectUi("Waiting for runtime...", Color.FromArgb(255, 165, 0));
+
+                    bool readyAfterUpload = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
+                    if (!readyAfterUpload)
+                    {
+                        MessageBox.Show("Runtime did not become ready after upload.");
+                        await DisconnectSafe();
+                        resetConnectUi();
+                        return;
+                    }
+                }
+
+                setConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
+                bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
+                if (!runtimeConnected)
+                {
+                    MessageBox.Show("Failed to establish runtime communication with the hub");
+                    await DisconnectSafe();
+                    resetConnectUi();
+                    return;
+                }
+
+                connectButton.BackColor = Color.FromArgb(234, 84, 85);
+                connectButton.Text = "Disconnect";
+                connectButton.Enabled = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                await DisconnectSafe();
+                resetConnectUi();
             }
         }
         private void logTimer_Tick(object sender, EventArgs e)
