@@ -15,10 +15,10 @@
 #include <vector>
 
 enum class HubMode {
-	Unknown,
-	LegoOfficial,
-	Bootloader,
-	PybricksRuntime
+	Unknown = 0,
+	LegoOfficial = 1,
+	Bootloader = 2,
+	PybricksRuntime = 3,
 };
 
 class PrinterDriver {

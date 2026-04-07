@@ -162,7 +162,13 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
     }
 
     while (std::chrono::steady_clock::now() < deadline) {
-        auto current = filterAndSortHubs(transport->getScanResults(), true);
+        auto current = filterAndSortHubs(transport->getScanResults(), legoOnly);
+            
+        if (current.empty() && legoOnly) {
+            LOG_BLUETOOTH("connectAuto: no LEGO hubs found, trying all devices");
+
+            current = filterAndSortHubs(transport->getScanResults(), false);
+        }
 
         // Prefer last known hub if it is present
         if (!lastKnownAddress.empty()) {
@@ -180,27 +186,13 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
             }
         }
 
-        if (current.empty() && legoOnly) {
-            //LOG_BLUETOOTH("connectAuto: no LEGO hubs found, trying all devices");
-            LOG_BLUETOOTH("connectAuto: raw scan results = %zu", transport->getScanResults());
-
-            for (const auto device : raw) {
-                LOG_BLUETOOTH("   device: name = '%s' address = %s rssi = %d lego = %s",
-                    device.name.c_str(),
-                    device.address.c_str(),
-                    device.rssi,
-                    isLegoHub(device) ? "true" : "false");
-            }
-
-            current = filterAndSortHubs(transport->getScanResults(), legoOnly);
-        }
-
         for (const auto& device : current) {
             if (std::find(tried.begin(), tried.end(), device.address) != tried.end()) {
                 continue;
             }
 
-            LOG_BLUETOOTH("connectAuto: trying %s [%s] rssi=%d", device.name.c_str(), device.address.c_str(), device.rssi);
+            LOG_BLUETOOTH("connectAuto: trying %s [%s] rssi=%d", 
+                device.name.c_str(), device.address.c_str(), device.rssi);
 
             transport->stopScan();
             if (connect(device.address)) {
@@ -220,9 +212,7 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
     }
 
     transport->stopScan();
-
     LOG_BLUETOOTH("connectAuto finished: tried = %zu", tried.size());
-
     LOG_ERROR("No hub found");
     return false;
 }
@@ -314,14 +304,15 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
     LOG_INFO("detectHubMode (%s)", address.c_str());
 
     const std::vector<std::string> services = transport->getServices();
+    
+    LOG_INFO("Services (%zu):", services.size());
+    for (const auto& service : services) {
+        LOG_INFO("   %s", service.c_str());
+    }
+    
     const bool hasBootloader = std::find(services.begin(), services.end(), protocol::LWP3_BOOTLOADER_SERVICE_UUID) != services.end();
     const bool hasPybricks = std::find(services.begin(), services.end(), protocol::PYBRICKS_SERVICE_UUID) != services.end();
     const bool hasLwp3Hub = std::find(services.begin(), services.end(), protocol::LWP3_HUB_SERVICE_UUID) != services.end();
-
-    LOG_INFO("Services (%zu):", services.size());
-    for (const auto& service : services) {
-        LOG_INFO("  %s", service.c_str());
-    }
 
     LOG_INFO("Flags: bootloader = %d, pybricks = %d, lwp3hub = %d", hasBootloader, hasPybricks, hasLwp3Hub);
 
@@ -420,9 +411,7 @@ bool PrinterDriver::flashFirmware(const std::string& firmwareBootloaderPath, con
 
     LOG_INFO("flashFirmware: %s -> %s", firmwareBootloaderPath.c_str(), target.c_str());
 
-    // NOTE:
-    // firmwareBootloaderPath should point to extracted firmware bootloader / bin
-    // if we pass a .zip, extract the bootloader first before calling this method
+    // firmwareBlobPath should point to firmware.blob produced from firmware.zip
 
     std::vector<uint8_t> firmware = readBinaryFile(firmwareBootloaderPath);
     if (firmware.empty()) {
