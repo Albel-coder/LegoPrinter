@@ -111,7 +111,7 @@ namespace LPStudio
 
             async Task<bool> WaitForHubModeAsync(PrinterController.HubMode expectedMode, int totalWaitMs = 60000, int connectTimeoutMs = 10000)
             {
-                const int stepMs = 2000;
+                const int stepMs = 5000;
 
                 for (int elapsed = 0; elapsed < totalWaitMs; elapsed += stepMs)
                 {
@@ -193,6 +193,8 @@ namespace LPStudio
 
                     setConnectUi("Installing firmware...", Color.FromArgb(225, 165, 0));
 
+                    await Task.Delay(2000);
+
                     string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "firmware.blob");
 
                     bool firmwareResult = await Task.Run(() => printerController.FlashFirmware(firmwarePath, address));
@@ -206,10 +208,11 @@ namespace LPStudio
 
                     setConnectUi("Waiting for hub reboot...", Color.FromArgb(255, 165, 0));
 
-                    bool runtimeUp = await WaitForHubModeAsync(PrinterController.HubMode.PrinterRuntime, 60000, 10000);
+                    bool runtimeUp = await WaitForHubModeAsync(PrinterController.HubMode.PybricksRuntime, 90000, 10000);
                     if (!runtimeUp)
                     {
                         MessageBox.Show("Hub did not come back in Pybricks runtime mode after flashing.\n\nTry power-cycling it once", "Runtime not ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        
                         await DisconnectSafe();
                         resetConnectUi();
                         return;
@@ -221,7 +224,7 @@ namespace LPStudio
                         throw new Exception("Reconnected, but address is empty");
                     }
                 }
-                else if (mode != PrinterController.HubMode.PrinterRuntime)
+                else if (mode != PrinterController.HubMode.PybricksRuntime)
                 {
                     bool runtimeReady = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
                     if (!runtimeReady)
