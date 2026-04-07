@@ -316,12 +316,12 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
 
     LOG_INFO("Flags: bootloader = %d, pybricks = %d, lwp3hub = %d", hasBootloader, hasPybricks, hasLwp3Hub);
 
-    if (hasBootloader) {
-        return HubMode::Bootloader;
-    }
     if (hasPybricks) {
         return HubMode::PybricksRuntime;
     }
+    if (hasBootloader) {
+        return HubMode::Bootloader;
+    }    
     if (hasLwp3Hub) {
         return HubMode::LegoOfficial;
     }
