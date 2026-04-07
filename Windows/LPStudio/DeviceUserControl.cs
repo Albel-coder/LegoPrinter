@@ -84,14 +84,14 @@ namespace LPStudio
         {
             connectButton.Enabled = false;
 
-            void resetConnectUi()
+            void ResetConnectUi()
             {
                 connectButton.BackColor = Color.FromArgb(29, 175, 30);
                 connectButton.Text = "Connect";
                 connectButton.Enabled = true;
             }
 
-            void setConnectUi(string text, Color color)
+            void SetConnectUi(string text, Color color)
             {
                 connectButton.BackColor = color;
                 connectButton.Text = text;
@@ -109,7 +109,7 @@ namespace LPStudio
                 }
             }
 
-            async Task<bool> WaitForHubModeAsync(PrinterController.HubMode expectedMode, int totalWaitMs = 60000, int connectTimeoutMs = 10000)
+            async Task<bool> WaitForHubModeAsync(PrinterController.HubMode expectedMode, int totalWaitMs = 90000, int connectTimeoutMs = 10000)
             {
                 const int stepMs = 5000;
 
@@ -148,7 +148,7 @@ namespace LPStudio
             {
                 if (printerController.IsPrinterConnect())
                 {
-                    setConnectUi("Disconnecting...", Color.FromArgb(227, 235, 12));
+                    SetConnectUi("Disconnecting...", Color.FromArgb(227, 235, 12));
 
                     bool disconnected = await Task.Run(() => printerController.Disconnect());
                     if (!disconnected)
@@ -156,18 +156,18 @@ namespace LPStudio
                         MessageBox.Show("Disconnect failed");
                     }
 
-                    resetConnectUi();
+                    ResetConnectUi();
                     return;
                 }
 
-                setConnectUi("Connecting", Color.FromArgb(227, 235, 12));
+                SetConnectUi("Connecting", Color.FromArgb(227, 235, 12));
 
                 bool connected = await Task.Run(() => printerController.ConnectAuto(10000, true));
             
                 if (!connected)
                 {
                     MessageBox.Show("No hub found!");
-                    resetConnectUi();
+                    ResetConnectUi();
                     return;
                 }
 
@@ -177,7 +177,7 @@ namespace LPStudio
                     throw new Exception("Connected, but address is empty");
                 }
 
-                setConnectUi("Checking hub mode...", Color.FromArgb(227, 235, 12));
+                SetConnectUi("Checking hub mode...", Color.FromArgb(227, 235, 12));
                 var mode = await Task.Run(() => printerController.DetectHubMode(address));
             
                 if (mode == PrinterController.HubMode.Bootloader || mode == PrinterController.HubMode.LegoOfficial)
@@ -187,13 +187,11 @@ namespace LPStudio
                     if (result != DialogResult.Yes)
                     {
                         await DisconnectSafe();
-                        resetConnectUi();
+                        ResetConnectUi();
                         return;                    
                     }
 
-                    setConnectUi("Installing firmware...", Color.FromArgb(225, 165, 0));
-
-                    await Task.Delay(2000);
+                    SetConnectUi("Installing firmware...", Color.FromArgb(225, 165, 0));
 
                     string firmwarePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "firmware.blob");
 
@@ -202,11 +200,11 @@ namespace LPStudio
                     {
                         MessageBox.Show("Firmware installation failed. Please check the console for details", "Error");
                         await DisconnectSafe();
-                        resetConnectUi();
+                        ResetConnectUi();
                         return;
                     }
 
-                    setConnectUi("Waiting for hub reboot...", Color.FromArgb(255, 165, 0));
+                    SetConnectUi("Waiting for hub reboot...", Color.FromArgb(255, 165, 0));
 
                     bool runtimeUp = await WaitForHubModeAsync(PrinterController.HubMode.PybricksRuntime, 90000, 10000);
                     if (!runtimeUp)
@@ -214,7 +212,7 @@ namespace LPStudio
                         MessageBox.Show("Hub did not come back in Pybricks runtime mode after flashing.\n\nTry power-cycling it once", "Runtime not ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         
                         await DisconnectSafe();
-                        resetConnectUi();
+                        ResetConnectUi();
                         return;
                     }
 
@@ -226,40 +224,48 @@ namespace LPStudio
                 }
                 else if (mode != PrinterController.HubMode.PybricksRuntime)
                 {
-                    bool runtimeReady = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
-                    if (!runtimeReady)
-                    {
-                        MessageBox.Show("Hub is an unknown state. Please restart it and try again.");
-                        await DisconnectSafe();
-                        resetConnectUi();
-                        return;
-                    }
+                    MessageBox.Show("Hub is an unknown state. Please restart it and try again.");
+                    await DisconnectSafe();
+                    ResetConnectUi();
+                    return;
                 }
 
-                setConnectUi("Checking runtime...", Color.FromArgb(227, 235, 12));
-                bool runtimePresent = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
-            
-                if (!runtimePresent)
+                SetConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
+                bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
+                if (!runtimeConnected)
                 {
-                    var result = MessageBox.Show("The printer control program is not installed on the hub\n\nDo you want to upload it now?", "Runtime required", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    MessageBox.Show("Failed to establish runtime communication with the hub");
+                    await DisconnectSafe();
+                    ResetConnectUi();
+                    return;
+                }
+
+                SetConnectUi("Checking runtime program...", Color.FromArgb(227, 235, 12));
+
+                bool applicationReady = false;
+
+                if (!applicationReady)
+                {
+                    var result = MessageBox.Show("The printer control program is not installed on the hub\n\nDo you want to upload it now?",
+                        "Runtime required", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
                     if (result != DialogResult.Yes)
                     {
                         await DisconnectSafe();
-                        resetConnectUi();
+                        ResetConnectUi();
                         return;
                     }
 
-                    setConnectUi("Uploading runtime...", Color.FromArgb(255, 165, 0));
+                    SetConnectUi("Uploading runtime...", Color.FromArgb(255, 165, 0));
 
-                    string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.mpy");
+                    string scriptData = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.mpy");
 
-                    bool uploadResult = await Task.Run(() => printerController.UploadProgram(scriptPath, address));
+                    bool uploadResult = await Task.Run(() => printerController.UploadProgram(scriptData, address));
                     if (!uploadResult)
                     {
-                        MessageBox.Show("Failed to upload runtime program. Check console.");
+                        MessageBox.Show("Failed to upload runtime program. Check console");
                         await DisconnectSafe();
-                        resetConnectUi();
+                        ResetConnectUi();
                         return;
                     }
 
@@ -268,30 +274,9 @@ namespace LPStudio
                     {
                         MessageBox.Show("Runtime program uploaded but failed to start");
                         await DisconnectSafe();
-                        resetConnectUi();
+                        ResetConnectUi();
                         return;
                     }
-
-                    setConnectUi("Waiting for runtime...", Color.FromArgb(255, 165, 0));
-
-                    bool readyAfterUpload = await Task.Run(() => printerController.ProbeRuntime(address, 2000));
-                    if (!readyAfterUpload)
-                    {
-                        MessageBox.Show("Runtime did not become ready after upload.");
-                        await DisconnectSafe();
-                        resetConnectUi();
-                        return;
-                    }
-                }
-
-                setConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
-                bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
-                if (!runtimeConnected)
-                {
-                    MessageBox.Show("Failed to establish runtime communication with the hub");
-                    await DisconnectSafe();
-                    resetConnectUi();
-                    return;
                 }
 
                 connectButton.BackColor = Color.FromArgb(234, 84, 85);
@@ -302,7 +287,7 @@ namespace LPStudio
             {
                 Console.WriteLine(ex);
                 await DisconnectSafe();
-                resetConnectUi();
+                ResetConnectUi();
             }
         }
         private void logTimer_Tick(object sender, EventArgs e)
