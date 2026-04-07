@@ -151,6 +151,16 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
     std::vector<std::string> tried;
 
+    auto raw = transport->getScanResults();
+    LOG_BLUETOOTH("connectAuto: raw scan results = %zu", raw.size());
+
+    for (const auto& device : raw) {
+        LOG_BLUETOOTH("  device: name = '%s', address = %s, rssi = '%s', lego = %s",
+            device.name.c_str(),
+            device.address.c_str(),
+            device.rssi, isLegoHub(device) ? "true" : "false");
+    }
+
     while (std::chrono::steady_clock::now() < deadline) {
         auto current = filterAndSortHubs(transport->getScanResults(), true);
 
@@ -172,6 +182,16 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
 
         if (current.empty() && legoOnly) {
             //LOG_BLUETOOTH("connectAuto: no LEGO hubs found, trying all devices");
+            LOG_BLUETOOTH("connectAuto: raw scan results = %zu", transport->getScanResults());
+
+            for (const auto device : raw) {
+                LOG_BLUETOOTH("   device: name = '%s' address = %s rssi = %d lego = %s",
+                    device.name.c_str(),
+                    device.address.c_str(),
+                    device.rssi,
+                    isLegoHub(device) ? "true" : "false");
+            }
+
             current = filterAndSortHubs(transport->getScanResults(), legoOnly);
         }
 
@@ -200,6 +220,9 @@ bool PrinterDriver::connectAuto(int timeoutMs, bool legoOnly) {
     }
 
     transport->stopScan();
+
+    LOG_BLUETOOTH("connectAuto finished: tried = %zu", tried.size());
+
     LOG_ERROR("No hub found");
     return false;
 }
@@ -379,6 +402,14 @@ bool PrinterDriver::flashFirmware(const std::string& firmwareBootloaderPath, con
     if (!transport->isConnected() || transport->getConnectedAddress() != target) {
         LOG_ERROR("Transport not connected to the target hub. Please connect first");
         return false;
+    }
+
+    LOG_BLUETOOTH("flashFirmware: discovering services...");
+    auto services = transport->getServices();
+    LOG_BLUETOOTH("flashFirmware: service = %zu", services.size());
+
+    for (const auto& service : services) {
+        LOG_BLUETOOTH("   service: %s", service.c_str());
     }
 
     auto mode = detectHubMode(target);
