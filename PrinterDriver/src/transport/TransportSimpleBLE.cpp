@@ -263,6 +263,13 @@ void TransportSimpleBLE::scanWorker(int timeoutSeconds) {
             return;
         }
 
+        LOG_BLUETOOTH("scanWorker: adapters = %zu", adapters.size());
+        for (const auto& device : scanResults) {
+            LOG_BLUETOOTH("scan results: %s [%s] rssi = %d",
+                device.name.c_str(),
+                device.rssi);
+        }
+
         adapter = adapters[0];
 
         adapter.set_callback_on_scan_found([this](SimpleBLE::Peripheral scannedPeripheral) {
@@ -270,6 +277,11 @@ void TransportSimpleBLE::scanWorker(int timeoutSeconds) {
             device.address = scannedPeripheral.address();
             device.name = scannedPeripheral.identifier();
             device.rssi = static_cast<int16_t>(scannedPeripheral.rssi());
+
+            LOG_BLUETOOTH("scan found: name = '%s' address = %s, rssi = %d",
+                scannedPeripheral.identifier().c_str(),
+                scannedPeripheral.address().c_str(),
+                static_cast<int>(scannedPeripheral.rssi()));
 
             for (const auto& md : scannedPeripheral.manufacturer_data()) {
                 device.manufacturerData[md.first] = md.second;
