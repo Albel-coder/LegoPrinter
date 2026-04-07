@@ -20,7 +20,7 @@ public class PrinterController : IDisposable
         Unknown = 0,
         LegoOfficial = 1,
         Bootloader = 2,
-        PrinterRuntime = 3
+        PybricksRuntime = 3
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1, CharSet = CharSet.Ansi)]
