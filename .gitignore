@@ -74,6 +74,7 @@ GcodeGenerator/build/
 /Windows/LPStudio/MainForm.resx
 /Windows/LPStudio/PrepareUserControl.resx
 /Windows/LPStudio/PreviewUserControl.resx
+/Windows/LPStudio/Properties/AssemblyInfo.cs
 
 # Updater project
 /LegoPrinter.Updater/.vs/
