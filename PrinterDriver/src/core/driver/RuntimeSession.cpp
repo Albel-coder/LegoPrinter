@@ -43,7 +43,8 @@ bool RuntimeSession::discover() {
 }
 
 bool RuntimeSession::connect(const std::string& address) {
-	LOG_BLUETOOTH("Runtime connect: %s", address.c_str());
+	LOG_BLUETOOTH("RuntimeSession::connect: transport isConnected=%d, address=%s",
+		transport.isConnected(), transport.getConnectedAddress().c_str());
 
 	if (connected) {
 		disconnect();
@@ -61,10 +62,13 @@ bool RuntimeSession::connect(const std::string& address) {
 	}
 
 	if (!discover()) {
-		LOG_ERROR("Runtime connect: discover failed");
+		LOG_ERROR("RuntimeSession::connect: discover failed");
 		transport.disconnect();
 		return false;
 	}
+
+	LOG_BLUETOOTH("RuntimeSession::connect: discover OK, subscribing to %s",
+		pybricksCommandEvent.characteristicUuid.c_str());
 
 	if (!transport.subscribe(pybricksCommandEvent, [this](const Characteristic& characteristic, const uint8_t* data, size_t length) {
 		onData(characteristic, data, length);

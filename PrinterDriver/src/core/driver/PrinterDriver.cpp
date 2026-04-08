@@ -316,6 +316,11 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
 
     LOG_INFO("Flags: bootloader = %d, pybricks = %d, lwp3hub = %d", hasBootloader, hasPybricks, hasLwp3Hub);
 
+    HubMode result = hasPybricks ? HubMode::PybricksRuntime :
+        (hasBootloader ? HubMode::Bootloader :
+            (hasLwp3Hub ? HubMode::LegoOfficial : HubMode::Unknown));
+    LOG_INFO("detectHubMode result = %d", static_cast<int>(result));
+
     if (hasPybricks) {
         return HubMode::PybricksRuntime;
     }
@@ -379,7 +384,7 @@ bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
         return false;
     }
 
-    LOG_INFO("probeRuntime: ready");
+    LOG_INFO("probeRuntime: received ready marker");
     return true;
 }
 
@@ -511,7 +516,8 @@ bool PrinterDriver::stopUserProgram() {
     return result;
 }
 
-bool PrinterDriver::connectRuntime(const std::string& address) {
+bool PrinterDriver::connectRuntime(const std::string& address) { 
+    LOG_INFO("Starting connectRuntime, address = %s", address.c_str());
     const std::string target = resolveAddress(address);
     if (target.empty()) {
         LOG_ERROR("No target address for runtime connect");
