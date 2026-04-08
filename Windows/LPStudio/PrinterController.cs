@@ -179,8 +179,12 @@ public class PrinterController : IDisposable
         return list;
     }
 
-    public HubMode DetectHubMode(string address) =>
-        (HubMode)SafeCall(() => PrinterDetectHubMode(PrinterHandle, address), (int)HubMode.Unknown);
+    public HubMode DetectHubMode(string address)
+    {
+        int rawResult = SafeCall(() => PrinterDetectHubMode(PrinterHandle, address), -1);
+        Console.WriteLine($"[C#] DetectHubMode raw result = {rawResult}");
+        return (HubMode)rawResult;
+    }
 
     public bool ProbeRuntime(string address, int timeoutMs) =>
         SafeCall(() => PrinterProbeRuntime(PrinterHandle, address, timeoutMs), false);

@@ -133,9 +133,17 @@ namespace LPStudio
 
                     var mode = await Task.Run(() =>
                     printerController.DetectHubMode(address));
+
+                    Console.WriteLine($"[C#] WaitForHubModeAsync: mode={mode}, expected={expectedMode}");
+
                     if (mode == expectedMode)
                     {
                         return true;
+                    }
+
+                    if (mode == PrinterController.HubMode.PybricksRuntime)
+                    {
+                        continue;
                     }
 
                     await DisconnectSafe();
@@ -206,7 +214,9 @@ namespace LPStudio
 
                     SetConnectUi("Waiting for hub reboot...", Color.FromArgb(255, 165, 0));
 
-                    bool runtimeUp = await WaitForHubModeAsync(PrinterController.HubMode.PybricksRuntime, 90000, 10000);
+                    await Task.Delay(25000);
+
+                    bool runtimeUp = await WaitForHubModeAsync(PrinterController.HubMode.PybricksRuntime, 120000, 10000);
                     if (!runtimeUp)
                     {
                         MessageBox.Show("Hub did not come back in Pybricks runtime mode after flashing.\n\nTry power-cycling it once", "Runtime not ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -225,16 +235,6 @@ namespace LPStudio
                 else if (mode != PrinterController.HubMode.PybricksRuntime)
                 {
                     MessageBox.Show("Hub is an unknown state. Please restart it and try again.");
-                    await DisconnectSafe();
-                    ResetConnectUi();
-                    return;
-                }
-
-                SetConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
-                bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
-                if (!runtimeConnected)
-                {
-                    MessageBox.Show("Failed to establish runtime communication with the hub");
                     await DisconnectSafe();
                     ResetConnectUi();
                     return;
@@ -277,6 +277,19 @@ namespace LPStudio
                         ResetConnectUi();
                         return;
                     }
+                }
+
+                SetConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
+
+                await Task.Delay(1000);
+
+                bool runtimeConnected = await Task.Run(() => printerController.ConnectRuntime(address));
+                if (!runtimeConnected)
+                {
+                    MessageBox.Show("Failed to establish runtime communication with the hub");
+                    await DisconnectSafe();
+                    ResetConnectUi();
+                    return;
                 }
 
                 connectButton.BackColor = Color.FromArgb(234, 84, 85);
