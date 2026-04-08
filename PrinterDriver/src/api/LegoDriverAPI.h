@@ -100,13 +100,7 @@ extern "C" {
     PRINTER_DRIVER_API bool PrinterStartUserProgram(DriverHandle printer);
     PRINTER_DRIVER_API bool PrinterStopUserProgram(DriverHandle printer);
 
-    PRINTER_DRIVER_API bool DriverConnectRuntime(DriverHandle printer, const char* address);
-    PRINTER_DRIVER_API bool DriverDisconnectRuntime(DriverHandle printer);
-    PRINTER_DRIVER_API bool DriverSendRuntime(DriverHandle printer, const unsigned char* data, int length);
     PRINTER_DRIVER_API bool PrinterSendMotorCommands(DriverHandle printer, const MotorCommand* commands, int count);
-
-
-
 
     PRINTER_DRIVER_API void PrinterRotateMotor(DriverHandle printer, MotorCommand* commands, int count);
     PRINTER_DRIVER_API void PrinterSetMotorSpeed(DriverHandle printer, unsigned char port, signed char speed);

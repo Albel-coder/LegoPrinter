@@ -182,7 +182,7 @@ extern "C" {
 		return driver->stopUserProgram();
 	}
 
-	PRINTER_DRIVER_API bool DriverConnectRuntime(DriverHandle printer, const char* address) {
+	PRINTER_DRIVER_API bool PrinterConnectRuntime(DriverHandle printer, const char* address) {
 		if (!printer) {
 			return false;
 		}
@@ -191,7 +191,7 @@ extern "C" {
 		return driver->connectRuntime(address ? address : "");
 	}
 
-	PRINTER_DRIVER_API bool DriverDisconnectRuntime(DriverHandle printer) {
+	PRINTER_DRIVER_API bool PrinterDisconnectRuntime(DriverHandle printer) {
 		if (!printer) {
 			return false;
 		}
@@ -201,7 +201,7 @@ extern "C" {
 		return true;
 	}
 
-	PRINTER_DRIVER_API bool DriverSendRuntime(DriverHandle printer, const unsigned char* data, int length) {
+	PRINTER_DRIVER_API bool PrinterSendRuntime(DriverHandle printer, const unsigned char* data, int length) {
 		if (!printer || !data || length <= 0) {
 			return false;
 		}
