@@ -557,6 +557,9 @@ bool BootloaderProtocol::flashFirmware(const std::vector<uint8_t>& firmware) {
         return false;
     }
 
+    LOG_INFO("Application start command sent, hub will now reboot");
+    std::this_thread::sleep_for(500ms);
+
     cleanup();
     LOG_INFO("Firmware flashed successfully");
     return true;

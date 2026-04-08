@@ -74,9 +74,11 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 	buffer.push_back(static_cast<uint8_t>(command));
 	buffer.insert(buffer.end(), payload.begin(), payload.end());
 
-	LOG_COMMAND("PrinterProtocol sendCommand command=0x%02X payload=%zu withResponse=%d",
+	LOG_COMMAND("PrinterProtocol sendCommand command=0x%02X payload=%zu withResponse=%s",
 		static_cast<uint8_t>(command), payload.size(), withResponse ? "true" : "false");
 	
+	LOG_COMMAND("Sending packet: %zu bytes", buffer.size());
+
 	return transport.write(commandEvent, buffer.data(), buffer.size(), withResponse);
 }
 
@@ -99,7 +101,8 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	LOG_INFO("PrinterProtocol upload started (%zu bytes)", script.size());
 
 	// Optional: stop running program first
-	(void)sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true);
+	(void)sendCommand(protocol::PybricksCommand::StopUserProgram, {}, false);
+	std::this_thread::sleep_for(100ms);
 
 	// WRITE_USER_PROGRAM_META: size as u32 LE
 	const uint32_t programSize = static_cast<uint32_t>(script.size());
@@ -110,14 +113,16 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		static_cast<uint8_t>((programSize >> 24) & 0xFF),
 	};
 
-	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, true)) {
+	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, false)) {
 		LOG_ERROR("WRITE_USER_PROGRAM_META failed");
 		return false;
 	}
 
 	// max write size includes command bytes + offset(4) + data
 	const size_t maxWrite = transport.getMaxWriteSize();
-	const size_t payloadLimit = (maxWrite > 5) ? (maxWrite - 5) : 1;
+
+	// Actual useful data size = maxWrite - 1 (command) - 4 (offset) - 3 (ATT header) ~ 24
+	const size_t payloadLimit = (maxWrite > 8) ? (maxWrite - 8) : 20;
 	
 	size_t sent = 0;
 	while (sent < script.size()) {
@@ -144,10 +149,10 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		sent += chunk;
 		LOG_INFO("PrinterProtocol upload progress: %zu / %zu", sent, script.size());
 	
-		std::this_thread::sleep_for(5ms);
+		std::this_thread::sleep_for(50ms);
 	}
 
-	if (!sendCommand(protocol::PybricksCommand::StartUserProgram, {}, true)) {
+	if (!sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false)) {
 		LOG_ERROR("START_USER_PROGRAM failed");
 		return false;
 	}
