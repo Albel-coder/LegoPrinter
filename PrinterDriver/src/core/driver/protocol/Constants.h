@@ -6,6 +6,7 @@ namespace protocol {
 
     static constexpr const char* LWP3_HUB_SERVICE_UUID = "00001623-1212-efde-1623-785feabcd123";
     static constexpr const char* LWP3_HUB_CHARACTERISTIC_UUID = "00001624-1212-efde-1623-785feabcd123";
+    
     static constexpr const char* LWP3_BOOTLOADER_SERVICE_UUID = "00001625-1212-efde-1623-785feabcd123";
     static constexpr const char* LWP3_BOOTLOADER_CHAR_UUID = "00001626-1212-efde-1623-785feabcd123";
 

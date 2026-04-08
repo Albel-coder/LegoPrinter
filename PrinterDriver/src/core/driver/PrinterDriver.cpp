@@ -463,10 +463,6 @@ bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::stri
         return false;
     }
 
-    if (!isLikelyMpy(scriptData)) {
-        LOG_WARNING("The file does not look like a .mpy artifact");
-    }
-
     const bool result = printerProtocol->uploadProgram(scriptData);
 
     if (!result) {

@@ -184,20 +184,28 @@ bool TransportSimpleBLE::read(const Characteristic& characteristic, std::vector<
 bool TransportSimpleBLE::write(const Characteristic& characteristic, const uint8_t* data, size_t length, bool withResponse) {
     std::lock_guard<std::mutex> lock(stateMutex);
     if (!peripheral.is_connected()) {
+        LOG_ERROR("TransportSimpleBLE::write: peripheral not connected");
         return false;
     }
 
     try {
         std::vector<uint8_t> payload(data, data + length);
         if (withResponse) {
-            peripheral.write_request(characteristic.serviceUUid, characteristic.characteristicUuid, payload);;
+            peripheral.write_request(characteristic.serviceUUid, characteristic.characteristicUuid, payload);
         }
         else {
-            peripheral.write_command(characteristic.serviceUUid, characteristic.characteristicUuid, payload);
+            try {
+                peripheral.write_command(characteristic.serviceUUid, characteristic.characteristicUuid, payload);
+            }
+            catch (const std::exception& ex) {
+                LOG_WARNING("write_command failed: %s, falling back to write_request", ex.what());
+                peripheral.write_request(characteristic.serviceUUid, characteristic.characteristicUuid, payload);
+            }
         }
         return true;
     }
-    catch (...) {
+    catch (const std::exception& ex) {
+        LOG_ERROR("TransportSimpleBLE::write exception: %s", ex.what());
         return false;
     }
 }

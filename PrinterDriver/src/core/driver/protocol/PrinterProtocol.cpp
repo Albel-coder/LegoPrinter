@@ -91,18 +91,28 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	if (!discover()) {
 		LOG_ERROR("PrinterProtocol command/event not found");
 		return false;
-	}
+	}	
 
 	if (script.empty()) {
 		LOG_ERROR("PrinterProtocol upload: compiled blob is empty");
 		return false;
 	}
 
+	// A subscription is required to use Pybricks (the hub is waiting for an active listener)
+	bool subscribed = transport.subscribe(commandEvent, [](const Characteristic&, const uint8_t* data, size_t length) {
+		LOG_COMMAND("Upload RX: %zu bytes", length);
+	});
+
+	if (!subscribed) {
+		LOG_ERROR("Failed to subscribe to Pybricks command/event characteristic");
+		return false;
+	}
+
 	LOG_INFO("PrinterProtocol upload started (%zu bytes)", script.size());
 
 	// Optional: stop running program first
-	(void)sendCommand(protocol::PybricksCommand::StopUserProgram, {}, false);
-	std::this_thread::sleep_for(100ms);
+	(void)sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true);
+	std::this_thread::sleep_for(2000ms);
 
 	// WRITE_USER_PROGRAM_META: size as u32 LE
 	const uint32_t programSize = static_cast<uint32_t>(script.size());
@@ -113,8 +123,9 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		static_cast<uint8_t>((programSize >> 24) & 0xFF),
 	};
 
-	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, false)) {
+	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, true)) {
 		LOG_ERROR("WRITE_USER_PROGRAM_META failed");
+		transport.unsubscribe(commandEvent);
 		return false;
 	}
 
@@ -137,12 +148,11 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		payload.push_back(static_cast<uint8_t>((offset >> 16) & 0xFF));
 		payload.push_back(static_cast<uint8_t>((offset >> 24) & 0xFF));
 
-		payload.insert(payload.end(), 
-			script.begin() + static_cast<std::ptrdiff_t>(sent), 
-			script.begin() + static_cast<std::ptrdiff_t>(sent + chunk));
+		payload.insert(payload.end(), script.begin() + sent, script.begin() + sent + chunk);
 
-		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, false)) {
+		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, true)) {
 			LOG_ERROR("COMMAND_WRITE_USER_RAM failed at offset=%zu", sent);
+			transport.unsubscribe(commandEvent);
 			return false;
 		}
 
@@ -152,11 +162,10 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		std::this_thread::sleep_for(50ms);
 	}
 
-	if (!sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false)) {
-		LOG_ERROR("START_USER_PROGRAM failed");
-		return false;
-	}
+	sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
+	std::this_thread::sleep_for(50ms);
 
+	transport.unsubscribe(commandEvent);
 	LOG_INFO("PrinterProtocol upload finished");
 	return true;
 }

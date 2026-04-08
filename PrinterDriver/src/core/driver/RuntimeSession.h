@@ -1,10 +1,13 @@
 #pragma once
 
 #include "../core/driver/interfaces/ITransport.h"
+#include "protocol/Constants.h"
 
-#include <functional>
-#include <string>
 #include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <string>
 
 class RuntimeSession {
 public:
