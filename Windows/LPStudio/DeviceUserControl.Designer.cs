@@ -220,10 +220,10 @@
             this.panel4.Controls.Add(this.showCodeFile);
             this.panel4.Controls.Add(this.buttonExecuteCode);
             this.panel4.Controls.Add(this.panel5);
-            this.panel4.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.panel4.Dock = System.Windows.Forms.DockStyle.Top;
             this.panel4.Location = new System.Drawing.Point(3, 393);
             this.panel4.Name = "panel4";
-            this.panel4.Size = new System.Drawing.Size(427, 336);
+            this.panel4.Size = new System.Drawing.Size(427, 123);
             this.panel4.TabIndex = 2;
             // 
             // browseButton
