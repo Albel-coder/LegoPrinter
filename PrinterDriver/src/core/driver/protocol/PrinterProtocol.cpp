@@ -79,7 +79,42 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 	
 	LOG_COMMAND("Sending packet: %zu bytes", buffer.size());
 
-	return transport.write(commandEvent, buffer.data(), buffer.size(), withResponse);
+	{
+		std::lock_guard<std::mutex> lock(responseMutex);
+		if (withResponse) {
+			waitingForResponse = true;
+			expectedCommand = static_cast<uint8_t>(command);
+			lastResponse.reset();
+		}
+	}
+
+	bool writeCommandResult = transport.write(commandEvent, buffer.data(), buffer.size(), withResponse);
+	if (!writeCommandResult) {
+		std::lock_guard<std::mutex> lock(responseMutex);
+		waitingForResponse = false;
+		return false;
+	}
+
+	if (withResponse) {
+		std::unique_lock<std::mutex> lock(responseMutex);
+
+		bool received = responseConditionVariable.wait_for(lock, std::chrono::seconds(2), [this] {
+			return !waitingForResponse;
+		});
+
+		if (!received) {
+			LOG_ERROR("Timeout waiting for response to command 0x%02X", static_cast<uint8_t>(command));
+			return false;
+		}
+
+		// Check the response status (second byte is 0x00 = success)
+		if (lastResponse && lastResponse->size() >= 2 && (*lastResponse)[1] != 0x00) {
+			LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, (*lastResponse)[1]);
+			return false;
+		}
+	}
+	
+	return true;
 }
 
 bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
@@ -99,8 +134,16 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	}
 
 	// A subscription is required to use Pybricks (the hub is waiting for an active listener)
-	bool subscribed = transport.subscribe(commandEvent, [](const Characteristic&, const uint8_t* data, size_t length) {
+
+	bool subscribed = transport.subscribe(commandEvent, [this](const Characteristic&, const uint8_t* data, size_t length) {
 		LOG_COMMAND("Upload RX: %zu bytes", length);
+		std::lock_guard<std::mutex> lock(responseMutex);
+
+		if (waitingForResponse && length > 0 && data[0] == expectedCommand) {
+			lastResponse = std::vector<uint8_t>(data, data + length);
+			waitingForResponse = false;
+			responseConditionVariable.notify_one();
+		}
 	});
 
 	if (!subscribed) {
@@ -159,7 +202,7 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		sent += chunk;
 		LOG_INFO("PrinterProtocol upload progress: %zu / %zu", sent, script.size());
 	
-		std::this_thread::sleep_for(50ms);
+		std::this_thread::sleep_for(200ms);
 	}
 
 	sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
