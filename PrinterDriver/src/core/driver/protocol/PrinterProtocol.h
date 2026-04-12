@@ -21,6 +21,8 @@ public:
 	bool stopUserProgram();
 	bool rebootToUpdateMode();
 
+	bool waitForProgramStop(std::chrono::milliseconds timeout = std::chrono::seconds(10));
+
 private:
 	ITransport& transport;
 	Characteristic commandEvent;

@@ -5,14 +5,29 @@
 #include <chrono>
 #include <fstream>
 #include <thread>
+#include <cstdint>
+#include <cstring>
 
 using namespace std::chrono_literals;
 
 namespace {
 
+	uint32_t calculateCrc32(const uint8_t* data, size_t length) {
+		uint32_t crc = 0xFFFFFFFF;
+
+		for (size_t i = 0; i < length; ++i) {
+			crc ^= data[i];
+
+			for (int j = 0; j < 8; ++j) {
+				crc = (crc >> 1) ^ (0xEDB88320 & -(crc & 1));
+			}
+		}
+		return ~crc;
+	}
+
 	static std::vector<uint8_t> readBinaryFile(const std::string& path) {
 		std::ifstream file(path, std::ios::binary);
-		if (file) {
+		if (!file) {
 			return {};
 		}
 
@@ -63,6 +78,43 @@ bool PrinterProtocol::discover() {
 	return true;
 }
 
+bool PrinterProtocol::waitForProgramStop(std::chrono::milliseconds timeout) {
+	auto start = std::chrono::steady_clock::now();
+	bool stopped = false;
+
+	while (!stopped && std::chrono::steady_clock::now() - start < timeout) {
+		
+		{
+			std::lock_guard<std::mutex> lock(responseMutex);
+			waitingForResponse = true;
+			expectedCommand = 0x00;
+			lastResponse.reset();
+		}
+
+		std::unique_lock<std::mutex> lock(responseMutex);
+		bool received = responseConditionVariable.wait_for(lock, std::chrono::seconds(1), [this] {
+			return !waitingForResponse;
+		});
+
+		if (received && lastResponse && lastResponse->size() >= 2) {
+			uint8_t flags = (*lastResponse)[1];
+			if ((flags & 0x02) == 0) {
+				stopped = true;
+				LOG_INFO("Program stopped, flags=0x%02X", flags);
+				break;
+			}
+			else {
+				LOG_COMMAND("Program still running, flags=0x%02X", flags);
+			}
+		}
+
+		waitingForResponse = false;
+		responseConditionVariable.notify_all();
+	}
+
+	return stopped;
+}
+
 bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::vector<uint8_t>& payload, bool withResponse) {
 	if (commandEvent.characteristicUuid.empty() || !transport.isConnected()) {
 		LOG_ERROR("PrinterProtocol sendCommand: not connected or char missing");
@@ -74,7 +126,7 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 	buffer.push_back(static_cast<uint8_t>(command));
 	buffer.insert(buffer.end(), payload.begin(), payload.end());
 
-	LOG_COMMAND("PrinterProtocol sendCommand command=0x%02X payload=%zu withResponse=%s",
+	LOG_COMMAND("PrinterProtocol sendCommand command = 0x%02X payload = %zu withResponse = %s",
 		static_cast<uint8_t>(command), payload.size(), withResponse ? "true" : "false");
 	
 	LOG_COMMAND("Sending packet: %zu bytes", buffer.size());
@@ -88,7 +140,7 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 		}
 	}
 
-	bool writeCommandResult = transport.write(commandEvent, buffer.data(), buffer.size(), withResponse);
+	bool writeCommandResult = transport.write(commandEvent, buffer.data(), buffer.size(), false);
 	if (!writeCommandResult) {
 		std::lock_guard<std::mutex> lock(responseMutex);
 		waitingForResponse = false;
@@ -101,6 +153,19 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 		bool received = responseConditionVariable.wait_for(lock, std::chrono::seconds(2), [this] {
 			return !waitingForResponse;
 		});
+
+		waitingForResponse = false;
+		responseConditionVariable.notify_all();
+
+		if (lastResponse && lastResponse->size() >= 2) {
+			uint8_t status = (*lastResponse)[1];
+			if (status != 0x00) {
+				LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, status);
+			}
+			else {
+				LOG_COMMAND("Command 0x%02X succeeded", command);
+			}
+		}
 
 		if (!received) {
 			LOG_ERROR("Timeout waiting for response to command 0x%02X", static_cast<uint8_t>(command));
@@ -136,15 +201,28 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	// A subscription is required to use Pybricks (the hub is waiting for an active listener)
 
 	bool subscribed = transport.subscribe(commandEvent, [this](const Characteristic&, const uint8_t* data, size_t length) {
-		LOG_COMMAND("Upload RX: %zu bytes", length);
-		std::lock_guard<std::mutex> lock(responseMutex);
 
-		if (waitingForResponse && length > 0 && data[0] == expectedCommand) {
-			lastResponse = std::vector<uint8_t>(data, data + length);
-			waitingForResponse = false;
-			responseConditionVariable.notify_one();
+		std::string hexData;
+		for (size_t i = 0; i < length; ++i) {
+			char buffer[4];
+			snprintf(buffer, sizeof(buffer), "%02X ", data[i]);
+			hexData += buffer;
 		}
-	});
+		LOG_COMMAND("Upload RX: %zu bytes [%s]", length, hexData.c_str());
+
+		std::lock_guard<std::mutex> lock(responseMutex);
+		if (waitingForResponse && length > 0) {
+
+			if (data[0] == expectedCommand) {
+				lastResponse = std::vector<uint8_t>(data, data + length);
+				waitingForResponse = false;
+				responseConditionVariable.notify_one();
+			}
+			else {
+				LOG_COMMAND("Ignored event with command=0x%02X while waiting for 0x%02X", data[0], expectedCommand);
+			}
+		}
+		});
 
 	if (!subscribed) {
 		LOG_ERROR("Failed to subscribe to Pybricks command/event characteristic");
@@ -155,22 +233,23 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 
 	// Optional: stop running program first
 	(void)sendCommand(protocol::PybricksCommand::StopUserProgram, {}, true);
-	std::this_thread::sleep_for(2000ms);
 
-	// WRITE_USER_PROGRAM_META: size as u32 LE
-	const uint32_t programSize = static_cast<uint32_t>(script.size());
-	std::vector<uint8_t> meta = {
-		static_cast<uint8_t>(programSize & 0xFF),
-		static_cast<uint8_t>((programSize >> 8) & 0xFF),
-		static_cast<uint8_t>((programSize >> 16) & 0xFF),
-		static_cast<uint8_t>((programSize >> 24) & 0xFF),
-	};
+	if (!waitForProgramStop(30s)) {
+		LOG_ERROR("Timeout waiting for program to stop");
+		transport.unsubscribe(commandEvent);
+		return false;
+	}	
 
-	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, true)) {
-		LOG_ERROR("WRITE_USER_PROGRAM_META failed");
+	LOG_INFO("Sending WRITE_USER_PROGRAM_META with size = 0");
+	std::vector<uint8_t> metaZero = {0, 0, 0, 0};
+
+	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, metaZero, false)) {
+		LOG_ERROR("WRITE_USER_PROGRAM_META (size = 0) failed");
 		transport.unsubscribe(commandEvent);
 		return false;
 	}
+
+	std::this_thread::sleep_for(2000ms);
 
 	// max write size includes command bytes + offset(4) + data
 	const size_t maxWrite = transport.getMaxWriteSize();
@@ -193,7 +272,7 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 
 		payload.insert(payload.end(), script.begin() + sent, script.begin() + sent + chunk);
 
-		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, true)) {
+		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, false)) {
 			LOG_ERROR("COMMAND_WRITE_USER_RAM failed at offset=%zu", sent);
 			transport.unsubscribe(commandEvent);
 			return false;
@@ -205,8 +284,24 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		std::this_thread::sleep_for(200ms);
 	}
 
+	const uint32_t programSize = static_cast<uint32_t>(script.size());
+	std::vector<uint8_t> meta = {
+		static_cast<uint8_t>(programSize & 0xFF),
+		static_cast<uint8_t>((programSize >> 8) & 0xFF),
+		static_cast<uint8_t>((programSize >> 16) & 0xFF),
+		static_cast<uint8_t>((programSize >> 24) & 0xFF)
+	};
+
+	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, false)) {
+		LOG_ERROR("WRITE_USER_PROGRAM_META (final size) failed");
+		transport.unsubscribe(commandEvent);
+		return false;
+	}
+
+	std::this_thread::sleep_for(2000ms);
+
 	sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
-	std::this_thread::sleep_for(50ms);
+	std::this_thread::sleep_for(2000ms);
 
 	transport.unsubscribe(commandEvent);
 	LOG_INFO("PrinterProtocol upload finished");
@@ -229,7 +324,7 @@ bool PrinterProtocol::uploadProgramFromFile(const std::string& filePath) {
 
 bool PrinterProtocol::startUserProgram() {
 	LOG_COMMAND("PrinterProtocol startUserProgram");
-	return discover() && sendCommand(protocol::PybricksCommand::StartUserProgram, {}, true);
+	return discover() && sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
 }
 
 bool PrinterProtocol::stopUserProgram() {
