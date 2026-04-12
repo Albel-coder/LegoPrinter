@@ -295,6 +295,11 @@ namespace LPStudio
                 connectButton.BackColor = Color.FromArgb(234, 84, 85);
                 connectButton.Text = "Disconnect";
                 connectButton.Enabled = true;
+
+                await Task.Delay(2000);
+                printerController.RuntimeRotateMotor(0x00, 500, 90, true);
+                await Task.Delay(10000);
+                printerController.RuntimeRotateMotor(0, 500, 90, true);
             }
             catch (Exception ex)
             {
