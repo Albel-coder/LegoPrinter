@@ -182,6 +182,15 @@ extern "C" {
 		return driver->stopUserProgram();
 	}
 
+	PRINTER_DRIVER_API bool PrinterRuntimeRotateMotor(DriverHandle printer, unsigned char port, int speed, int angle, bool hold) {
+		if (!printer) {
+			return false;
+		}
+
+		auto* driver = static_cast<PrinterDriver*>(printer);
+		return driver->runtimeRotateMotor(port, speed, angle, hold);
+	}
+
 	PRINTER_DRIVER_API bool PrinterConnectRuntime(DriverHandle printer, const char* address) {
 		if (!printer) {
 			return false;
