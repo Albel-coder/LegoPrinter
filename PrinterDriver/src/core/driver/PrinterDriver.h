@@ -61,6 +61,8 @@ public:
 	bool startUserProgram();
 	bool stopUserProgram();
 
+	bool runtimeRotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold);
+
 	void testFunction() const {
 		LOG_INFO("testFunction called on %p", this);
 	}
