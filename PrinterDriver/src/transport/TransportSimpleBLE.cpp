@@ -198,8 +198,7 @@ bool TransportSimpleBLE::write(const Characteristic& characteristic, const uint8
                 peripheral.write_command(characteristic.serviceUUid, characteristic.characteristicUuid, payload);
             }
             catch (const std::exception& ex) {
-                LOG_WARNING("write_command failed: %s, falling back to write_request", ex.what());
-                peripheral.write_request(characteristic.serviceUUid, characteristic.characteristicUuid, payload);
+                LOG_WARNING("write_command exception: %s", ex.what());
             }
         }
         return true;
