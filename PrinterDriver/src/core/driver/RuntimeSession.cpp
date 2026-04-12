@@ -4,6 +4,13 @@
 
 #include <algorithm>
 
+constexpr uint8_t COMMAND_MOVE = 0x01;
+constexpr uint8_t COMMAND_STOP = 0x02;
+
+constexpr uint8_t COMMAND_STATUS = 0x04;
+constexpr uint8_t COMMAND_RESET = 0x05;
+constexpr uint8_t COMMAND_PING = 0x06;
+
 RuntimeSession::RuntimeSession(ITransport& transportPointer)
 	: transport(transportPointer) {}
 
@@ -15,26 +22,43 @@ bool RuntimeSession::discover() {
 
 	pybricksCommandEvent = {};
 	pybricksCapabilities = {};
+	nusTxChar = {};
+	nusRxChar = {};
 
 	LOG_BLUETOOTH("Runtime discover: checking Pybricks service");
 
 	for (const auto& service : transport.getServices()) {
-		if (service != protocol::PYBRICKS_SERVICE_UUID) {
-			continue;
-		}
-
-		for (const auto& characteristic : transport.getCharacteristics(service)) {
-			if (characteristic.characteristicUuid == protocol::PYBRICKS_COMMAND_EVENT_UUID) {
-				pybricksCommandEvent = characteristic;
+		// Pybricks Command/Event service
+		if (service == protocol::PYBRICKS_SERVICE_UUID) {
+			for (const auto& characteristic : transport.getCharacteristics(service)) {
+				if (characteristic.characteristicUuid == protocol::PYBRICKS_COMMAND_EVENT_UUID) {
+					pybricksCommandEvent = characteristic;
+				}
+				else if (characteristic.characteristicUuid == protocol::PYBRICKS_HUB_CAPABILITIES_UUID) {
+					pybricksCapabilities = characteristic; // read-only, don't write in it
+				}
 			}
-			else if (characteristic.characteristicUuid == protocol::PYBRICKS_HUB_CAPABILITIES_UUID) {
-				pybricksCapabilities = characteristic; // read-only, don't write in it
+		}	
+		// Nordic UART Service (NUS)
+		else if (service == protocol::NUS_SERVICE_UUID) {
+			for (const auto& characteristic : transport.getCharacteristics(service)) {
+				if (characteristic.characteristicUuid == protocol::NUS_TX_CHAR_UUID) {
+					nusTxChar = characteristic;   // read
+				}
+				else if (characteristic.characteristicUuid == protocol::NUS_RX_CHAR_UUID) {
+					nusRxChar = characteristic;   // write (notifications)
+				}
 			}
 		}
 	}
 
 	if (pybricksCommandEvent.characteristicUuid.empty()) {
 		LOG_ERROR("Runtime discover: Pybricks command/event not found");
+		return false;
+	}
+
+	if (nusTxChar.characteristicUuid.empty() || nusRxChar.characteristicUuid.empty()) {
+		LOG_ERROR("Runtime discover: NUS TX/RX characteristics not found");
 		return false;
 	}
 
@@ -148,9 +172,65 @@ bool RuntimeSession::isConnected() const {
 	return connected && transport.isConnected();
 }
 
+bool RuntimeSession::rotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold) {
+	LOG_INFO("Starting rotate motor command");
+	std::vector<uint8_t> packet;
+
+	packet.push_back(COMMAND_MOVE);
+	packet.push_back(0x01); // commands count
+	packet.push_back(port);
+
+	for (int i = 0; i < 4; ++i) {
+		packet.push_back((speed >> (8 * i)) & 0xFF);
+	}
+	for (int i = 0; i < 4; ++i) {
+		packet.push_back((angle >> (8 * i)) & 0xFF);
+	}
+	packet.push_back(hold ? 0x01 : 0x00);
+
+	LOG_INFO("Write rotate motor command");
+	return transport.write(nusTxChar, packet.data(), packet.size(), false);
+}
+
+bool RuntimeSession::stopAllMotors() {
+	uint8_t command = COMMAND_STOP;
+	return transport.write(nusTxChar, &command, 1, false);
+}
+
+bool RuntimeSession::resetEncoders() {
+	uint8_t command = COMMAND_RESET;
+	return transport.write(nusTxChar, &command, 1, false);
+}
+
+bool RuntimeSession::ping() {
+	uint8_t command = COMMAND_PING;
+	return transport.write(nusTxChar, &command, 1, false);
+}
+
+void RuntimeSession::setStatusCallback(StatusCallback callback) {
+	statusCallback = std::move(callback);
+}
+
 void RuntimeSession::onData(const Characteristic&, const uint8_t* data, size_t length) {
 	LOG_COMMAND("Runtime RX: %zu bytes", length);
-	if (callback) {
-		callback(data, length);
+	
+	if (length >= 3 && memcmp(data, "ack", 3) == 0) {
+		LOG_INFO("Runtime ACK received");
+	}
+	else if (length >= 4 && memcmp(data, "pong", 4) == 0) {
+		LOG_INFO("Runtime PONG received");
+	}
+	else if (length >= 5 && data[0] == 'E') {
+		std::string error(data, data + length);
+		LOG_ERROR("Runtime error: %s", error.c_str());
+	}
+	else if (length == 17 && data[0] == COMMAND_STATUS) {
+		if (statusCallback) {
+			int32_t pos0 = *reinterpret_cast<const int32_t*>(data + 1);
+			int32_t pos1 = *reinterpret_cast<const int32_t*>(data + 5);
+			int32_t speed0 = *reinterpret_cast<const int32_t*>(data + 9);
+			int32_t speed1 = *reinterpret_cast<const int32_t*>(data + 13);
+			statusCallback(pos0, pos1, speed0, speed1);
+		}
 	}
 }

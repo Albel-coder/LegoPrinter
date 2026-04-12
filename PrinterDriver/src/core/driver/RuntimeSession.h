@@ -4,6 +4,7 @@
 #include "protocol/Constants.h"
 
 #include <atomic>
+#include <cstdint>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -24,13 +25,25 @@ public:
 	bool isConnected() const;
 	std::string getConnectedAddress() const;
 
+	bool rotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold);
+	bool stopAllMotors();
+	bool resetEncoders();
+	bool ping();
+
+	using StatusCallback = std::function<void(int32_t position0, int32_t position1, int32_t speed0, int32_t speed1)>;
+	void setStatusCallback(StatusCallback callback);
+
 private:
 	ITransport& transport;
 	RuntimeCallback callback;
+	StatusCallback statusCallback;
 
 	Characteristic pybricksCommandEvent;
 	Characteristic pybricksCapabilities;
 	std::string connectedAddress;
+
+	Characteristic nusTxChar;
+	Characteristic nusRxChar;
 
 	std::atomic<bool> connected{ false };
 	std::atomic<bool> subscribed{ false };
