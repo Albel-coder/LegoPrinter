@@ -207,7 +207,8 @@ public class PrinterController : IDisposable
     public bool SendRuntime(byte[] data) =>
         SafeCall(() => PrinterSendRuntime(PrinterHandle, data, data.Length), false);
 
-
+    public bool RuntimeRotateMotor(byte port, int speed, int angle, bool hold) =>
+        SafeCall(() => PrinterRuntimeRotateMotor(PrinterHandle, port, speed, angle, hold));
 
 
 
@@ -655,6 +656,11 @@ public class PrinterController : IDisposable
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern void PrinterStopCommandStream(IntPtr printer);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterRuntimeRotateMotor(IntPtr printer, byte port, int speed, int angle, bool hold);
+
 
     // Speed profile functions
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
