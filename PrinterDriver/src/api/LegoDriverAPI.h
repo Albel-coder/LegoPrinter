@@ -101,9 +101,9 @@ extern "C" {
     PRINTER_DRIVER_API bool PrinterStopUserProgram(DriverHandle printer);
 
     PRINTER_DRIVER_API bool PrinterRuntimeRotateMotor(DriverHandle printer, unsigned char port, int speed, int angle, bool hold);
+    PRINTER_DRIVER_API bool PrinterRuntimePing(DriverHandle printer);
 
     PRINTER_DRIVER_API bool PrinterSendMotorCommands(DriverHandle printer, const MotorCommand* commands, int count);
-
     PRINTER_DRIVER_API void PrinterRotateMotor(DriverHandle printer, MotorCommand* commands, int count);
     PRINTER_DRIVER_API void PrinterSetMotorSpeed(DriverHandle printer, unsigned char port, signed char speed);
 
