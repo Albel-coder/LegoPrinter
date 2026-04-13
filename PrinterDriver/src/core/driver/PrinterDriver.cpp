@@ -516,6 +516,10 @@ bool PrinterDriver::runtimeRotateMotor(uint8_t port, int32_t speed, int32_t angl
     return runtime->rotateMotor(port, speed, angle, hold);
 }
 
+bool PrinterDriver::runtimePing() {
+    return runtime->ping();
+}
+
 bool PrinterDriver::connectRuntime(const std::string& address) { 
     LOG_INFO("Starting connectRuntime, address = %s", address.c_str());
     const std::string target = resolveAddress(address);
