@@ -298,10 +298,7 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		return false;
 	}
 
-	std::this_thread::sleep_for(2000ms);
-
-	sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
-	std::this_thread::sleep_for(2000ms);
+	//sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
 
 	transport.unsubscribe(commandEvent);
 	LOG_INFO("PrinterProtocol upload finished");
