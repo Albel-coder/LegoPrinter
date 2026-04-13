@@ -269,14 +269,7 @@ namespace LPStudio
                         return;
                     }
 
-                    bool started = await Task.Run(() => printerController.StartUserProgram());
-                    if (!started)
-                    {
-                        MessageBox.Show("Runtime program uploaded but failed to start");
-                        await DisconnectSafe();
-                        ResetConnectUi();
-                        return;
-                    }
+                    
                 }
 
                 SetConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
@@ -296,10 +289,13 @@ namespace LPStudio
                 connectButton.Text = "Disconnect";
                 connectButton.Enabled = true;
 
-                await Task.Delay(2000);
-                printerController.RuntimeRotateMotor(0x00, 500, 90, true);
+                await Task.Delay(1000);
+                bool pingResult = printerController.RuntimeRing();
+                Console.WriteLine($"Ping result: {pingResult}");
                 await Task.Delay(10000);
-                printerController.RuntimeRotateMotor(0, 500, 90, true);
+                bool rotateMotorResult = printerController.RuntimeRotateMotor(0, 50, 360, true);
+                Console.WriteLine($"rotateMotorResult result: {rotateMotorResult}");
+                await Task.Delay(5000);
             }
             catch (Exception ex)
             {

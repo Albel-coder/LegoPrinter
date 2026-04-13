@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
+using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
@@ -210,7 +211,8 @@ public class PrinterController : IDisposable
     public bool RuntimeRotateMotor(byte port, int speed, int angle, bool hold) =>
         SafeCall(() => PrinterRuntimeRotateMotor(PrinterHandle, port, speed, angle, hold));
 
-
+    public bool RuntimeRing() =>
+        SafeCall(() => PrinterRuntimePing(PrinterHandle));
 
 
 
@@ -660,6 +662,10 @@ public class PrinterController : IDisposable
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool PrinterRuntimeRotateMotor(IntPtr printer, byte port, int speed, int angle, bool hold);
+
+    [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool PrinterRuntimePing(IntPtr printer);
 
 
     // Speed profile functions
