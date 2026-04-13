@@ -25,6 +25,8 @@ public:
 	bool isConnected() const;
 	std::string getConnectedAddress() const;
 
+	void RuntimeSession::handleRxData(const uint8_t* data, size_t length);
+
 	bool rotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold);
 	bool stopAllMotors();
 	bool resetEncoders();
