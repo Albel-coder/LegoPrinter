@@ -14,10 +14,6 @@ namespace protocol {
     static constexpr const char* PYBRICKS_COMMAND_EVENT_UUID = "c5f50002-8280-46da-89f4-6d8051e4aeef";
     static constexpr const char* PYBRICKS_HUB_CAPABILITIES_UUID = "c5f50003-8280-46da-89f4-6d8051e4aeef";
 
-    inline const std::string NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-    inline const std::string NUS_TX_CHAR_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // Write
-    inline const std::string NUS_RX_CHAR_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // Notify
-
     enum class PybricksCommand : uint8_t {
         StopUserProgram = 0x00,
         StartUserProgram = 0x01,
