@@ -214,18 +214,6 @@ public class PrinterController : IDisposable
     public bool RuntimeRing() =>
         SafeCall(() => PrinterRuntimePing(PrinterHandle));
 
-
-
-
-
-
-
-
-
-
-
-
-
     // Motor speed control
     public void SetMotorSpeed(byte Port, sbyte Speed)
     {
@@ -411,38 +399,6 @@ public class PrinterController : IDisposable
             }, false);
         }
     }
-    public void Test()
-    {
-        lock (SyncRoot)
-        {
-            try
-            {
-                MotorCommand[] Command = new MotorCommand[2];
-
-                Command[0].Port = 0x02;
-                Command[0].Speed = 20;
-                Command[0].Revolutions = 3;
-
-                Command[1].Port = 0x03;
-                Command[1].Speed = 20;
-                Command[1].Revolutions = 3;
-
-                RotateMotor(Command);
-
-                MotorCommand[] X = new MotorCommand[1];
-
-                X[0].Port = 0x00;
-                X[0].Speed = -10;
-                X[0].Revolutions = 3;
-
-                RotateMotor(X);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"TEST ERROR: {ex}");
-            }
-        }
-    }
 
     public int GetLogCount() => SafeCall(() => GetLogCount(PrinterHandle), 0);
 
@@ -453,22 +409,6 @@ public class PrinterController : IDisposable
             IntPtr logEntryPtr = GetLogEntry(PrinterHandle, Index);
             return logEntryPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(logEntryPtr) : string.Empty;
         }, string.Empty);
-    }
-
-    public List<string> GetAllLogs()
-    {
-        var Logs = new List<string>();
-        int Count = GetLogCount();
-        for (int i = 0; i < Count; i++)
-        {
-            string LogEntry = GetLogEntry(i);
-            if (!string.IsNullOrEmpty(LogEntry))
-            {
-                Logs.Add(LogEntry);
-            }
-        }
-
-        return Logs;
     }
 
     public void ClearLog() => SafeCall(() => { ClearLog(PrinterHandle); return true; }, false);
@@ -636,9 +576,6 @@ public class PrinterController : IDisposable
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool PrinterSendMotorCommands(IntPtr printer,
         [MarshalAs(UnmanagedType.LPArray)] MotorCommand[] commands, int count);
-
-
-
 
     // Functions for controlling motors
 
