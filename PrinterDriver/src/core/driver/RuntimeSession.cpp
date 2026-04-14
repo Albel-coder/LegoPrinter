@@ -22,8 +22,6 @@ bool RuntimeSession::discover() {
 
 	pybricksCommandEvent = {};
 	pybricksCapabilities = {};
-	nusTxChar = {};
-	nusRxChar = {};
 
 	LOG_BLUETOOTH("Runtime discover: checking Pybricks service");
 
@@ -39,19 +37,6 @@ bool RuntimeSession::discover() {
 				}
 			}
 		}	
-		// Nordic UART Service (NUS)
-		else if (service == protocol::NUS_SERVICE_UUID) {
-			for (const auto& characteristic : transport.getCharacteristics(service)) {
-				if (characteristic.characteristicUuid == protocol::NUS_TX_CHAR_UUID) {
-					nusTxChar = characteristic;   // read
-					LOG_INFO("NUS TX characteristics successfully discovered");
-				}
-				else if (characteristic.characteristicUuid == protocol::NUS_RX_CHAR_UUID) {
-					nusRxChar = characteristic;   // write (notifications)
-					LOG_INFO("NUS RX characteristics successfully discovered");
-				}
-			}
-		}
 	}
 
 	if (pybricksCommandEvent.characteristicUuid.empty()) {
@@ -59,43 +44,8 @@ bool RuntimeSession::discover() {
 		return false;
 	}
 
-	if (nusTxChar.characteristicUuid.empty() || nusRxChar.characteristicUuid.empty()) {
-		LOG_ERROR("Runtime discover: NUS TX/RX characteristics not found");
-		return false;
-	}
-
 	LOG_BLUETOOTH("Runtime discover: Pybricks command/event found");
 	return true;
-}
-
-void RuntimeSession::handleRxData(const uint8_t* data, size_t length) {
-
-	if (length >= 5 && memcmp(data, "ready", 5) == 0) {
-		LOG_INFO("Runtime script reported READY");
-		return;
-	}
-
-	if (length >= 3 && memcmp(data, "ack", 3) == 0) {
-		LOG_INFO("Runtime ACK received");
-	}
-	else if (length >= 4 && memcmp(data, "pong", 4) == 0) {
-		LOG_INFO("Runtime PONG received");
-	}
-	else if (length >= 5 && data[0] == 'E') {
-		std::string error(data, data + length);
-
-		LOG_ERROR("Runtime error: %s", error.c_str());
-	}
-	else if (length == 17 && data[0] == COMMAND_STATUS) {
-
-		if (statusCallback) {
-			int32_t position0 = *reinterpret_cast<const int32_t*>(data + 1);
-			int32_t position1 = *reinterpret_cast<const int32_t*>(data + 5);
-			int32_t speed0 = *reinterpret_cast<const int32_t*>(data + 9);
-			int32_t speed1 = *reinterpret_cast<const int32_t*>(data + 13);
-			statusCallback(position0, position1, speed0, speed1);
-		}
-	}
 }
 
 bool RuntimeSession::connect(const std::string& address) {
@@ -123,11 +73,11 @@ bool RuntimeSession::connect(const std::string& address) {
 		return false;
 	}
 
-	LOG_BLUETOOTH("RuntimeSession::connect: discover OK, subscribing to Command/Event %s",
+	LOG_BLUETOOTH("RuntimeSession::connect: discover OK, subscribing to Pybricks Command/Event %s",
 		pybricksCommandEvent.characteristicUuid.c_str());
 
 	bool subscribed = transport.subscribe(pybricksCommandEvent, [this](const Characteristic&, const uint8_t* data, size_t length) {
-		this->onData(pybricksCommandEvent, data, length);
+		this->onData(data, length);
 	});
 
 	if (!subscribed) {
@@ -207,36 +157,36 @@ bool RuntimeSession::isConnected() const {
 
 bool RuntimeSession::rotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold) {
 	std::vector<uint8_t> packet;
-	packet.push_back(static_cast<uint8_t>(protocol::PybricksCommand::WriteStdin)); // 0x06
+
+	packet.push_back(0x06);
 	packet.push_back(COMMAND_MOVE);
-	packet.push_back(port);     
+	packet.push_back(port);
 
 	for (int i = 0; i < 4; ++i) {
-		packet.push_back((speed >> (8 * i)) & 0xFF);
+		packet.push_back((speed >> (i * 8)) & 0xFF);
 	}
-
 	for (int i = 0; i < 4; ++i) {
-		packet.push_back((angle >> (8 * i)) & 0xFF);
+		packet.push_back((angle >> (i * 8)) & 0xFF);
 	}
 
 	packet.push_back(hold ? 1 : 0);
 
-	LOG_INFO("Write rotate motor command (size=%zu)", packet.size());
+	LOG_INFO("Sending motor command (size = %zu)", packet.size());
 	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
 }
 
 bool RuntimeSession::stopAllMotors() {
-	uint8_t command = COMMAND_STOP;
-	return transport.write(nusTxChar, &command, 1, false);
+	std::vector<uint8_t> packet = { COMMAND_STOP };
+	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
 }
 
 bool RuntimeSession::resetEncoders() {
-	uint8_t command = COMMAND_RESET;
-	return transport.write(nusTxChar, &command, 1, false);
+	std::vector<uint8_t> packet = { COMMAND_RESET };
+	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
 }
 
 bool RuntimeSession::ping() {
-	std::vector<uint8_t> packet = { static_cast<uint8_t>(protocol::PybricksCommand::WriteStdin), COMMAND_PING };
+	std::vector<uint8_t> packet = { COMMAND_PING };
 	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
 }
 
@@ -244,32 +194,41 @@ void RuntimeSession::setStatusCallback(StatusCallback callback) {
 	statusCallback = std::move(callback);
 }
 
-void RuntimeSession::onData(const Characteristic&, const uint8_t* data, size_t length) {
-	std::string hexData;
-	for (size_t i = 0; i < length; ++i) {
-		char buffer[4];
-		snprintf(buffer, sizeof(buffer), "%02X ", data[i]);
-		hexData += buffer;
+void RuntimeSession::onData(const uint8_t* data, size_t length) {
+	if (length == 0) {
+		return;
 	}
-	LOG_COMMAND("Runtime RX: %zu bytes [%s]", length, hexData.c_str());
+
+	uint8_t type = data[0];
+	const uint8_t* payload = data + 1;
+	size_t payloadLength = length - 1;
+
+	LOG_INFO("Runtime RX: type = 0x%02X, length = %zu", type, length);
 	
-	if (length >= 3 && memcmp(data, "ack", 3) == 0) {
-		LOG_INFO("Runtime ACK received");
+	if (type == 0x01) {
+		std::string message(reinterpret_cast<const char*>(payload), payloadLength);
+
+		while (!message.empty() && (message.back() == '\n' || message.back() == '\r')) {
+			message.pop_back();
+		}
+		LOG_INFO("Program stdout: %s", message.c_str());
+
+		if (message == "ready") {
+			LOG_INFO("find ready flag");
+		}
+		else if (message == "pong") {
+			LOG_INFO("find pong flag");
+		}
+		else if (message == "ack") {
+			LOG_INFO("find ack flag");
+		}
+		else if (message.rfind("ERROR", 0) == 0) {
+			LOG_ERROR("Program error: %s", message.c_str());
+		}
 	}
-	else if (length >= 4 && memcmp(data, "pong", 4) == 0) {
-		LOG_INFO("Runtime PONG received");
-	}
-	else if (length >= 5 && data[0] == 'E') {
-		std::string error(data, data + length);
-		LOG_ERROR("Runtime error: %s", error.c_str());
-	}
-	else if (length == 17 && data[0] == COMMAND_STATUS) {
-		if (statusCallback) {
-			int32_t pos0 = *reinterpret_cast<const int32_t*>(data + 1);
-			int32_t pos1 = *reinterpret_cast<const int32_t*>(data + 5);
-			int32_t speed0 = *reinterpret_cast<const int32_t*>(data + 9);
-			int32_t speed1 = *reinterpret_cast<const int32_t*>(data + 13);
-			statusCallback(pos0, pos1, speed0, speed1);
+	else if (type == 0x00) {
+		if (payloadLength >= 1) {
+			
 		}
 	}
 }

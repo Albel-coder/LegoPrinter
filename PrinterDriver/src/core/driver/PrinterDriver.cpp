@@ -437,6 +437,22 @@ bool PrinterDriver::flashFirmware(const std::string& firmwareBootloaderPath, con
     return result;
 }
 
+std::vector<uint8_t> createMultiFileBlob(const std::vector<uint8_t>& scriptData, const std::string& moduleName = "__main__") {
+    std::vector<uint8_t> blob;
+
+    uint32_t size = static_cast<uint32_t>(scriptData.size());
+    for (int i = 0; i < 4; ++i) {
+        blob.push_back(static_cast<uint8_t>((size >> (i * 8)) & 0xFF));
+    }
+
+    blob.insert(blob.end(), moduleName.begin(), moduleName.end());
+    blob.push_back(0x00);
+
+    blob.insert(blob.end(), scriptData.begin(), scriptData.end());
+
+    return blob;
+}
+
 bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::string& address) {
     const std::string target = resolveAddress(address);
     if (target.empty()) {
@@ -463,7 +479,8 @@ bool PrinterDriver::uploadProgram(const std::string& scriptFile, const std::stri
         return false;
     }
 
-    const bool result = printerProtocol->uploadProgram(scriptData);
+    std::vector<uint8_t> blob = createMultiFileBlob(scriptData);
+    const bool result = printerProtocol->uploadProgram(blob);
 
     if (!result) {
         LOG_ERROR("uploadProgram failed");
