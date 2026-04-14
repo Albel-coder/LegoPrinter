@@ -258,7 +258,7 @@ namespace LPStudio
 
                     SetConnectUi("Uploading runtime...", Color.FromArgb(255, 165, 0));
 
-                    string scriptData = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "legoWirelessProtocol-firmwareScript.mpy");
+                    string scriptData = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "main.mpy");
 
                     bool uploadResult = await Task.Run(() => printerController.UploadProgram(scriptData, address));
                     if (!uploadResult)
@@ -268,8 +268,6 @@ namespace LPStudio
                         ResetConnectUi();
                         return;
                     }
-
-                    
                 }
 
                 SetConnectUi("Connecting to runtime...", Color.FromArgb(227, 235, 12));
