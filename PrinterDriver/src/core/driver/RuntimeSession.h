@@ -25,8 +25,6 @@ public:
 	bool isConnected() const;
 	std::string getConnectedAddress() const;
 
-	void RuntimeSession::handleRxData(const uint8_t* data, size_t length);
-
 	bool rotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold);
 	bool stopAllMotors();
 	bool resetEncoders();
@@ -44,12 +42,9 @@ private:
 	Characteristic pybricksCapabilities;
 	std::string connectedAddress;
 
-	Characteristic nusTxChar;
-	Characteristic nusRxChar;
-
 	std::atomic<bool> connected{ false };
 	std::atomic<bool> subscribed{ false };
 
 	bool discover();
-	void onData(const Characteristic& characteristic, const uint8_t* data, size_t length);
+	void onData(const uint8_t* data, size_t length);
 };
