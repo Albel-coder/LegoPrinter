@@ -78,6 +78,43 @@ bool PrinterProtocol::discover() {
 	return true;
 }
 
+bool PrinterProtocol::waitForProgramStart(std::chrono::milliseconds timeout) {
+	auto start = std::chrono::steady_clock::now();
+	bool started = false;
+
+	while (!started && std::chrono::steady_clock::now() - start < timeout) {
+
+		{
+			std::lock_guard<std::mutex> lock(responseMutex);
+			waitingForResponse = true;
+			expectedCommand = 0x00;
+			lastResponse.reset();
+		}
+
+		std::unique_lock<std::mutex> lock(responseMutex);
+		bool received = responseConditionVariable.wait_for(lock, std::chrono::seconds(1), [this] {
+			return !waitingForResponse;
+		});
+
+		if (received && lastResponse && lastResponse->size() >= 2) {
+			uint8_t flags = (*lastResponse)[1];
+			if ((flags & 0x01) == 0) {
+				started = true;
+				LOG_INFO("Program started, flags=0x%02X", flags);
+				break;
+			}
+			else {
+				LOG_COMMAND("Program still stopped, flags=0x%02X", flags);
+			}
+		}
+
+		waitingForResponse = false;
+		responseConditionVariable.notify_all();
+	}
+
+	return started;
+}
+
 bool PrinterProtocol::waitForProgramStop(std::chrono::milliseconds timeout) {
 	auto start = std::chrono::steady_clock::now();
 	bool stopped = false;
@@ -140,43 +177,11 @@ bool PrinterProtocol::sendCommand(protocol::PybricksCommand command, const std::
 		}
 	}
 
-	bool writeCommandResult = transport.write(commandEvent, buffer.data(), buffer.size(), false);
+	bool writeCommandResult = transport.write(commandEvent, buffer.data(), buffer.size(), withResponse);
 	if (!writeCommandResult) {
 		std::lock_guard<std::mutex> lock(responseMutex);
 		waitingForResponse = false;
 		return false;
-	}
-
-	if (withResponse) {
-		std::unique_lock<std::mutex> lock(responseMutex);
-
-		bool received = responseConditionVariable.wait_for(lock, std::chrono::seconds(2), [this] {
-			return !waitingForResponse;
-		});
-
-		waitingForResponse = false;
-		responseConditionVariable.notify_all();
-
-		if (lastResponse && lastResponse->size() >= 2) {
-			uint8_t status = (*lastResponse)[1];
-			if (status != 0x00) {
-				LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, status);
-			}
-			else {
-				LOG_COMMAND("Command 0x%02X succeeded", command);
-			}
-		}
-
-		if (!received) {
-			LOG_ERROR("Timeout waiting for response to command 0x%02X", static_cast<uint8_t>(command));
-			return false;
-		}
-
-		// Check the response status (second byte is 0x00 = success)
-		if (lastResponse && lastResponse->size() >= 2 && (*lastResponse)[1] != 0x00) {
-			LOG_ERROR("Command 0x%02X failed with status 0x%02X", command, (*lastResponse)[1]);
-			return false;
-		}
 	}
 	
 	return true;
@@ -243,7 +248,7 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 	LOG_INFO("Sending WRITE_USER_PROGRAM_META with size = 0");
 	std::vector<uint8_t> metaZero = {0, 0, 0, 0};
 
-	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, metaZero, false)) {
+	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, metaZero, true)) {
 		LOG_ERROR("WRITE_USER_PROGRAM_META (size = 0) failed");
 		transport.unsubscribe(commandEvent);
 		return false;
@@ -272,7 +277,7 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 
 		payload.insert(payload.end(), script.begin() + sent, script.begin() + sent + chunk);
 
-		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, false)) {
+		if (!sendCommand(protocol::PybricksCommand::CommandWriteUserRam, payload, true)) {
 			LOG_ERROR("COMMAND_WRITE_USER_RAM failed at offset=%zu", sent);
 			transport.unsubscribe(commandEvent);
 			return false;
@@ -292,13 +297,20 @@ bool PrinterProtocol::uploadProgram(const std::vector<uint8_t>& script) {
 		static_cast<uint8_t>((programSize >> 24) & 0xFF)
 	};
 
-	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, false)) {
+	if (!sendCommand(protocol::PybricksCommand::WriteUserProgramMeta, meta, true)) {
 		LOG_ERROR("WRITE_USER_PROGRAM_META (final size) failed");
 		transport.unsubscribe(commandEvent);
 		return false;
 	}
 
-	//sendCommand(protocol::PybricksCommand::StartUserProgram, {}, false);
+	std::this_thread::sleep_for(200ms);
+	sendCommand(protocol::PybricksCommand::StartUserProgram, {}, true);
+	std::this_thread::sleep_for(200ms);
+
+	if (!waitForProgramStart(30s)) {
+		LOG_ERROR("Program did not start");
+		return false;
+	}
 
 	transport.unsubscribe(commandEvent);
 	LOG_INFO("PrinterProtocol upload finished");
