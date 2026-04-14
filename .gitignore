@@ -84,3 +84,7 @@ GcodeGenerator/build/
 /saves/
 /Fonts/
 /MainLogo32x32.png
+
+/LegoWirelessProtocol3/program/main.mpy
+/LegoWirelessProtocol3/program/readme.txt
+
