@@ -23,6 +23,8 @@ public:
 
 	bool waitForProgramStop(std::chrono::milliseconds timeout = std::chrono::seconds(10));
 
+	bool waitForProgramStart(std::chrono::milliseconds timeout = std::chrono::seconds(10));
+
 private:
 	ITransport& transport;
 	Characteristic commandEvent;
