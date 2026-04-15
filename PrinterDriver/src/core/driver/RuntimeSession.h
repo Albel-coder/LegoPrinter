@@ -33,6 +33,10 @@ public:
 	using StatusCallback = std::function<void(int32_t position0, int32_t position1, int32_t speed0, int32_t speed1)>;
 	void setStatusCallback(StatusCallback callback);
 
+	template<typename T>
+	void sendCommand(uint8_t axis, uint8_t cmd, const T& payload);
+	void sendCommand(uint8_t axis, uint8_t cmd);
+
 private:
 	ITransport& transport;
 	RuntimeCallback callback;
