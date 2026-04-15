@@ -3,6 +3,61 @@
 #include "../logging/LogManager.h"
 
 #include <algorithm>
+#include <cmath>
+
+// CRC8 Dallas/Maxim
+uint8_t crc8(const uint8_t* data, size_t len) {
+	uint8_t crc = 0;
+	for (size_t i = 0; i < len; ++i) {
+		crc ^= data[i];
+		for (int j = 0; j < 8; ++j) {
+			if (crc & 0x80) {
+				crc = (crc << 1) ^ 0x31;
+			}
+			else {
+				crc <<= 1;
+			}
+		}
+	}
+	return crc;
+}
+
+#pragma pack(push, 1)
+struct FrameHeader {
+	uint8_t sync = 0xAA;
+	uint8_t length;
+	uint8_t axis;
+	uint8_t cmd;
+	// uint8_t payload[];
+	// uint8_t crc;
+};
+
+// CMD_UPDATE_TARGET (0x10)
+struct UpdateTargetPayload {
+	int32_t target;
+};
+
+// CMD_SET_LIMITS (0x20)
+struct SetLimitsPayload {
+	int32_t max_speed;
+	int32_t max_accel;
+};
+
+// CMD_MOVE_VEL (0x11)
+struct MoveVelPayload {
+	int32_t speed;
+};
+
+// CMD_STOP (0x12)
+struct StopPayload {
+	uint8_t stop_type;   // 0 = COAST, 1 = HOLD
+};
+
+// CMD_ENABLE_WATCHDOG (0x50)
+struct WatchdogPayload {
+	uint16_t timeout_ms;
+};
+#pragma pack(pop)
 
 constexpr uint8_t COMMAND_MOVE = 0x01;
 constexpr uint8_t COMMAND_STOP = 0x02;
@@ -10,6 +65,33 @@ constexpr uint8_t COMMAND_STOP = 0x02;
 constexpr uint8_t COMMAND_STATUS = 0x04;
 constexpr uint8_t COMMAND_RESET = 0x05;
 constexpr uint8_t COMMAND_PING = 0x06;
+
+template<typename T>
+void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd, const T& payload) {
+	constexpr size_t payload_size = sizeof(T);
+	uint8_t buffer[sizeof(FrameHeader) + payload_size + 1];
+	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer);
+	hdr->sync = 0xAA;
+	hdr->length = 2 + payload_size;   // axis + cmd + payload
+	hdr->axis = axis;
+	hdr->cmd = cmd;
+	memcpy(buffer + sizeof(FrameHeader), &payload, payload_size);
+	uint8_t crc = crc8(buffer, sizeof(buffer) - 1);
+	buffer[sizeof(buffer) - 1] = crc;
+	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
+}
+
+void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
+	uint8_t buffer[sizeof(FrameHeader) + 1];
+	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer);
+	hdr->sync = 0xAA;
+	hdr->length = 2;   // only axis and cmd
+	hdr->axis = axis;
+	hdr->cmd = cmd;
+	uint8_t crc = crc8(buffer, sizeof(buffer) - 1);
+	buffer[sizeof(buffer) - 1] = crc;
+	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
+}
 
 RuntimeSession::RuntimeSession(ITransport& transportPointer)
 	: transport(transportPointer) {}
