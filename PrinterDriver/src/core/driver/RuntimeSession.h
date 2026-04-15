@@ -37,6 +37,8 @@ public:
 	void sendCommand(uint8_t axis, uint8_t cmd, const T& payload);
 	void sendCommand(uint8_t axis, uint8_t cmd);
 
+	void drawArcContinuous(float radius, float start_angle, float end_angle, float feedrate);
+
 private:
 	ITransport& transport;
 	RuntimeCallback callback;

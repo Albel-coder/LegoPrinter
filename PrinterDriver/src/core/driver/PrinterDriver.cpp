@@ -637,7 +637,10 @@ double PrinterDriver::printerGetMotorPosition(unsigned char port) {
 }
 
 bool PrinterDriver::runPrinterTest(const char* testName) {
-    return false;
+    LOG_INFO("Starting printer test");
+    runtime->drawArcContinuous(5, 0, 5, 30);
+
+    return true;
 }
 
 bool PrinterDriver::printerRequestBatteryLevel() {

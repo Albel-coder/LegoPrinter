@@ -5,6 +5,17 @@
 #include <algorithm>
 #include <cmath>
 
+const uint8_t CMD_UPDATE_TARGET = 0x10;
+const uint8_t CMD_MOVE_VEL = 0x11;
+const uint8_t CMD_STOP = 0x12;
+const uint8_t CMD_SET_LIMITS = 0x20;
+const uint8_t CMD_RESET_POS = 0x21;
+const uint8_t CMD_GET_STATUS = 0x30;
+const uint8_t CMD_EMERGENCY_STOP = 0x40;
+const uint8_t CMD_PING = 0x41;
+const uint8_t CMD_CLEAR_BUFFER = 0x42;
+const uint8_t CMD_ENABLE_WATCHDOG = 0x50;
+
 // CRC8 Dallas/Maxim
 uint8_t crc8(const uint8_t* data, size_t len) {
 	uint8_t crc = 0;
@@ -35,6 +46,8 @@ struct FrameHeader {
 // CMD_UPDATE_TARGET (0x10)
 struct UpdateTargetPayload {
 	int32_t target;
+	uint16_t speed;   // новое поле
+	uint16_t time_ms; // новое поле
 };
 
 // CMD_SET_LIMITS (0x20)
@@ -69,28 +82,102 @@ constexpr uint8_t COMMAND_PING = 0x06;
 template<typename T>
 void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd, const T& payload) {
 	constexpr size_t payload_size = sizeof(T);
-	uint8_t buffer[sizeof(FrameHeader) + payload_size + 1];
-	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer);
+	// Выделяем буфер: [0x06][FrameHeader][payload][CRC]
+	uint8_t buffer[1 + sizeof(FrameHeader) + payload_size + 1];
+
+	// Префикс WriteStdin
+	buffer[0] = 0x06;
+
+	// Заголовок кадра
+	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer + 1);
 	hdr->sync = 0xAA;
 	hdr->length = 2 + payload_size;   // axis + cmd + payload
 	hdr->axis = axis;
 	hdr->cmd = cmd;
-	memcpy(buffer + sizeof(FrameHeader), &payload, payload_size);
-	uint8_t crc = crc8(buffer, sizeof(buffer) - 1);
+
+	// Payload
+	memcpy(buffer + 1 + sizeof(FrameHeader), &payload, payload_size);
+
+	// CRC считается от части после префикса (т.е. от sync до конца payload)
+	uint8_t crc = crc8(buffer + 1, sizeof(FrameHeader) + payload_size);
 	buffer[sizeof(buffer) - 1] = crc;
+
+	// Отправляем весь буфер (включая префикс)
 	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
 }
 
 void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
-	uint8_t buffer[sizeof(FrameHeader) + 1];
-	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer);
+	uint8_t buffer[1 + sizeof(FrameHeader) + 1];
+	buffer[0] = 0x06;
+	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer + 1);
 	hdr->sync = 0xAA;
 	hdr->length = 2;   // only axis and cmd
 	hdr->axis = axis;
 	hdr->cmd = cmd;
-	uint8_t crc = crc8(buffer, sizeof(buffer) - 1);
+	uint8_t crc = crc8(buffer + 1, sizeof(FrameHeader));
 	buffer[sizeof(buffer) - 1] = crc;
 	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
+}
+
+void RuntimeSession::drawArcContinuous(float radius, float start_angle, float end_angle, float feedrate) {
+	const float steps_per_mm = 100.0f;   // перевод мм в градусы мотора
+	const float dt = 0.020f;             // 20 мс между точками
+	const int num_points = static_cast<int>((end_angle - start_angle) * radius / (feedrate * dt)) + 1;
+
+	// Предварительно очищаем буферы (на всякий случай)
+	sendCommand(0, CMD_CLEAR_BUFFER);
+	sendCommand(1, CMD_CLEAR_BUFFER);
+
+	// Текущие позиции (хост должен отслеживать)
+	static float current_x = 0.0f, current_y = 0.0f;
+
+	// Генерируем и отправляем точки
+	for (int i = 0; i <= num_points; ++i) {
+		float t = i / (float)num_points;
+		float angle = start_angle + t * (end_angle - start_angle);
+		float x = radius * cosf(angle);
+		float y = radius * sinf(angle);
+
+		// Переводим в градусы мотора
+		int32_t target_x = static_cast<int32_t>(x * steps_per_mm);
+		int32_t target_y = static_cast<int32_t>(y * steps_per_mm);
+
+		// Отправляем обновление цели для обеих осей
+		UpdateTargetPayload cmd_x = { target_x, static_cast<uint16_t>(feedrate), 0 };
+		UpdateTargetPayload cmd_y = { target_y, static_cast<uint16_t>(feedrate), 0 };
+		sendCommand(0, CMD_UPDATE_TARGET, cmd_x);
+		sendCommand(1, CMD_UPDATE_TARGET, cmd_y);
+
+		// Выдерживаем интервал отправки (не обязательно, но для стабильности)
+		std::this_thread::sleep_for(std::chrono::milliseconds(50)); // ~20 Гц отправка
+	}
+
+	// После последней точки можно отправить STOP (HOLD) для фиксации
+	StopPayload stop_hold = { 1 }; // HOLD
+	sendCommand(0, CMD_STOP, stop_hold);
+	sendCommand(1, CMD_STOP, stop_hold);
+}
+
+struct StatusReply {
+	uint8_t reply_code;   // 0x80
+	uint8_t axis;
+	int32_t position;
+	int32_t speed;
+	uint8_t flags;
+	uint8_t buffer_free;
+};
+
+void parseStatusReply(const uint8_t* data, size_t len) {
+	if (len < 10) {
+		return;
+	}
+	StatusReply reply;
+	reply.reply_code = data[0];
+	reply.axis = data[1];
+	reply.position = *reinterpret_cast<const int32_t*>(data + 2);
+	reply.speed = *reinterpret_cast<const int32_t*>(data + 6);
+	reply.flags = data[10];
+	reply.buffer_free = data[11];
 }
 
 RuntimeSession::RuntimeSession(ITransport& transportPointer)
@@ -287,30 +374,4 @@ void RuntimeSession::onData(const uint8_t* data, size_t length) {
 
 	LOG_INFO("Runtime RX: type = 0x%02X, length = %zu", type, length);
 	
-	if (type == 0x01) {
-		std::string message(reinterpret_cast<const char*>(payload), payloadLength);
-
-		while (!message.empty() && (message.back() == '\n' || message.back() == '\r')) {
-			message.pop_back();
-		}
-		LOG_INFO("Program stdout: %s", message.c_str());
-
-		if (message == "ready") {
-			LOG_INFO("find ready flag");
-		}
-		else if (message == "pong") {
-			LOG_INFO("find pong flag");
-		}
-		else if (message == "ack") {
-			LOG_INFO("find ack flag");
-		}
-		else if (message.rfind("ERROR", 0) == 0) {
-			LOG_ERROR("Program error: %s", message.c_str());
-		}
-	}
-	else if (type == 0x00) {
-		if (payloadLength >= 1) {
-			
-		}
-	}
 }
