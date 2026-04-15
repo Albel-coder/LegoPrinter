@@ -288,12 +288,9 @@ namespace LPStudio
                 connectButton.Enabled = true;
 
                 await Task.Delay(1000);
-                bool pingResult = printerController.RuntimeRing();
-                Console.WriteLine($"Ping result: {pingResult}");
-                await Task.Delay(10000);
-                bool rotateMotorResult = printerController.RuntimeRotateMotor(0, 50, 360, true);
-                Console.WriteLine($"rotateMotorResult result: {rotateMotorResult}");
-                await Task.Delay(5000);
+                bool testResult = await Task.Run(() =>
+                    printerController.RunPrinterTest("123456"));
+                await Task.Delay(1000);
             }
             catch (Exception ex)
             {
