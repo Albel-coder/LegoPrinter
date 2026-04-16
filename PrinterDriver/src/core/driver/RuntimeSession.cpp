@@ -344,7 +344,17 @@ void RuntimeSession::onData(const uint8_t* data, size_t length) {
 
 	LOG_INFO("Runtime RX: type = 0x%02X, length = %zu", type, length);
 	if (type == 0x01) {
-		std::string message(reinterpret_cast<const char*>(payload), payloadLength);
-		LOG_INFO("Program stdout: %s", message.c_str());
+		// Выводим сырые байты в hex
+		std::string hex;
+		for (size_t i = 0; i < payloadLength; ++i) {
+			char buf[4];
+			snprintf(buf, sizeof(buf), "%02X ", payload[i]);
+			hex += buf;
+		}
+		LOG_INFO("Program stdout HEX: %s", hex.c_str());
+
+		// Также попробуем как текст (вдруг там читаемая строка)
+		std::string text(reinterpret_cast<const char*>(payload), payloadLength);
+		LOG_INFO("Program stdout TEXT: %s", text.c_str());
 	}
 }

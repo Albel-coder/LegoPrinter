@@ -637,9 +637,23 @@ double PrinterDriver::printerGetMotorPosition(unsigned char port) {
 }
 
 bool PrinterDriver::runPrinterTest(const char* testName) {
-    LOG_INFO("Starting printer test");
-    UpdateTargetPayload cmd = { 90, 400, 0 };
-    runtime->sendCommand(0, 0x10, cmd);
+
+    // 1. Пинг
+    runtime->sendCommand(0, 0x41);  // axis игнорируется
+    // ожидаем 0x81
+
+    // 2. Сброс позиций
+    runtime->sendCommand(0, 0x21);
+    runtime->sendCommand(1, 0x21);
+
+    // 3. Простое движение: прямая линия из 10 сегментов
+    for (int i = 1; i <= 10; ++i) {
+        UpdateTargetPayload cmd_x = { i * 100, 800, 0 };  // шаг 100, скорость 800
+        UpdateTargetPayload cmd_y = { i * 50,  400, 0 };
+        runtime->sendCommand(0, 0x10, cmd_x);
+        runtime->sendCommand(1, 0x10, cmd_y);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
 
     return true;
 }
