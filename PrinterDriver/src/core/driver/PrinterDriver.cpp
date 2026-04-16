@@ -638,7 +638,8 @@ double PrinterDriver::printerGetMotorPosition(unsigned char port) {
 
 bool PrinterDriver::runPrinterTest(const char* testName) {
     LOG_INFO("Starting printer test");
-    runtime->drawArcContinuous(5, 0, 5, 30);
+    UpdateTargetPayload cmd = { 90, 400, 0 };
+    runtime->sendCommand(0, 0x10, cmd);
 
     return true;
 }

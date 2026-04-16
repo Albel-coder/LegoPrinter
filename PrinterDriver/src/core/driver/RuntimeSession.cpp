@@ -33,45 +33,6 @@ uint8_t crc8(const uint8_t* data, size_t len) {
 	return crc;
 }
 
-#pragma pack(push, 1)
-struct FrameHeader {
-	uint8_t sync = 0xAA;
-	uint8_t length;
-	uint8_t axis;
-	uint8_t cmd;
-	// uint8_t payload[];
-	// uint8_t crc;
-};
-
-// CMD_UPDATE_TARGET (0x10)
-struct UpdateTargetPayload {
-	int32_t target;
-	uint16_t speed;   // новое поле
-	uint16_t time_ms; // новое поле
-};
-
-// CMD_SET_LIMITS (0x20)
-struct SetLimitsPayload {
-	int32_t max_speed;
-	int32_t max_accel;
-};
-
-// CMD_MOVE_VEL (0x11)
-struct MoveVelPayload {
-	int32_t speed;
-};
-
-// CMD_STOP (0x12)
-struct StopPayload {
-	uint8_t stop_type;   // 0 = COAST, 1 = HOLD
-};
-
-// CMD_ENABLE_WATCHDOG (0x50)
-struct WatchdogPayload {
-	uint16_t timeout_ms;
-};
-#pragma pack(pop)
-
 constexpr uint8_t COMMAND_MOVE = 0x01;
 constexpr uint8_t COMMAND_STOP = 0x02;
 
@@ -116,6 +77,15 @@ void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
 	hdr->cmd = cmd;
 	uint8_t crc = crc8(buffer + 1, sizeof(FrameHeader));
 	buffer[sizeof(buffer) - 1] = crc;
+
+	std::string hex;
+	for (size_t i = 0; i < sizeof(buffer); ++i) {
+		char buf[4];
+		snprintf(buf, sizeof(buf), "%02X ", buffer[i]);
+		hex += buf;
+	}
+	LOG_INFO("Sending packet: %s", hex.c_str());
+
 	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
 }
 
@@ -373,5 +343,8 @@ void RuntimeSession::onData(const uint8_t* data, size_t length) {
 	size_t payloadLength = length - 1;
 
 	LOG_INFO("Runtime RX: type = 0x%02X, length = %zu", type, length);
-	
+	if (type == 0x01) {
+		std::string message(reinterpret_cast<const char*>(payload), payloadLength);
+		LOG_INFO("Program stdout: %s", message.c_str());
+	}
 }
