@@ -636,25 +636,64 @@ double PrinterDriver::printerGetMotorPosition(unsigned char port) {
     return motorManager->getPosition(port);
 }
 
-bool PrinterDriver::runPrinterTest(const char* testName) {
+struct MotionCommand {
+    float targetAngle; // в градусах
+    std::chrono::steady_clock::time_point startTime; // когда нужно начать движение
+};
 
-    // 1. Пинг
-    runtime->sendCommand(0, 0x41);  // axis игнорируется
-    // ожидаем 0x81
-
-    // 2. Сброс позиций
-    runtime->sendCommand(0, 0x21);
-    runtime->sendCommand(1, 0x21);
-
-    // 3. Простое движение: прямая линия из 10 сегментов
-    for (int i = 1; i <= 10; ++i) {
-        UpdateTargetPayload cmd_x = { i * 100, 800, 0 };  // шаг 100, скорость 800
-        UpdateTargetPayload cmd_y = { i * 50,  400, 0 };
-        runtime->sendCommand(0, 0x10, cmd_x);
-        runtime->sendCommand(1, 0x10, cmd_y);
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+class MotionPlanner {
+public:
+    MotionPlanner(double acceleration, double maxSpeed)
+        : accel(acceleration), maxV(maxSpeed), lastAngle(0.0f), lastSpeed(0.0f) {
     }
 
+    // Функция, которую вы будете вызывать для каждого нового сегмента из G-кода
+    std::vector<MotionCommand> planSegment(float targetAngle, float entrySpeed = -1) {
+        std::vector<MotionCommand> commands;
+
+        // Здесь должна быть логика расчета трапецеидального профиля,
+        // аналогичная тому, что делает Klipper.
+        // Она определяет время разгона, торможения и общее время движения.
+        // Для простоты примера, допустим, мы просто движемся с макс. скоростью.
+        float distance = std::abs(targetAngle - lastAngle);
+        float moveTime = distance / maxV;
+
+        // Создаем команду
+        MotionCommand cmd;
+        cmd.targetAngle = targetAngle;
+        // Просто берем текущую точку во времени и прибавляем 1 мс
+        cmd.startTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
+
+        commands.push_back(cmd);
+
+        lastAngle = targetAngle;
+        return commands;
+    }
+
+private:
+    double accel, maxV;
+    float lastAngle, lastSpeed;
+};
+
+bool PrinterDriver::runPrinterTest(const char* testName) {
+    MotionPlanner planner(800.0, 1000.0); // ускорение 800 deg/s^2, макс. скорость 1000 deg/s
+
+    // Симуляция получения G-кода: список углов для движения
+    std::vector<float> gcodeAngles = { 360.0f, 0.0f, 720.0f, 360.0f };
+
+    for (float angle : gcodeAngles) {
+        // Планируем сегмент
+        std::vector<MotionCommand> plannedMoves = planner.planSegment(angle);
+
+        for (const auto& move : plannedMoves) {
+            // Ждем точного времени старта
+            std::this_thread::sleep_until(move.startTime);
+
+            // Отправляем команду на хаб
+            UpdateTargetPayload cmd = { static_cast<int32_t>(move.targetAngle), 0, 0 };
+            runtime->sendCommand(0, 0x10, cmd);
+        }
+    }
     return true;
 }
 
