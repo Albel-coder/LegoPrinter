@@ -13,7 +13,7 @@ from pybricks.pupdevices import Motor
 from pybricks.parameters import Port, Stop, Color
 from pybricks.tools import multitask, run_task, wait, StopWatch
 from usys import stdin, stdout
-import struct
+import ustruct as struct
 
 # Configuration
 SYNC_BYTE = 0xAA
@@ -21,21 +21,22 @@ BUFFER_SIZE = 32
 PLANNER_LOOP_MS = 1 # 1 kHz update rate for smooth motion
 STATUS_INTERVAL_MS = 20
 WATCHDOG_TIMEOUT_MS = 2000
+UART_READ_TIMEOUT_MS = 500
 
 # Hardware
 hub = TechnicHub()
 motors = {}
 try:
     motors[0] = Motor(Port.A) # X
-    motors[1] = Motor[Port.B] # Y
+    motors[1] = Motor(Port.B) # Y
     # Set conservative limits (host will override via CMD_SET_LIMITS if needed)
     for m in motors.values():
         m.control.limits(2000, 2000)
         m.reset_angle(0)
     hub.light.on(Color.GREEN)
 except Exception as e:
-    err = b"FATAL: Motor init failed: " + str(e).encode() + b"\n"
-    stdout.buffer.write(err)
+    err_msg = "FATAL: Motor init failed: " + str(e) + "\n"
+    stdout.buffer.write(bytes(err_msg, 'utf-8'))
     stdout.flush()
     while True:
         hub.light.on(Color.RED)
@@ -136,20 +137,20 @@ class Move:
             self.t_cruise = duration_ms - total_ramp
         else:
             # Not enough time for full acceleration - triangular profiles
-            ratio = duration_ms / total_ramp if total_ramp > 0 else 1.0'
+            ratio = duration_ms / total_ramp if total_ramp > 0 else 1.0
             self.t_accel *= ratio
             self.t_decel *= ratio
             self.t_cruise = 0.0
         
     def get_speed_at_time(self, elapsed_ms):
         """Calculate desired speed according to trapezoidal profile"""
-        if elapsed_ms <= self.t_accel:
+        if self.t_accel and elapsed_ms <= self.t_accel:
             if self.t_accel > 0:
                 progress = elapsed_ms / self.t_accel
             else:
                 progress = 1.0
             return self.start_speed + (self.cruise_speed - self.start_speed) * progress
-        elif elapsed_ms <= self.t_accel + self.t_cruise:
+        elif self.t_cruise and elapsed_ms <= self.t_accel + self.t_cruise:
             return self.cruise_speed
         elif elapsed_ms <= self.duration_ms:
             decel_elapsed = elapsed_ms - (self.t_accel + self.t_cruise)
@@ -164,7 +165,7 @@ class Move:
 # Commands Queue
 class MoveQueue:
     def __init__(self, maxSize):
-        self.maxsize = maxsize
+        self.maxsize = maxSize
         self._queue = []
 
     def full(self):
@@ -216,13 +217,13 @@ class MoveExecutor:
     def __init__(self, motor, queue):
         self.motor = motor
         self.queue = queue
-        self.currentl_move = None
+        self.current_move = None
         self.move_start_time = 0
         self.active = False
         self.last_speed = 0
 
-    def start_move(self, motor, start_time):
-        self.currentl_move = move
+    def start_move(self, move, start_time):
+        self.current_move = move
         self.move_start_time = start_time
         self.active = True
         self.last_speed = move.start_speed
@@ -244,7 +245,7 @@ class MoveExecutor:
                 return
 
         elapsed_ms = now_ms - self.move_start_time
-        if elapsed >= self.current_move.duration_ms:
+        if elapsed_ms >= self.current_move.duration_ms:
             # Move finished
             self.last_speed = self.current_move.end_speed
             # Fetch next move immediately (may be None)
@@ -284,18 +285,28 @@ async def planner_task():
             for executor in executors.values():
                 executor.update(now)
         except Exception as e:
-            err = b"PLANNER ERROR: %s\n" % str(e).encode()
-            stdout.buffer.write(err)
+            err_msg = "PLANNER ERROR: %s\n" % str(e)
+            stdout.buffer.write(bytes(err_msg, 'utf-8'))
             stdout.flush()
         await wait(PLANNER_LOOP_MS)
 
 # UART Receiver
 async def read_exact(n):
     data = b''
+    start = StopWatch()
     while len(data) < n:
-        chunk = stdin.buffer.read(n - len(data))
+        try:
+            chunk = stdin.buffer.read(n - len(data))
+        except KeyboardInterrupt:
+            data += b'\x03'
+            start.reset()
+            continue
         if chunk:
             data += chunk
+            start.reset()
+        else:
+            if start.time() > UART_READ_TIMEOUT_MS:
+                raise EOFError("UART read error")
         await wait(1)
     return data
 
@@ -330,8 +341,8 @@ async def uart_receiver():
             
             # Global commands
             if cmd == CMD_EMERGENCY_STOP:
-                for e in executors.values() e.reset()
-                for q in queues.values() q.clear()
+                for e in executors.values(): e.reset()
+                for q in queues.values(): q.clear()
                 scheduled_start_time = None
                 continue
             if cmd == CMD_PING:
@@ -384,11 +395,14 @@ async def uart_receiver():
                 stdout.buffer.write(reply)
                 stdout.flush()
             elif cmd == CMD_ADD_MOVE:
+                err_msg = "Call add move"
+                stdout.buffer.write(bytes(err_msg, 'utf-8'))
+                stdout.flush()
                 if len(payload) >= 10:
                     duration = unpack_u16(payload, 0)
                     start_spd = unpack_i16(payload, 2)
-                    cruise_spd = unpack_i16(pauload, 4)
-                    end_spd = unpack_i16(pauload, 6)
+                    cruise_spd = unpack_i16(payload, 4)
+                    end_spd = unpack_i16(payload, 6)
                     accel = unpack_u16(payload, 8)
                     move = Move(duration, start_spd, cruise_spd, end_spd, accel)
                     if not q.put(move):
@@ -401,10 +415,20 @@ async def uart_receiver():
                 else:
                     motors[axis].stop()
                 executor.reset()
-        except Exception as e:
-            err = b"RECEIVER ERROR: %s" % str(e).encode()
-            stdout.buffer.write(err)
+        except EOFError as e:
+            err_msg = "UART read timeout, waiting for reconnect..."
+            stdout.buffer.write(bytes(err_msg, 'utf-8'))
             stdout.flush()
+            await wait(1000)
+            try:
+                stdin.read()
+            except:
+                pass
+        except Exception as e:
+            err_msg = "RECEIVER ERROR: %s" % str(e)
+            stdout.buffer.write(bytes(err_msg, 'utf-8'))
+            stdout.flush()
+            await wait(100)
         await wait(1)
 
 # Watchdog
@@ -448,17 +472,35 @@ async def status_reporter(interval_ms):
 
 # Main
 async def main():
-    task_planner = planner_task()
-    receiver = uart_receiver()
-    reporter = status_reporter(STATUS_INTERVAL_MS)
-    wd = watchdog_task()
-    await multitask(task_planner, receiver, reporter, wd)
+    while True:
+        try:
+            task_planner = planner_task()
+            receiver = uart_receiver()
+            reporter = status_reporter(STATUS_INTERVAL_MS)
+            wd = watchdog_task()
+            await multitask(task_planner, receiver, reporter, wd)
+        except KeyboardInterrupt:
+            err_msg = "Program interrupted by host, restarting tasks..."
+            stdout.buffer.write(bytes(err_msg, 'utf-8'))
+            stdout.flush()
+            for executor in executors.values():
+                executor.reset()
+            
+            hub.light.on(Color.GREEN)
+            await wait(1000)
+        except Exception as e:
+            write_error("MAIN FATAL: " + str(e))
+            break
+
+    for executor in executors.values():
+        executor.reset()
+    hub.light.off()
 
 try:
     run_task(main())
 except Exception as e:
-    err = b"MAIN FATAL: %s\n" % str(e).encode()
-    stdout.buffer.write(err)
+    err_msg = "MAIN FATAL: %s\n" % str(e)
+    stdout.buffer.write(bytes(err_msg, 'utf-8'))
     stdout.flush()
     while True:
         hub.light.on(Color.RED)
