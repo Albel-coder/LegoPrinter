@@ -52,7 +52,7 @@ static const uint8_t CRC8_TABLE[256] = {
 	0x3B, 0x0A, 0x59, 0x68, 0xFF, 0xCE, 0x9D, 0xAC
 };
 
-uint8_t crc8(const uint8_t* data, size_t len) {
+uint8_t RuntimeSession::crc8(const uint8_t* data, size_t len) {
 	uint8_t crc = 0;
 	for (size_t i = 0; i < len; ++i) {
 		crc = CRC8_TABLE[crc ^ data[i]];
@@ -66,33 +66,6 @@ constexpr uint8_t COMMAND_STOP = 0x02;
 constexpr uint8_t COMMAND_STATUS = 0x04;
 constexpr uint8_t COMMAND_RESET = 0x05;
 constexpr uint8_t COMMAND_PING = 0x06;
-
-template<typename T>
-void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd, const T& payload) {
-	constexpr size_t payload_size = sizeof(T);
-	// Выделяем буфер: [0x06][FrameHeader][payload][CRC]
-	uint8_t buffer[1 + sizeof(FrameHeader) + payload_size + 1];
-
-	// Префикс WriteStdin
-	buffer[0] = 0x06;
-
-	// Заголовок кадра
-	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer + 1);
-	hdr->sync = 0xAA;
-	hdr->length = 2 + payload_size;   // axis + cmd + payload
-	hdr->axis = axis;
-	hdr->cmd = cmd;
-
-	// Payload
-	memcpy(buffer + 1 + sizeof(FrameHeader), &payload, payload_size);
-
-	// CRC считается от части после префикса (т.е. от sync до конца payload)
-	uint8_t crc = crc8(buffer + 1, sizeof(FrameHeader) + payload_size);
-	buffer[sizeof(buffer) - 1] = crc;
-
-	// Отправляем весь буфер (включая префикс)
-	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
-}
 
 void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
 	uint8_t buffer[1 + sizeof(FrameHeader) + 1];
@@ -116,7 +89,7 @@ void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
 	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
 }
 
-void RuntimeSession::drawArcContinuous(float radius, float start_angle, float end_angle, float feedrate) {
+/*void RuntimeSession::drawArcContinuous(float radius, float start_angle, float end_angle, float feedrate) {
 	const float steps_per_mm = 100.0f;   // перевод мм в градусы мотора
 	const float dt = 0.020f;             // 20 мс между точками
 	const int num_points = static_cast<int>((end_angle - start_angle) * radius / (feedrate * dt)) + 1;
@@ -153,16 +126,7 @@ void RuntimeSession::drawArcContinuous(float radius, float start_angle, float en
 	StopPayload stop_hold = { 1 }; // HOLD
 	sendCommand(0, CMD_STOP, stop_hold);
 	sendCommand(1, CMD_STOP, stop_hold);
-}
-
-struct StatusReply {
-	uint8_t reply_code;   // 0x80
-	uint8_t axis;
-	int32_t position;
-	int32_t speed;
-	uint8_t flags;
-	uint8_t buffer_free;
-};
+}*/
 
 void parseStatusReply(const uint8_t* data, size_t len) {
 	if (len < 10) {

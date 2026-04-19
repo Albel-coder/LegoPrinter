@@ -10,42 +10,36 @@
 #include <mutex>
 #include <string>
 
+// ========== Структуры команд ==========
 #pragma pack(push, 1)
 struct FrameHeader {
 	uint8_t sync = 0xAA;
-	uint8_t length;
+	uint8_t length;      // длина данных: axis + cmd + payload_size
 	uint8_t axis;
 	uint8_t cmd;
-	// uint8_t payload[];
-	// uint8_t crc;
 };
 
-// CMD_UPDATE_TARGET (0x10)
-struct UpdateTargetPayload {
-	int32_t target;
-	uint16_t speed;   // новое поле
-	uint16_t time_ms; // новое поле
+struct MovePayload {
+	uint16_t duration_ms;
+	int16_t start_speed;
+	int16_t cruise_speed;
+	int16_t end_speed;
+	uint16_t accel;
 };
 
-// CMD_SET_LIMITS (0x20)
 struct SetLimitsPayload {
-	int32_t max_speed;
-	int32_t max_accel;
+	uint32_t max_speed;
+	uint32_t max_accel;
 };
 
-// CMD_MOVE_VEL (0x11)
-struct MoveVelPayload {
+struct StatusReply {
+	uint8_t reply_code;   // 0x80
+	uint8_t axis;
+	int32_t position;
 	int32_t speed;
-};
-
-// CMD_STOP (0x12)
-struct StopPayload {
-	uint8_t stop_type;   // 0 = COAST, 1 = HOLD
-};
-
-// CMD_ENABLE_WATCHDOG (0x50)
-struct WatchdogPayload {
-	uint16_t timeout_ms;
+	uint8_t flags;
+	uint8_t buffer_free;
+	uint8_t buffer_size;
 };
 #pragma pack(pop)
 
@@ -73,8 +67,34 @@ public:
 	void setStatusCallback(StatusCallback callback);
 
 	template<typename T>
-	void sendCommand(uint8_t axis, uint8_t cmd, const T& payload);
+	void sendCommand(uint8_t axis, uint8_t cmd, const T& payload) {
+		constexpr size_t payload_size = sizeof(T);
+		// Выделяем буфер: [0x06][FrameHeader][payload][CRC]
+		uint8_t buffer[1 + sizeof(FrameHeader) + payload_size + 1];
+
+		// Префикс WriteStdin
+		buffer[0] = 0x06;
+
+		// Заголовок кадра
+		FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer + 1);
+		hdr->sync = 0xAA;
+		hdr->length = 2 + payload_size;   // axis + cmd + payload
+		hdr->axis = axis;
+		hdr->cmd = cmd;
+
+		// Payload
+		memcpy(buffer + 1 + sizeof(FrameHeader), &payload, payload_size);
+
+		// CRC считается от части после префикса (т.е. от sync до конца payload)
+		uint8_t crc = crc8(buffer + 1, sizeof(FrameHeader) + payload_size);
+		buffer[sizeof(buffer) - 1] = crc;
+
+		// Отправляем весь буфер (включая префикс)
+		transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
+	}
 	void sendCommand(uint8_t axis, uint8_t cmd);
+
+	uint8_t crc8(const uint8_t* data, size_t len);
 
 	void drawArcContinuous(float radius, float start_angle, float end_angle, float feedrate);
 

@@ -636,64 +636,13 @@ double PrinterDriver::printerGetMotorPosition(unsigned char port) {
     return motorManager->getPosition(port);
 }
 
-struct MotionCommand {
-    float targetAngle; // в градусах
-    std::chrono::steady_clock::time_point startTime; // когда нужно начать движение
-};
-
-class MotionPlanner {
-public:
-    MotionPlanner(double acceleration, double maxSpeed)
-        : accel(acceleration), maxV(maxSpeed), lastAngle(0.0f), lastSpeed(0.0f) {
-    }
-
-    // Функция, которую вы будете вызывать для каждого нового сегмента из G-кода
-    std::vector<MotionCommand> planSegment(float targetAngle, float entrySpeed = -1) {
-        std::vector<MotionCommand> commands;
-
-        // Здесь должна быть логика расчета трапецеидального профиля,
-        // аналогичная тому, что делает Klipper.
-        // Она определяет время разгона, торможения и общее время движения.
-        // Для простоты примера, допустим, мы просто движемся с макс. скоростью.
-        float distance = std::abs(targetAngle - lastAngle);
-        float moveTime = distance / maxV;
-
-        // Создаем команду
-        MotionCommand cmd;
-        cmd.targetAngle = targetAngle;
-        // Просто берем текущую точку во времени и прибавляем 1 мс
-        cmd.startTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
-
-        commands.push_back(cmd);
-
-        lastAngle = targetAngle;
-        return commands;
-    }
-
-private:
-    double accel, maxV;
-    float lastAngle, lastSpeed;
-};
-
 bool PrinterDriver::runPrinterTest(const char* testName) {
-    MotionPlanner planner(800.0, 1000.0); // ускорение 800 deg/s^2, макс. скорость 1000 deg/s
 
-    // Симуляция получения G-кода: список углов для движения
-    std::vector<float> gcodeAngles = { 360.0f, 0.0f, 720.0f, 360.0f };
+    LOG_INFO("printerTest: Set limits (speed=2000, accel=1000)...");
+    SetLimitsPayload limits = { 2000, 1000 };
+    runtime->sendCommand(0, 0x20, limits);
+    runtime->sendCommand(1, 0x20, limits);
 
-    for (float angle : gcodeAngles) {
-        // Планируем сегмент
-        std::vector<MotionCommand> plannedMoves = planner.planSegment(angle);
-
-        for (const auto& move : plannedMoves) {
-            // Ждем точного времени старта
-            std::this_thread::sleep_until(move.startTime);
-
-            // Отправляем команду на хаб
-            UpdateTargetPayload cmd = { static_cast<int32_t>(move.targetAngle), 0, 0 };
-            runtime->sendCommand(0, 0x10, cmd);
-        }
-    }
     return true;
 }
 
