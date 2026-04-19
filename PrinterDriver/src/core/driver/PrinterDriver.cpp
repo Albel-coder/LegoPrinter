@@ -638,11 +638,18 @@ double PrinterDriver::printerGetMotorPosition(unsigned char port) {
 
 bool PrinterDriver::runPrinterTest(const char* testName) {
 
-    LOG_INFO("printerTest: Set limits (speed=2000, accel=1000)...");
-    SetLimitsPayload limits = { 2000, 1000 };
-    runtime->sendCommand(0, 0x20, limits);
-    runtime->sendCommand(1, 0x20, limits);
-
+    LOG_INFO("printerTest: Adding move segments...");
+    MovePayload moves[] = {
+        // duration, start, cruise, end, accel
+        {1000, 0, 800, 800, 400},   // разгон до 800
+        {2000, 800, 800, 400, 200}, // крейсерский ход + замедление до 400
+        {1000, 400, 0, 0, 200}      // остановка
+    };
+    for (const auto& move : moves) {
+        runtime->sendCommand(0, 0x10, move);
+        //runtime->sendCommand(1, 0x10, move);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     return true;
 }
 
