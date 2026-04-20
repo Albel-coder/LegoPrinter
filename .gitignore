@@ -28,6 +28,15 @@
 *.swo
 *~
 
+# visual studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.cache
+*.log
+TestResults/
 
 # for cmake
 CMakeCache.txt
