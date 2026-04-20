@@ -648,7 +648,7 @@ bool PrinterDriver::runPrinterTest(const char* testName) {
     for (const auto& move : moves) {
         runtime->sendCommand(0, 0x10, move);
         //runtime->sendCommand(1, 0x10, move);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     return true;
 }

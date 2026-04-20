@@ -66,32 +66,61 @@ public:
 	using StatusCallback = std::function<void(int32_t position0, int32_t position1, int32_t speed0, int32_t speed1)>;
 	void setStatusCallback(StatusCallback callback);
 
+	static const uint8_t ESC_BYTE = 0x10;
+	static const uint8_t ESC_SUBST_03 = 0x13;
+	static const uint8_t ESC_SUBST_10 = 0x10;
+
+	std::vector<uint8_t> escapeData(const uint8_t* data, size_t len) {
+		std::vector<uint8_t> out;
+		out.reserve(len * 2); // запас на случай экранирования
+		for (size_t i = 0; i < len; ++i) {
+			if (data[i] == 0x03) {
+				out.push_back(ESC_BYTE);
+				out.push_back(ESC_SUBST_03);
+			}
+			else if (data[i] == ESC_BYTE) {
+				out.push_back(ESC_BYTE);
+				out.push_back(ESC_SUBST_10);
+			}
+			else {
+				out.push_back(data[i]);
+			}
+		}
+		return out;
+	}
+
 	template<typename T>
 	void sendCommand(uint8_t axis, uint8_t cmd, const T& payload) {
 		constexpr size_t payload_size = sizeof(T);
-		// Выделяем буфер: [0x06][FrameHeader][payload][CRC]
-		uint8_t buffer[1 + sizeof(FrameHeader) + payload_size + 1];
+		// Буфер для кадра ДО экранирования
+		uint8_t rawFrame[sizeof(FrameHeader) + payload_size + 1]; // +1 для CRC
 
-		// Префикс WriteStdin
-		buffer[0] = 0x06;
-
-		// Заголовок кадра
-		FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer + 1);
+		// Заголовок
+		FrameHeader* hdr = reinterpret_cast<FrameHeader*>(rawFrame);
 		hdr->sync = 0xAA;
 		hdr->length = 2 + payload_size;   // axis + cmd + payload
 		hdr->axis = axis;
 		hdr->cmd = cmd;
 
 		// Payload
-		memcpy(buffer + 1 + sizeof(FrameHeader), &payload, payload_size);
+		memcpy(rawFrame + sizeof(FrameHeader), &payload, payload_size);
 
-		// CRC считается от части после префикса (т.е. от sync до конца payload)
-		uint8_t crc = crc8(buffer + 1, sizeof(FrameHeader) + payload_size);
-		buffer[sizeof(buffer) - 1] = crc;
+		// CRC по неэкранированным данным (sync ... payload)
+		uint8_t crc = crc8(rawFrame, sizeof(FrameHeader) + payload_size);
+		rawFrame[sizeof(FrameHeader) + payload_size] = crc;
 
-		// Отправляем весь буфер (включая префикс)
-		transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
+		// Экранируем весь кадр (sync ... crc)
+		std::vector<uint8_t> escaped = escapeData(rawFrame, sizeof(rawFrame));
+
+		// Формируем финальный буфер с префиксом 0x06
+		std::vector<uint8_t> buffer;
+		buffer.push_back(0x06);
+		buffer.insert(buffer.end(), escaped.begin(), escaped.end());
+
+		// Отправка
+		transport.write(pybricksCommandEvent, buffer.data(), buffer.size(), true);
 	}
+
 	void sendCommand(uint8_t axis, uint8_t cmd);
 
 	uint8_t crc8(const uint8_t* data, size_t len);
