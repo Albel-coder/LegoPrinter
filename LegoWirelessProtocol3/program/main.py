@@ -257,7 +257,7 @@ class MoveExecutor:
                 self.motor.run(int(self.last_speed)) # keep speed
             return
         
-        desired_speed = self.current_move.get_speed_at_time(elapsed)
+        desired_speed = self.current_move.get_speed_at_time(elapsed_ms)
         self.last_speed = desired_speed
         self.motor.run(int(desired_speed))
 
@@ -315,29 +315,55 @@ last_activity = watchdog_watch.time()
 watchdog_enabled = True
 watchdog_timeout = WATCHDOG_TIMEOUT_MS
 
+ESC_BYTE = 0x10
+ESC_SUBST_03 = 0x13
+ESC_SUBST_10 = 0x10
+
+async def read_byte_unescaped():
+    b = await read_exact(1)
+    if b[0] == ESC_BYTE:
+        nxt = await read_exact(1)
+        if nxt[0] == ESC_SUBST_03:
+            return b'\x03'
+        elif nxt[0] == ESC_SUBST_10:
+            return b'\x10'
+        else:
+            return b''
+    else:
+        return b
+
 async def uart_receiver():
     global last_activity, watchdog_enabled, watchdog_timeout, scheduled_start_time
     while True:
         try:
-            b = await read_exact(1)
-            if b[0] != SYNC_BYTE:
+            b = await read_byte_unescaped()
+            if not b or b[0] != SYNC_BYTE:
                 continue
             last_activity = watchdog_watch.time()
 
-            length = (await read_exact(1))[0]
+            len_byte = await read_byte_unescaped()
+            if not len_byte:
+                continue
+            length = len_byte[0]
             if length < 2:
                 continue
 
-            frame = await read_exact(length + 1)
-            axis, cmd = frame[0], frame[1]
-            payload = frame[2:-1]
-            crc_rcvd = frame[-1]
+            frame = b''
+            for _ in range(length + 1):
+                fb = await read_byte_unescaped()
+                if not fb:
+                    break
+                frame += fb
+            else:
+                axis, cmd = frame[0], frame[1]
+                payload = frame[2:-1]
+                crc_rcvd = frame[-1]
 
-            crc_calc = crc8(bytes([SYNC_BYTE, length]) + frame[:-1])
-            if crc_calc != crc_rcvd:
-                stdout.buffer.write(bytes([REPLY_ERROR, axis, cmd, 0x01]))
-                stdout.flush()
-                continue
+                crc_calc = crc8(bytes([SYNC_BYTE, length]) + frame[:-1])
+                if crc_calc != crc_rcvd:
+                    stdout.buffer.write(bytes([REPLY_ERROR, axis, cmd, 0x01]))
+                    stdout.flush()
+                    continue
             
             # Global commands
             if cmd == CMD_EMERGENCY_STOP:
@@ -474,6 +500,8 @@ async def status_reporter(interval_ms):
 async def main():
     while True:
         try:
+            global watchdog_enabled
+            watchdog_enabled = False
             task_planner = planner_task()
             receiver = uart_receiver()
             reporter = status_reporter(STATUS_INTERVAL_MS)
