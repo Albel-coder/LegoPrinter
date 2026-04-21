@@ -69,6 +69,17 @@ GcodeGenerator/build/
 /Android/app/build/
 /Android/app/src/main/jniLibs/
 /Android/app/proguard-rules.pro
+/local.properties
+/.idea/
+/.gradle/
+/build/
+/app/build/
+/.cxx/
+/.externalNativeBuild/
+/captures/
+*.keystore
+*.jks
+*.iml
 
 #Windows (C# / .NET / Visual Studio)
 /Windows/LPStudio/.vs/
