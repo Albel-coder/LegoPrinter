@@ -18,7 +18,6 @@ namespace LPStudio
     public partial class DeviceUserControl : UserControl
     {
         private PrinterController printerController;
-        private InterpreterController interpreterController;
         private BatteryLabel batteryLabel;
 
         private int lastDriverLogCount = 0;
@@ -50,7 +49,6 @@ namespace LPStudio
             try
             {
                 printerController = new PrinterController();
-                interpreterController = new InterpreterController(printerController.GetPrinterHandle());
                 InitializeComponent();
 
                 textBoxConsole.MaxLength = 0;
@@ -378,7 +376,7 @@ namespace LPStudio
                     string logEntry = printerController.GetLogEntry(startIndex + i);
                     if (!string.IsNullOrEmpty(logEntry))
                     {
-                        stringBuilder.AppendLine($"[Driver] {logEntry}");
+                        stringBuilder.AppendLine(logEntry);
                     }
                 }
                 catch
@@ -606,15 +604,6 @@ namespace LPStudio
                 byte newLevel = 0;
                 try
                 {
-                    // Get the level
-                    newLevel = printer.GetBatteryLevel();
-
-                    System.Threading.Thread.Sleep(50);
-                    // Checking the correctness
-                    if (newLevel > 100)
-                    {
-                        newLevel = 100;
-                    }
                 }
                 catch
                 {
