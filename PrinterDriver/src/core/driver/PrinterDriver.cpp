@@ -28,9 +28,8 @@ namespace {
 PrinterDriver::PrinterDriver(std::unique_ptr<ITransport> transportPointer) 
     : transport(std::move(transportPointer)) {
 
-    motorManager = std::make_unique<MotorManager>(*transport);
     bootloaderProtocol = std::make_unique<BootloaderProtocol>(*transport);
-    runtime = std::make_unique<RuntimeSession>(*transport);
+    runtime = std::make_unique<Controller>(*transport);
     printerProtocol = std::make_unique<PrinterProtocol>(*transport);
     
     gLog.setLogCategories(LOG_CATEGORY_ALL);
@@ -334,60 +333,6 @@ HubMode PrinterDriver::detectHubMode(const std::string& address) {
     return HubMode::Unknown;
 }
 
-bool PrinterDriver::probeRuntime(const std::string& address, int timeoutMs) {
-    if (address.empty()) {
-        LOG_ERROR("probeRuntime: empty address");
-        return false;
-    }
-
-    LOG_BLUETOOTH("probeRuntime(%s, %dms)", address.c_str(), timeoutMs);
-
-    if (transport->isConnected() && transport->getConnectedAddress() != address) {
-        bool disconnectResult = transport->disconnect();
-    }
-
-    if (!transport->isConnected()) {
-        if (!transport->connect(address)) {
-            LOG_WARNING("probeRuntime: connect failed");
-            return false;
-        }
-    }
-
-    if (!runtime->connect(address)) {
-        LOG_WARNING("probeRuntime: runtime connect failed");
-        bool disconnectResult = transport->disconnect();
-        return false;
-    }
-
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
-    bool ready = false;
-
-    runtime->setCallback([&](const uint8_t* data, size_t length) {
-        std::string message(reinterpret_cast<const char*>(data), length);
-        if (message.find("ready") != std::string::npos) {
-            ready = true;
-        }
-    });
-
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (ready) {
-            break;
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    if (!ready) {
-        LOG_WARNING("probeRuntime: no ready marker");
-        runtime->disconnect();
-        bool disconnectResult = transport->disconnect();
-        return false;
-    }
-
-    LOG_INFO("probeRuntime: received ready marker");
-    return true;
-}
-
 bool PrinterDriver::flashFirmware(const std::string& firmwareBootloaderPath, const std::string& address) {
     const std::string target = resolveAddress(address);
     if (target.empty()) {
@@ -529,12 +474,8 @@ bool PrinterDriver::stopUserProgram() {
     return result;
 }
 
-bool PrinterDriver::runtimeRotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold) {
-    return runtime->rotateMotor(port, speed, angle, hold);
-}
-
 bool PrinterDriver::runtimePing() {
-    return runtime->ping();
+    return false;
 }
 
 bool PrinterDriver::connectRuntime(const std::string& address) { 
@@ -573,25 +514,6 @@ bool PrinterDriver::sendRuntime(const uint8_t* data, size_t length) {
     return result;
 }
 
-bool PrinterDriver::sendMotorCommands(const MotorCommand* commands, int count) {
-    if (!commands || count <= 0) {
-        LOG_ERROR("Invalid motor commands");
-        return false;
-    }
-
-    // TODO implement
-
-    return true;
-}
-
-void PrinterDriver::rotateMotor(const MotorCommand* commands, int count) {
-    motorManager->rotate(commands, count);
-}
-
-void PrinterDriver::setMotorSpeed(uint8_t port, int8_t speed) {
-    motorManager->setSpeed(port, speed);
-}
-
 int PrinterDriver::getLogCount() {
     return gLog.getLogCount();
 }
@@ -604,46 +526,14 @@ const char* PrinterDriver::getLogEntry(int index) {
     return gLog.getLogEntry(index);
 }
 
-const char* PrinterDriver::getLastErrorMessage() {
-    return "";
-}
-
-void PrinterDriver::printerConnectionInfo() {
-
-}
-
-void PrinterDriver::printerSetLogCategories(unsigned int categories) {
-
-}
-
-unsigned int PrinterDriver::printerGetLogCategories() {
-    return 0;
-}
-
-bool PrinterDriver::printerExecuteSpeedProfile(const SpeedProfile* profile) {
-    return false;
-}
-
-bool PrinterDriver::printerExecuteSpeedProfiles(const SpeedProfile* profiles, int count) {
-    return false;
-}
-
-bool PrinterDriver::printerIsMotorMoving(int count) {
-    return false;
-}
-
-double PrinterDriver::printerGetMotorPosition(unsigned char port) {
-    return motorManager->getPosition(port);
-}
-
 bool PrinterDriver::runPrinterTest(const char* testName) {
 
     LOG_INFO("printerTest: Adding move segments...");
     MovePayload moves[] = {
         // duration, start, cruise, end, accel
-        {1000, 0, 800, 800, 400},   // разгон до 800
-        {2000, 800, 800, 400, 200}, // крейсерский ход + замедление до 400
-        {1000, 400, 0, 0, 200}      // остановка
+        {1000, 0, 800, 800, 400},   // increasing 800
+        {2000, 800, 800, 400, 200}, // cruise + slowing 400
+        {1000, 400, 0, 0, 200}      // stop
     };
     for (const auto& move : moves) {
         runtime->sendCommand(0, 0x10, move);
@@ -651,16 +541,4 @@ bool PrinterDriver::runPrinterTest(const char* testName) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     return true;
-}
-
-bool PrinterDriver::printerRequestBatteryLevel() {
-    return false;
-}
-
-unsigned char PrinterDriver::printerGetBatteryLevel() {
-    return 0;
-}
-
-bool PrinterDriver::printerIsBatteryLevelFresh(int maxAgeSeconds) {
-    return false;
 }

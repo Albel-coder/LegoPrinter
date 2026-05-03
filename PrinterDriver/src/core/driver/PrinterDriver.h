@@ -4,9 +4,8 @@
 #include "../logging/LogManager.h"
 #include "../core/driver/protocol/BootloaderProtocol.h"
 #include "../core/driver/protocol/PrinterProtocol.h"
-#include "../core/driver/RuntimeSession.h"
+#include "../core/driver/Controller.h"
 #include "../api/LegoDriverAPI.h"
-#include "implementation/MotorManager.h"
 
 #include <filesystem>
 #include <memory>
@@ -24,9 +23,8 @@ enum class HubMode {
 class PrinterDriver {
 private:
 	std::unique_ptr<ITransport> transport;
-	std::unique_ptr<MotorManager> motorManager;	
 	std::unique_ptr<BootloaderProtocol> bootloaderProtocol;
-	std::unique_ptr<RuntimeSession> runtime;
+	std::unique_ptr<Controller> runtime;
 	std::unique_ptr<PrinterProtocol> printerProtocol;
 
 	std::vector<DeviceInfo> scanResults;
@@ -52,30 +50,22 @@ public:
 	std::vector<DeviceInfo> getLastScanResults() const;
 
 	HubMode detectHubMode(const std::string& address);
-	bool probeRuntime(const std::string& address, int timeoutMs = 1500);
 
-	// firmware / program
 	bool flashFirmware(const std::string& firmwareBootloaderPath, const std::string& address = "");
 	bool uploadProgram(const std::string& scriptFile, const std::string& address = "");
 
 	bool startUserProgram();
 	bool stopUserProgram();
 
-	bool runtimeRotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold);
 	bool runtimePing();
 
 	void testFunction() const {
 		LOG_INFO("testFunction called on %p", this);
 	}
 
-	// runtime / raw commands
 	void disconnectRuntime();
 	bool connectRuntime(const std::string& address);
 	bool sendRuntime(const uint8_t* data, size_t length);
-	bool sendMotorCommands(const MotorCommand* commands, int count);
-
-	void rotateMotor(const MotorCommand* commands, int count);
-	void setMotorSpeed(uint8_t port, int8_t speed);
 
 	// logging
 	int getLogCount();
@@ -84,23 +74,7 @@ public:
 	void setLogCategories(uint32_t mask) noexcept;
 	uint32_t getLogCategories() const noexcept;
 	
-	const char* getLastErrorMessage();
-	void printerConnectionInfo();
-	
-	void printerSetLogCategories(unsigned int categories);
-	unsigned int printerGetLogCategories();	
-	
-	bool printerExecuteSpeedProfile(const SpeedProfile* profile);
-	bool printerExecuteSpeedProfiles(const SpeedProfile* profiles, int count);
-	
-	bool printerIsMotorMoving(int count);
-	double printerGetMotorPosition(unsigned char port);
-	
 	bool runPrinterTest(const char* testName);
-	
-	bool printerRequestBatteryLevel();
-    unsigned char printerGetBatteryLevel();
-    bool printerIsBatteryLevelFresh(int maxAgeSeconds);
 
 	ITransport* getTransport() { return transport.get(); }
 

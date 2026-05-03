@@ -1,4 +1,5 @@
-#include "RuntimeSession.h"
+#include "Controller.h"
+
 #include "protocol/PrinterProtocol.h"
 #include "../logging/LogManager.h"
 
@@ -52,12 +53,16 @@ static const uint8_t CRC8_TABLE[256] = {
 	0x3B, 0x0A, 0x59, 0x68, 0xFF, 0xCE, 0x9D, 0xAC
 };
 
-uint8_t RuntimeSession::crc8(const uint8_t* data, size_t len) {
+uint8_t Controller::crc8(const uint8_t* data, size_t len) {
 	uint8_t crc = 0;
 	for (size_t i = 0; i < len; ++i) {
 		crc = CRC8_TABLE[crc ^ data[i]];
 	}
 	return crc;
+}
+
+Controller::Controller(ITransport& transportPointer)
+	: transport(transportPointer) {
 }
 
 constexpr uint8_t COMMAND_MOVE = 0x01;
@@ -67,7 +72,7 @@ constexpr uint8_t COMMAND_STATUS = 0x04;
 constexpr uint8_t COMMAND_RESET = 0x05;
 constexpr uint8_t COMMAND_PING = 0x06;
 
-void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
+void Controller::sendCommand(uint8_t axis, uint8_t cmd) {
 	uint8_t buffer[1 + sizeof(FrameHeader) + 1];
 	buffer[0] = 0x06;
 	FrameHeader* hdr = reinterpret_cast<FrameHeader*>(buffer + 1);
@@ -89,62 +94,7 @@ void RuntimeSession::sendCommand(uint8_t axis, uint8_t cmd) {
 	transport.write(pybricksCommandEvent, buffer, sizeof(buffer), true);
 }
 
-/*void RuntimeSession::drawArcContinuous(float radius, float start_angle, float end_angle, float feedrate) {
-	const float steps_per_mm = 100.0f;   // перевод мм в градусы мотора
-	const float dt = 0.020f;             // 20 мс между точками
-	const int num_points = static_cast<int>((end_angle - start_angle) * radius / (feedrate * dt)) + 1;
-
-	// Предварительно очищаем буферы (на всякий случай)
-	sendCommand(0, CMD_CLEAR_BUFFER);
-	sendCommand(1, CMD_CLEAR_BUFFER);
-
-	// Текущие позиции (хост должен отслеживать)
-	static float current_x = 0.0f, current_y = 0.0f;
-
-	// Генерируем и отправляем точки
-	for (int i = 0; i <= num_points; ++i) {
-		float t = i / (float)num_points;
-		float angle = start_angle + t * (end_angle - start_angle);
-		float x = radius * cosf(angle);
-		float y = radius * sinf(angle);
-
-		// Переводим в градусы мотора
-		int32_t target_x = static_cast<int32_t>(x * steps_per_mm);
-		int32_t target_y = static_cast<int32_t>(y * steps_per_mm);
-
-		// Отправляем обновление цели для обеих осей
-		UpdateTargetPayload cmd_x = { target_x, static_cast<uint16_t>(feedrate), 0 };
-		UpdateTargetPayload cmd_y = { target_y, static_cast<uint16_t>(feedrate), 0 };
-		sendCommand(0, CMD_UPDATE_TARGET, cmd_x);
-		sendCommand(1, CMD_UPDATE_TARGET, cmd_y);
-
-		// Выдерживаем интервал отправки (не обязательно, но для стабильности)
-		std::this_thread::sleep_for(std::chrono::milliseconds(50)); // ~20 Гц отправка
-	}
-
-	// После последней точки можно отправить STOP (HOLD) для фиксации
-	StopPayload stop_hold = { 1 }; // HOLD
-	sendCommand(0, CMD_STOP, stop_hold);
-	sendCommand(1, CMD_STOP, stop_hold);
-}*/
-
-void parseStatusReply(const uint8_t* data, size_t len) {
-	if (len < 10) {
-		return;
-	}
-	StatusReply reply;
-	reply.reply_code = data[0];
-	reply.axis = data[1];
-	reply.position = *reinterpret_cast<const int32_t*>(data + 2);
-	reply.speed = *reinterpret_cast<const int32_t*>(data + 6);
-	reply.flags = data[10];
-	reply.buffer_free = data[11];
-}
-
-RuntimeSession::RuntimeSession(ITransport& transportPointer)
-	: transport(transportPointer) {}
-
-bool RuntimeSession::discover() {
+bool Controller::discover() {
 	if (!transport.isConnected()) {
 		LOG_BLUETOOTH("Runtime discover: transport not connected");
 		return false;
@@ -166,7 +116,7 @@ bool RuntimeSession::discover() {
 					pybricksCapabilities = characteristic; // read-only, don't write in it
 				}
 			}
-		}	
+		}
 	}
 
 	if (pybricksCommandEvent.characteristicUuid.empty()) {
@@ -178,7 +128,7 @@ bool RuntimeSession::discover() {
 	return true;
 }
 
-bool RuntimeSession::connect(const std::string& address) {
+bool Controller::connect(const std::string& address) {
 	LOG_BLUETOOTH("RuntimeSession::connect: transport isConnected=%d, address=%s",
 		transport.isConnected(), transport.getConnectedAddress().c_str());
 
@@ -208,7 +158,7 @@ bool RuntimeSession::connect(const std::string& address) {
 
 	bool subscribed = transport.subscribe(pybricksCommandEvent, [this](const Characteristic&, const uint8_t* data, size_t length) {
 		this->onData(data, length);
-	});
+		});
 
 	if (!subscribed) {
 		LOG_ERROR("Failed to subscribe to Pybricks Command/Event");
@@ -223,7 +173,7 @@ bool RuntimeSession::connect(const std::string& address) {
 	return true;
 }
 
-void RuntimeSession::disconnect() {
+void Controller::disconnect() {
 	LOG_BLUETOOTH("Runtime disconnect");
 
 	const bool wasSubscribed = subscribed.exchange(false);
@@ -238,7 +188,7 @@ void RuntimeSession::disconnect() {
 		LOG_WARNING("Runtime disconnect: unsubscribe failed");
 	}
 
-	try	{
+	try {
 		if (transport.isConnected()) {
 			transport.disconnect();
 		}
@@ -250,10 +200,9 @@ void RuntimeSession::disconnect() {
 	connectedAddress.clear();
 	pybricksCapabilities = {};
 	pybricksCommandEvent = {};
-	callback = nullptr;
 }
 
-bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse) {
+bool Controller::send(const uint8_t* data, size_t length, bool withResponse) {
 	if (!connected && !transport.isConnected() || pybricksCommandEvent.characteristicUuid.empty()) {
 		LOG_ERROR("Runtime send: not connected");
 		return false;
@@ -277,54 +226,26 @@ bool RuntimeSession::send(const uint8_t* data, size_t length, bool withResponse)
 	return true;
 }
 
-void RuntimeSession::setCallback(RuntimeCallback callback) {
-	this->callback = std::move(callback);
-}
-
-bool RuntimeSession::isConnected() const {
-	return connected && transport.isConnected();
-}
-
-bool RuntimeSession::rotateMotor(uint8_t port, int32_t speed, int32_t angle, bool hold) {
-	std::vector<uint8_t> packet;
-
-	packet.push_back(0x06);
-	packet.push_back(COMMAND_MOVE);
-	packet.push_back(port);
-
-	for (int i = 0; i < 4; ++i) {
-		packet.push_back((speed >> (i * 8)) & 0xFF);
+std::vector<uint8_t> Controller::escapeData(const uint8_t* data, size_t len) {
+	std::vector<uint8_t> out;
+	out.reserve(len * 2);
+	for (size_t i = 0; i < len; ++i) {
+		if (data[i] == 0x03) {
+			out.push_back(ESC_BYTE);
+			out.push_back(ESC_SUBST_03);
+		}
+		else if (data[i] == ESC_BYTE) {
+			out.push_back(ESC_BYTE);
+			out.push_back(ESC_SUBST_10);
+		}
+		else {
+			out.push_back(data[i]);
+		}
 	}
-	for (int i = 0; i < 4; ++i) {
-		packet.push_back((angle >> (i * 8)) & 0xFF);
-	}
-
-	packet.push_back(hold ? 1 : 0);
-
-	LOG_INFO("Sending motor command (size = %zu)", packet.size());
-	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
+	return out;
 }
 
-bool RuntimeSession::stopAllMotors() {
-	std::vector<uint8_t> packet = { COMMAND_STOP };
-	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
-}
-
-bool RuntimeSession::resetEncoders() {
-	std::vector<uint8_t> packet = { COMMAND_RESET };
-	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
-}
-
-bool RuntimeSession::ping() {
-	std::vector<uint8_t> packet = { COMMAND_PING };
-	return transport.write(pybricksCommandEvent, packet.data(), packet.size(), true);
-}
-
-void RuntimeSession::setStatusCallback(StatusCallback callback) {
-	statusCallback = std::move(callback);
-}
-
-void RuntimeSession::onData(const uint8_t* data, size_t length) {
+void Controller::onData(const uint8_t* data, size_t length) {
 	if (length == 0) {
 		return;
 	}
@@ -335,7 +256,6 @@ void RuntimeSession::onData(const uint8_t* data, size_t length) {
 
 	LOG_INFO("Runtime RX: type = 0x%02X, length = %zu", type, length);
 	if (type == 0x01) {
-		// Выводим сырые байты в hex
 		std::string hex;
 		for (size_t i = 0; i < payloadLength; ++i) {
 			char buf[4];
@@ -344,7 +264,6 @@ void RuntimeSession::onData(const uint8_t* data, size_t length) {
 		}
 		LOG_INFO("Program stdout HEX: %s", hex.c_str());
 
-		// Также попробуем как текст (вдруг там читаемая строка)
 		std::string text(reinterpret_cast<const char*>(payload), payloadLength);
 		LOG_INFO("Program stdout TEXT: %s", text.c_str());
 	}
