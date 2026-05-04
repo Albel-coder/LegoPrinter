@@ -56,28 +56,19 @@ endif()
 # Create a library
 set(CORE_SOURCE
 	src/api/LegoDriverAPI.h
-	src/api/InterpreterAPI.h
-	src/api/InterpreterAPI.cpp	
 	
 	src/core/driver/interfaces/ITransport.h
-	src/core/driver/interfaces/IMotorManager.h
 	
 	src/core/driver/PrinterDriver.h
 	src/core/driver/PrinterDriver.cpp
-	src/core/driver/RuntimeSession.h
-	src/core/driver/RuntimeSession.cpp
+	src/core/driver/Controller.h
+	src/core/driver/Controller.cpp
 	
 	src/core/driver/protocol/BootloaderProtocol.h
 	src/core/driver/protocol/BootloaderProtocol.cpp
 	src/core/driver/protocol/PrinterProtocol.h
 	src/core/driver/protocol/PrinterProtocol.cpp
 	src/core/driver/protocol/Constants.h
-	
-	src/core/driver/implementation/MotorManager.h
-	src/core/driver/implementation/MotorManager.cpp	
-	
-	src/core/interpreter/Interpreter.h
-	src/core/interpreter/Interpreter.cpp
 	
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
