@@ -136,15 +136,6 @@ extern "C" {
 		return static_cast<int>(driver->detectHubMode(address));
 	}
 
-	PRINTER_DRIVER_API bool PrinterProbeRuntime(DriverHandle printer, const char* address, int timeoutMs) {
-		if (!printer || !address) {
-			return false;
-		}
-
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->probeRuntime(address, timeoutMs);
-	}
-
 	PRINTER_DRIVER_API bool PrinterFlashFirmware(DriverHandle printer, const char* firmwareBootloaderPath, const char* address) {
 		if (!printer || !firmwareBootloaderPath || !address) {
 			return false;
@@ -180,15 +171,6 @@ extern "C" {
 
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		return driver->stopUserProgram();
-	}
-
-	PRINTER_DRIVER_API bool PrinterRuntimeRotateMotor(DriverHandle printer, unsigned char port, int speed, int angle, bool hold) {
-		if (!printer) {
-			return false;
-		}
-
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->runtimeRotateMotor(port, speed, angle, hold);
 	}
 
 	PRINTER_DRIVER_API bool PrinterRuntimePing(DriverHandle printer) {
@@ -228,25 +210,6 @@ extern "C" {
 		return driver->sendRuntime(data, static_cast<size_t>(length));
 	}
 
-	PRINTER_DRIVER_API bool PrinterSendMotorCommands(DriverHandle printer, const MotorCommand* commands, int count) {
-		if (!printer || !commands || count <= 0) {
-			return false;
-		}
-
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->sendMotorCommands(reinterpret_cast<const MotorCommand*>(commands), count);
-	}
-
-	PRINTER_DRIVER_API void PrinterRotateMotor(DriverHandle printer, MotorCommand* commands, int count)	{
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		driver->rotateMotor(commands, count);
-	}
-
-	PRINTER_DRIVER_API void PrinterSetMotorSpeed(DriverHandle printer, unsigned char port, signed char speed) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		driver->setMotorSpeed(port, speed);
-	}
-
 	PRINTER_DRIVER_API int GetLogCount(DriverHandle printer) {
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		return driver->getLogCount();
@@ -262,63 +225,8 @@ extern "C" {
 		driver->clearLog();
 	}
 
-	PRINTER_DRIVER_API const char* GetLastErrorMessage(DriverHandle printer) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->getLastErrorMessage();
-	}
-
-	PRINTER_DRIVER_API void PrinterConnectionInfo(DriverHandle printer) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		driver->printerConnectionInfo();
-	}
-
-	PRINTER_DRIVER_API void PrinterSetLogCategories(DriverHandle printer, unsigned int categories) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		driver->printerSetLogCategories(categories);
-	}
-
-	PRINTER_DRIVER_API unsigned int PrinterGetLogCategories(DriverHandle printer) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerGetLogCategories();
-	}
-
-	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfile(DriverHandle printer, const SpeedProfile* profile) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerExecuteSpeedProfile(profile);
-	}
-
-	PRINTER_DRIVER_API bool PrinterExecuteSpeedProfiles(DriverHandle printer, const SpeedProfile* profiles, int count) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerExecuteSpeedProfiles(profiles, count);
-	}
-
-	PRINTER_DRIVER_API bool PrinterIsMotorMoving(DriverHandle printer, int count) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerIsMotorMoving(count);
-	}
-
-	PRINTER_DRIVER_API double PrinterGetMotorPosition(DriverHandle printer, unsigned char port)	{
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerGetMotorPosition(port);
-	}
-
 	PRINTER_DRIVER_API bool RunPrinterTest(DriverHandle printer, const char* testName) {
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		return driver->runPrinterTest(testName);
-	}
-
-	PRINTER_DRIVER_API bool PrinterRequestBatteryLevel(DriverHandle printer) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerRequestBatteryLevel();
-	}
-
-	PRINTER_DRIVER_API unsigned char PrinterGetBatteryLevel(DriverHandle printer) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerGetBatteryLevel();
-	}
-
-	PRINTER_DRIVER_API bool PrinterIsBatteryLevelFresh(DriverHandle printer, int maxAgeSeconds) {
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->printerIsBatteryLevelFresh(maxAgeSeconds);
 	}
 }
