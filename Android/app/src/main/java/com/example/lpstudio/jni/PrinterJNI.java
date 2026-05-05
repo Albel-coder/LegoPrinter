@@ -1,4 +1,4 @@
-package com.example.lpstudio;
+package com.example.lpstudio.jni;
 
 // Class for loading native libraries
 // Separate library loading and controller logic

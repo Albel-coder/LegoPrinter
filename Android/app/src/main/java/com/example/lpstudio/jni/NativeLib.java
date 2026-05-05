@@ -1,4 +1,4 @@
-package com.example.lpstudio;
+package com.example.lpstudio.jni;
 
 public final class NativeLib {
     private static boolean loaded = false;

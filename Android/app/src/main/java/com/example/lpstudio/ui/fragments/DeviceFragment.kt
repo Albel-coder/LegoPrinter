@@ -1,4 +1,4 @@
-package com.example.lpstudio
+package com.example.lpstudio.ui.fragments
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -9,21 +9,36 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.*
+import android.os.Build
+import android.os.Bundle
+import android.os.CountDownTimer
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.*
+import android.widget.Button
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
-import kotlinx.coroutines.*
+import com.example.lpstudio.printer.GCodeInterpreter
+import com.example.lpstudio.printer.PrinterController
+import com.example.lpstudio.R
+import com.example.lpstudio.ui.views.BatteryIndicatorView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 class DeviceFragment : Fragment() {
@@ -186,6 +201,7 @@ class DeviceFragment : Fragment() {
                             MotionEvent.ACTION_DOWN -> {
                                 autoScrollEnabled = false
                             }
+
                             MotionEvent.ACTION_UP -> {
                                 autoScrollEnabled = true
                             }
@@ -209,7 +225,8 @@ class DeviceFragment : Fragment() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     appendToConsole("[ERROR] Initialization error: ${e.message}")
-                    Toast.makeText(requireContext(), "Initialization error", Toast.LENGTH_LONG).show()
+                    Toast.makeText(requireContext(), "Initialization error", Toast.LENGTH_LONG)
+                        .show()
                 }
             }
         }

@@ -1,9 +1,6 @@
-package com.example.lpstudio;
+package com.example.lpstudio.printer;
 
-import android.util.Printer;
-
-import java.util.ArrayList;
-import java.util.List;
+import com.example.lpstudio.jni.NativeLib;
 
 // Java wrapper for C++ g-code interpreter
 // C# GCodeInterpreter Analog

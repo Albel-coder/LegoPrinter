@@ -1,9 +1,8 @@
-package com.example.lpstudio;
+package com.example.lpstudio.services;
 
 import android.app.DownloadManager;
 import android.content.*;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -22,7 +21,6 @@ import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import androidx.core.content.ContextCompat;
-import android.Manifest;
 
 public class AndroidUpdateService {
     private static final String TAG = "AndroidUpdateService";

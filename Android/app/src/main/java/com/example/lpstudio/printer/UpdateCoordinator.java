@@ -1,11 +1,11 @@
-package com.example.lpstudio;
+package com.example.lpstudio.printer;
 
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
-import com.example.lpstudio.AndroidUpdateService;
+import com.example.lpstudio.services.AndroidUpdateService;
 
 public class UpdateCoordinator {
     private static final String TAG = "UpdateCoordinator";

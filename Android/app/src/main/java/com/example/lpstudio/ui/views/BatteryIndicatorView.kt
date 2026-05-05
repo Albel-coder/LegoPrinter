@@ -1,11 +1,22 @@
-package com.example.lpstudio
+package com.example.lpstudio.ui.views
 
 import android.content.Context
-import android.graphics.*
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.*
+import com.example.lpstudio.printer.PrinterController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BatteryIndicatorView @JvmOverloads constructor(
     context: Context,
@@ -32,7 +43,7 @@ class BatteryIndicatorView @JvmOverloads constructor(
         textSize = 24f
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
-        typeface = Typeface.DEFAULT_BOLD
+        Paint.setTypeface = Typeface.DEFAULT_BOLD
     }
 
     // Dimensions

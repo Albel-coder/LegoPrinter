@@ -1,7 +1,4 @@
-package com.example.lpstudio;
-
-import com.example.lpstudio.DeviceFragment;
-import com.example.lpstudio.PreviewFragment;
+package com.example.lpstudio.ui;
 
 import android.content.DialogInterface;
 import android.graphics.drawable.Drawable;
@@ -10,8 +7,6 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.TextView;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -19,17 +14,17 @@ import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentTransaction;
 
-import com.example.lpstudio.UpdateCoordinator;
-import com.example.lpstudio.AndroidUpdateService;
-
-import androidx.lifecycle.Lifecycle;
-import androidx.lifecycle.LifecycleObserver;
-import androidx.lifecycle.LifecycleOwner;
-import androidx.lifecycle.LifecycleOwnerKt;
+import com.example.lpstudio.ui.fragments.PrepareFragment;
+import com.example.lpstudio.ui.fragments.PreviewFragment;
+import com.example.lpstudio.R;
+import com.example.lpstudio.printer.UpdateCoordinator;
+import com.example.lpstudio.services.AndroidUpdateService;
+import com.example.lpstudio.ui.fragments.CalibrationFragment;
+import com.example.lpstudio.ui.fragments.DeviceFragment;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.lang.annotation.Native;
+
 import android.os.Handler;
 import android.widget.Toast;
 

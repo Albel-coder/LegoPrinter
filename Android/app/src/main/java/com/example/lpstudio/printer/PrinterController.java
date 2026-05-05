@@ -1,6 +1,9 @@
-package com.example.lpstudio;
+package com.example.lpstudio.printer;
 
 import android.content.Context;
+
+import com.example.lpstudio.jni.NativeLib;
+
 import java.util.ArrayList;
 import java.util.List;
 
