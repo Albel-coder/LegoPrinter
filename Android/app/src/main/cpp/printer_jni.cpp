@@ -14,7 +14,7 @@ using Printer = PrinterDriver;
 extern "C" {
 #endif
 JNIEXPORT jlong JNICALL
-Java_com_example_lpstudio_PrinterController_createPrinter(JNIEnv *env, jobject /*thiz*/,
+Java_com_example_lpstudio_printer_PrinterController_createPrinter(JNIEnv *env, jobject /*thiz*/,
                                                           jobject context) {
     // Create transport for android
     JavaVM *jvm = nullptr;
@@ -29,7 +29,7 @@ Java_com_example_lpstudio_PrinterController_createPrinter(JNIEnv *env, jobject /
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_destroyPrinter(JNIEnv *env, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_destroyPrinter(JNIEnv *env, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer*>(handle);
     if (printer) {
         delete printer;
@@ -38,28 +38,28 @@ Java_com_example_lpstudio_PrinterController_destroyPrinter(JNIEnv *env, jobject,
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerConnect(JNIEnv *, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_printerConnect(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return JNI_FALSE;
     return printer->connect() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerDisconnect(JNIEnv *, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_printerDisconnect(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return JNI_FALSE;
     return printer->disconnect() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_isConnected(JNIEnv *, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_isConnected(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return JNI_FALSE;
     return printer->isConnected() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_printerRotateMotor(JNIEnv *env, jobject, jlong handle,
+Java_com_example_lpstudio_printer_PrinterController_printerRotateMotor(JNIEnv *env, jobject, jlong handle,
                                                                jobjectArray commandsArray,
                                                                jint count) {
 
@@ -73,7 +73,7 @@ Java_com_example_lpstudio_PrinterController_printerRotateMotor(JNIEnv *env, jobj
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_printerSendCommand(JNIEnv *env, jobject, jlong handle,
+Java_com_example_lpstudio_printer_PrinterController_printerSendCommand(JNIEnv *env, jobject, jlong handle,
                                                                jbyteArray commandArray,
                                                                jint length) {
 
@@ -88,7 +88,7 @@ Java_com_example_lpstudio_PrinterController_printerSendCommand(JNIEnv *env, jobj
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_printerSetMotorSpeed(JNIEnv *, jobject, jlong handle,
+Java_com_example_lpstudio_printer_PrinterController_printerSetMotorSpeed(JNIEnv *, jobject, jlong handle,
                                                                  jbyte port, jbyte speed) {
 
     auto *printer = reinterpret_cast<Printer *>(handle);
@@ -98,14 +98,14 @@ Java_com_example_lpstudio_PrinterController_printerSetMotorSpeed(JNIEnv *, jobje
 }
 
 JNIEXPORT jint JNICALL
-Java_com_example_lpstudio_PrinterController_getLogCount(JNIEnv *, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_getLogCount(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return 0;
     return printer->getLogCount();
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_example_lpstudio_PrinterController_getLogEntry(JNIEnv *env, jobject, jlong handle,
+Java_com_example_lpstudio_printer_PrinterController_getLogEntry(JNIEnv *env, jobject, jlong handle,
                                                         jint index) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return env->NewStringUTF("");
@@ -114,13 +114,13 @@ Java_com_example_lpstudio_PrinterController_getLogEntry(JNIEnv *env, jobject, jl
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_clearLog(JNIEnv *, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_clearLog(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (printer) printer->clearLog();
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_example_lpstudio_PrinterController_getLastErrorMessage(JNIEnv *env, jobject,
+Java_com_example_lpstudio_printer_PrinterController_getLastErrorMessage(JNIEnv *env, jobject,
                                                                 jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return env->NewStringUTF("");
@@ -129,7 +129,7 @@ Java_com_example_lpstudio_PrinterController_getLastErrorMessage(JNIEnv *env, job
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_printerConnectionInfo(JNIEnv *env, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerConnectionInfo(JNIEnv *env, jobject,
                                                                   jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (printer) {
@@ -138,7 +138,7 @@ Java_com_example_lpstudio_PrinterController_printerConnectionInfo(JNIEnv *env, j
 }
 
 JNIEXPORT void JNICALL
-Java_com_example_lpstudio_PrinterController_printerSetLogCategories(JNIEnv *, jobject, jlong handle,
+Java_com_example_lpstudio_printer_PrinterController_printerSetLogCategories(JNIEnv *, jobject, jlong handle,
                                                                     jint categories) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (printer) {
@@ -147,7 +147,7 @@ Java_com_example_lpstudio_PrinterController_printerSetLogCategories(JNIEnv *, jo
 }
 
 JNIEXPORT jint JNICALL
-Java_com_example_lpstudio_PrinterController_printerGetLogCategories(JNIEnv *, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerGetLogCategories(JNIEnv *, jobject,
                                                                     jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return 0;
@@ -155,7 +155,7 @@ Java_com_example_lpstudio_PrinterController_printerGetLogCategories(JNIEnv *, jo
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfile(JNIEnv *env, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerExecuteSpeedProfile(JNIEnv *env, jobject,
                                                                        jlong handle,
                                                                        jobject jProfile) {
     auto *printer = reinterpret_cast<Printer *>(handle);
@@ -166,7 +166,7 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfile(JNIEnv *e
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfiles(JNIEnv *env, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerExecuteSpeedProfiles(JNIEnv *env, jobject,
                                                                         jlong handle,
                                                                         jobjectArray profilesArray,
                                                                         jint count) {
@@ -180,21 +180,21 @@ Java_com_example_lpstudio_PrinterController_printerExecuteSpeedProfiles(JNIEnv *
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerIsMotorMoving(JNIEnv *, jobject, jlong handle) {
+Java_com_example_lpstudio_printer_PrinterController_printerIsMotorMoving(JNIEnv *, jobject, jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return JNI_FALSE;
     return printer->printerIsMotorMoving(0) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jdouble JNICALL
-Java_com_example_lpstudio_PrinterController_printerGetMotorPosition(JNIEnv *, jobject, jlong handle,
+Java_com_example_lpstudio_printer_PrinterController_printerGetMotorPosition(JNIEnv *, jobject, jlong handle,
                                                                     jbyte port) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return 0.0;
     return printer->printerGetMotorPosition(static_cast<uint8_t>(port)) ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL Java_com_example_lpstudio_PrinterController_runPrinterTest(
+JNIEXPORT jboolean JNICALL Java_com_example_lpstudio_printer_PrinterController_runPrinterTest(
         JNIEnv *env, jobject thiz, jlong handle, jstring testName) {
 
     auto *printer = reinterpret_cast<Printer *>(handle);
@@ -210,7 +210,7 @@ JNIEXPORT jboolean JNICALL Java_com_example_lpstudio_PrinterController_runPrinte
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerRequestBatteryLevel(JNIEnv *, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerRequestBatteryLevel(JNIEnv *, jobject,
                                                                        jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return JNI_FALSE;
@@ -218,7 +218,7 @@ Java_com_example_lpstudio_PrinterController_printerRequestBatteryLevel(JNIEnv *,
 }
 
 JNIEXPORT jbyte JNICALL
-Java_com_example_lpstudio_PrinterController_printerGetBatteryLevel(JNIEnv *, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerGetBatteryLevel(JNIEnv *, jobject,
                                                                    jlong handle) {
     auto *printer = reinterpret_cast<Printer *>(handle);
     if (!printer) return 0;
@@ -226,7 +226,7 @@ Java_com_example_lpstudio_PrinterController_printerGetBatteryLevel(JNIEnv *, job
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_example_lpstudio_PrinterController_printerIsBatteryLevelFresh(JNIEnv *, jobject,
+Java_com_example_lpstudio_printer_PrinterController_printerIsBatteryLevelFresh(JNIEnv *, jobject,
                                                                        jlong handle,
                                                                        jint maxAgeSeconds) {
     auto *printer = reinterpret_cast<Printer *>(handle);
