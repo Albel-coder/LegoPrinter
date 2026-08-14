@@ -92,7 +92,7 @@ build/
 *.mpy
 *.blob
 *.out
-LegoWirelessProtocol3\firmware\ReadMe_OSS.out.txt
+/LegoWirelessProtocol3/firmware/ReadMe_OSS.out.txt
 
 # printer driver
 /PrinterDriver/build

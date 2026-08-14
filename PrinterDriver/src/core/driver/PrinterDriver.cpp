@@ -528,17 +528,9 @@ const char* PrinterDriver::getLogEntry(int index) {
 
 bool PrinterDriver::runPrinterTest(const char* testName) {
 
-    LOG_INFO("printerTest: Adding move segments...");
-    MovePayload moves[] = {
-        // duration, start, cruise, end, accel
-        {1000, 0, 800, 800, 400},   // increasing 800
-        {2000, 800, 800, 400, 200}, // cruise + slowing 400
-        {1000, 400, 0, 0, 200}      // stop
-    };
-    for (const auto& move : moves) {
-        runtime->sendCommand(0, 0x10, move);
-        //runtime->sendCommand(1, 0x10, move);
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
-    return true;
+    LOG_INFO("printerTest: testing new firmware...");
+    
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    return runtime->runMotionTest();
 }

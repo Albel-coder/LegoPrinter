@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36518.9
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LegoPrinter.Updater", "LegoPrinter.Updater.csproj", "{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Debug|Any CPU.Build.0 = Debug|x64
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Debug|x64.ActiveCfg = Debug|x64
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Debug|x64.Build.0 = Debug|x64
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Release|x64.ActiveCfg = Release|x64
+		{90DFB2BF-CC35-4E1E-867D-86788FA1F0C3}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {26DAE262-19BE-4B66-BACB-4081C831B0CE}
+	EndGlobalSection
+EndGlobal

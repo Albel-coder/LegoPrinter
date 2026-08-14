@@ -286,8 +286,7 @@ namespace LPStudio
                 connectButton.Enabled = true;
 
                 await Task.Delay(1000);
-                bool testResult = await Task.Run(() =>
-                    printerController.RunPrinterTest("123456"));
+                bool testResult = await Task.Run(() => printerController.RunPrinterTest("123456"));
                 await Task.Delay(1000);
             }
             catch (Exception ex)
