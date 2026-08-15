@@ -447,7 +447,8 @@ std::vector<Point> readSkeletonCsv(const std::string& filename) {
 struct MotionLimits {
 	double max_velocity; // steps / s
 	double max_accel; // steps / s^2
-	double junction_deviation = 2.0;
+	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
+	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
 };
 
 // мягкое ограничение скорости в узле на основе угла поворота
@@ -466,14 +467,33 @@ double computeJunctionVelocity(
 
 	double cos_angle = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
 	cos_angle = std::max(-1.0, std::min(1.0, cos_angle));
-	double angle = std::acos(cos_angle);
+	double angle = std::acos(cos_angle); // угол поворота (0 - прямо, 180 - разворот)
 
-	// turn = 0 (прямая) ... 1 (разворот 180)
-	double turn = (1.0 - cos_angle) * 0.5;
-	// Плавная кривая: при малых turn скорость почти не снижается
-	// при turn устремляющихся к 1 снижается до нуля
-	double factor = 1.0 - turn * turn;
-	return limits.max_velocity * factor;
+	// Почти полный разворот - останавливаемся
+	if (angle > 2.9) {
+		return 0.0;
+	}
+
+	double half_angle = angle * 0.5;
+	double cos_half = std::cos(half_angle);
+	double denom = 1.0 - cos_half;
+	if (denom < 1e-9) {
+		// почти прямой участок - разрешаем максимальную скорость
+		return limits.max_velocity;
+	}
+
+	// v = std::sqrt(alpha * beta * std::cos(theta / 2) / (1 - std::cos(theta / 2)))
+	double v_sq = limits.max_accel * limits.junction_deviation * cos_half / denom;
+	if (v_sq < 0) {
+		v_sq = 0;
+	}
+	double v = std::sqrt(v_sq);
+
+	// Ограничиваем сверху максимальной скоростью
+	if (v > limits.max_velocity) {
+		v = limits.max_velocity;
+	}
+	return v;
 }
 
 // Основной планировщик скорости
