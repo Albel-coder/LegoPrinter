@@ -114,14 +114,20 @@ async def smooth_executor():
     current_x = 0
     current_y = 0
     segment_count = 0
-    UPDATE_MS = 5          # как в идеальном тесте с окружностью
+    underflow_count = 0
+    max_err_x = 0
+    has_started = False
+    UPDATE_MS = 5
 
     while True:
         seg = buffer_get()
         if seg is None:
+            if has_started:
+                underflow_count += 1
             await wait(1)
             continue
-
+        
+        has_started = True
         target_x, target_y, duration_ms = seg
 
         if duration_ms <= UPDATE_MS:
@@ -129,30 +135,37 @@ async def smooth_executor():
             motor_y.track_target(target_y)
             current_x = target_x
             current_y = target_y
-            continue
+        else:
+            steps = max(1, duration_ms // UPDATE_MS)
+            dx = target_x - current_x
+            dy = target_y - current_y
 
-        steps = max(1, duration_ms // UPDATE_MS)
-        dx = target_x - current_x
-        dy = target_y - current_y
+            for i in range(1, steps + 1):
+                x = current_x + (dx * i) // steps
+                y = current_y + (dy * i) // steps
+                motor_x.track_target(x)
+                motor_y.track_target(y)
+                await wait(UPDATE_MS)
 
-        for i in range(1, steps + 1):
-            x = current_x + (dx * i) // steps
-            y = current_y + (dy * i) // steps
-            motor_x.track_target(x)
-            motor_y.track_target(y)
-            await wait(UPDATE_MS)
-
-        # Точно финишируем в конечной точке
-        motor_x.track_target(target_x)
-        motor_y.track_target(target_y)
-        current_x = target_x
-        current_y = target_y
-
+            motor_x.track_target(target_x)
+            motor_y.track_target(target_y)
+            current_x = target_x
+            current_y = target_y
+        
+        # Измеряем ошибку в конце сегментов
+        err_x = abs(target_x - motor_x.angle())
+        err_y = abs(target_y - motor_y.angle())
+        if err_x > max_err_x:
+            max_err_x = err_x
+        if err_y > max_err_y:
+            max_err_y = err_y
+        
         segment_count += 1
         if segment_count % 20 == 0:
             usys.stdout.buffer.write(
-                "SEG %d: X = %d Y = %d\n" %
-                (segment_count, motor_x.angle(), motor_y.angle())
+                "SEG %d: X=%d Y=%d EX=%d EY=%d MAXEX=%d MAXEY=%d UF=%d\n" %
+                (segment_count, motor_x.angle(), motor_y.angle(),
+                err_x, err_y, max_err_x, max_err_y, underflow_count)
             )
             usys.stdout.flush()
 
