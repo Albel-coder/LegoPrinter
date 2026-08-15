@@ -528,6 +528,58 @@ std::vector<double> planVelocity(const std::vector<Point>& points, const MotionL
 	return durations;
 }
 
+std::vector<Point> resampleByDistance(const std::vector<Point>& points, double spacing) {
+	if (points.size() < 2 || spacing <= 0) {
+		return points;
+	}
+
+	// Вычисляем кумулятивные длины
+	std::vector<double> cum_len(points.size(), 0.0);
+	for (size_t i = 1; i < points.size(); ++i) {
+		double dx = points[i].x - points[i - 1].x;
+		double dy = points[i].y - points[i - 1].y;
+		cum_len[i] = cum_len[i - 1] + std::sqrt(dx * dx + dy * dy);
+	}
+	double total_len = cum_len.back();
+	if (total_len < spacing) {
+		return points; // слишком короткая траектория - не ресемплируем
+	}
+
+	std::vector<Point> resampled;
+	resampled.push_back(points.front());
+
+	double target = spacing;
+	size_t index = 0; // индекс текущего сегмента (index -> index + 1)
+	while (target < total_len - 1e-9) {
+		// Находим сегмент, содержащий target
+		while (index + 1 < cum_len.size() && cum_len[index + 1] < target) {
+			index++;
+		}
+		double seg_start = cum_len[index];
+		double seg_end = cum_len[index + 1];
+		double seg_len = seg_end - seg_start;
+		if (seg_len < 1e-9) {
+			target += spacing;
+			continue;
+		}
+		double t = (target - seg_start) / seg_len;
+		double x = points[index].x + (points[index + 1].x - points[index].x) * t;
+		double y = points[index].y + (points[index + 1].y - points[index].y) * t;
+		resampled.push_back({
+			static_cast<int>(std::round(x)),
+			static_cast<int>(std::round(y))
+		});
+		target += spacing;
+	}
+
+	// Добавляем конечную точку, если она не совпадает с последней добавленной
+	if (resampled.back().x != points.back().x || resampled.back().y != points.back().y) {
+		resampled.push_back(points.back());
+	}
+
+	return resampled;
+}
+
 bool Controller::runMotionTest() {
 	auto rawPoints = readSkeletonCsv("one_contour.csv");
 	if (rawPoints.empty()) {
