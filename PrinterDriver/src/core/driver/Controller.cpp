@@ -578,6 +578,43 @@ bool Controller::runMotionTest() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(800));
 	}
 
+	size_t n = segments.size();
+	if (n > 0) {
+		// Статистика длительностей
+		uint16_t min_dur = std::numeric_limits<uint16_t>::max();
+		uint16_t max_dur = 0;
+		double total_dur = 0;
+		for (const auto& seg : segments) {
+			total_dur += seg.duration_ms;
+			if (seg.duration_ms < min_dur) {
+				min_dur = seg.duration_ms;
+			}
+			if (seg.duration_ms > max_dur) {
+				max_dur = seg.duration_ms;
+			}
+		}
+		double avg_dur = total_dur / n;
+		LOG_INFO("Motion stats: segments=%zu, total_time=%.2f s, min_dur=%u ms, max_dur=%u ms, avg_dur=%.2f ms",
+			n, total_dur / 1000.0, min_dur, max_dur, avg_dur);
+
+		// Статистика длин сегментов (используем simplified/resampled точки)
+		// Предполагаем, что у нас есть вектор resampled (смотри следующий раздел)
+		double min_len = std::numeric_limits<double>::max();
+		double max_len = 0;
+		double total_len = 0;
+		for (size_t i = 0; i + 1 < resampled.size(); ++i) {
+			double dx = resampled[i + 1].x - resampled[i].x;
+			double dy = resampled[i + 1].y - resampled[i].y;
+			double len = std::sqrt(dx * dx + dy * dy);
+			min_len = std::min(min_len, len);
+			max_len = std::max(max_len, len);
+			total_len += len;
+		}
+		double avg_len = total_len / (resampled.size() - 1);
+		LOG_INFO("Geometry stats: points=%zu, segment_lengths: min=%.2f, max=%.2f, avg=%.2f",
+			resampled.size(), min_len, max_len, avg_len);
+	}
+
 	for (size_t i = 0; i < segments.size(); ++i) {
 		const LineSegment& seg = segments[i];
 		if (!sendLineSegment(seg.target_x, seg.target_y, seg.duration_ms)) {
