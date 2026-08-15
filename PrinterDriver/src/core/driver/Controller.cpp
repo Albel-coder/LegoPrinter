@@ -447,6 +447,7 @@ std::vector<Point> readSkeletonCsv(const std::string& filename) {
 struct MotionLimits {
 	double max_velocity; // steps / s
 	double max_accel; // steps / s^2
+	double junction_deviation = 2.0;
 };
 
 // мягкое ограничение скорости в узле на основе угла поворота
@@ -598,24 +599,32 @@ bool Controller::runMotionTest() {
 	}
 	LOG_INFO("after cleaning: %d points", cleaned.size());
 
+	// После RDP
 	double epsilon = 10.0;
 	std::vector<Point> simplified;
 	simplifyRDP(cleaned, epsilon, simplified);
 	LOG_INFO("After RDP: %d points", simplified.size());
 
+	// Новый шаг: ресемплинг
+	double resample_spacing = 10.0; // можно сделать параметром
+	std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
+	LOG_INFO("After resampling: %d points", resampled.size());
+
+	// Далее используем resampled вместо simplified
 	MotionLimits limits;
 	limits.max_velocity = 800.0;
 	limits.max_accel = 2000.0;
+	limits.junction_deviation = 2.0; // новое поле
 
-	auto durations_sec = planVelocity(simplified, limits);
+	auto durations_sec = planVelocity(resampled, limits);
 
 	std::vector<LineSegment> segments;
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
 		uint16_t dur_ms = static_cast<uint16_t>(durations_sec[i] * 1000.0);
-		if (dur_ms < 30) {
-			dur_ms = 30;
+		if (dur_ms < 10) { // уменьшаем минимальную длительность
+			dur_ms = 10;
 		}
-		segments.push_back({ simplified[i + 1].x, simplified[i + 1].y, dur_ms });
+		segments.push_back({ resampled[i + 1].x, resampled[i + 1].y, dur_ms });
 	}
 
 	LOG_INFO("Generated %d elements", segments.size());
