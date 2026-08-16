@@ -448,7 +448,6 @@ struct MotionLimits {
 	double max_velocity; // steps / s
 	double max_accel; // steps / s^2
 	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
-	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
 };
 
 // мягкое ограничение скорости в узле на основе угла поворота
