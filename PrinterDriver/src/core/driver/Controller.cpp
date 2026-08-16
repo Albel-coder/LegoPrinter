@@ -625,8 +625,9 @@ bool Controller::runMotionTest() {
 	LOG_INFO("After RDP: %d points", simplified.size());
 
 	// Новый шаг: ресемплинг
-	double resample_spacing = 10.0; // можно сделать параметром
-	std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
+	double resample_spacing = 30.0; // можно сделать параметром
+	std::vector<Point> resampled = simplified;
+	//std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
 	LOG_INFO("After resampling: %d points", resampled.size());
 
 	// Далее используем resampled вместо simplified
@@ -696,19 +697,17 @@ bool Controller::runMotionTest() {
 	}
 
 	for (size_t i = 0; i < segments.size(); ++i) {
-		// Ждём, пока хаб не освободит место в буфере
 		while (remoteBufferFull.load()) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 
 		const LineSegment& seg = segments[i];
+		LOG_INFO("Sending %d: tx=%d ty=%d dur=%u", i, seg.target_x, seg.target_y, seg.duration_ms);
 		if (!sendLineSegment(seg.target_x, seg.target_y, seg.duration_ms)) {
 			LOG_ERROR("Failed to send segment %d", i);
 			return false;
 		}
-
-		// Небольшая задержка, чтобы не переполнять BLE стек
-		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
 	}
 
 	LOG_INFO("All %d segments sent. Printer should be moving", segments.size());

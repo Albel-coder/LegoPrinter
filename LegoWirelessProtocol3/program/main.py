@@ -64,16 +64,11 @@ WAIT_SYNC = 0
 IN_PACKET = 1
 state = WAIT_SYNC
 
-# ИСПРАВЛЕНО: Выделяем буфер под пакет заранее один раз, чтобы избежать динамического выделения памяти в цикле!
 packet_buf = bytearray(PACKET_SIZE)
 packet_idx = 0
 
-# В функции receiver()
-global state, packet_idx, flow_state
-flow_state = 0  # 0 - норма, 1 - пауза
-
 async def receiver():
-    global state, packet_idx, flow_state
+    global state, packet_idx
 
     usys.stdout.buffer.write(b"receiver ready\n")
     usys.stdout.flush()
@@ -103,17 +98,7 @@ async def receiver():
                     tx = struct.unpack('<i', packet_buf[2:6])[0]
                     ty = struct.unpack('<i', packet_buf[6:10])[0]
                     dur = struct.unpack('<H', packet_buf[10:12])[0]
-                    if buffer_put(tx, ty, dur):
-                        # Проверяем заполнение буфера
-                        if buffer_space() < 100 and flow_state == 0:
-                            usys.stdout.buffer.write(b"COMMAND_PAUSE\n")
-                            usys.stdout.flush()
-                            flow_state = 1
-                        elif buffer_space() > 300 and flow_state == 1:
-                            usys.stdout.buffer.write(b"COMMAND_RESUME\n")
-                            usys.stdout.flush()
-                            flow_state = 0
-                    # else: буфер полон, пакет потерян (не должно случиться при работающем flow control)
+                    buffer_put(tx, ty, dur)
                 state = WAIT_SYNC
 
         if head % 200 == 0:
@@ -126,20 +111,14 @@ async def smooth_executor():
     current_x = 0
     current_y = 0
     segment_count = 0
-    underflow_count = 0
-    max_err_x = 0
-    has_started = False
     UPDATE_MS = 5
 
     while True:
         seg = buffer_get()
         if seg is None:
-            if has_started:
-                underflow_count += 1
             await wait(1)
             continue
-        
-        has_started = True
+
         target_x, target_y, duration_ms = seg
 
         if duration_ms <= UPDATE_MS:
@@ -147,37 +126,29 @@ async def smooth_executor():
             motor_y.track_target(target_y)
             current_x = target_x
             current_y = target_y
-        else:
-            steps = max(1, duration_ms // UPDATE_MS)
-            dx = target_x - current_x
-            dy = target_y - current_y
+            continue
 
-            for i in range(1, steps + 1):
-                x = current_x + (dx * i) // steps
-                y = current_y + (dy * i) // steps
-                motor_x.track_target(x)
-                motor_y.track_target(y)
-                await wait(UPDATE_MS)
+        steps = max(1, duration_ms // UPDATE_MS)
+        dx = target_x - current_x
+        dy = target_y - current_y
 
-            motor_x.track_target(target_x)
-            motor_y.track_target(target_y)
-            current_x = target_x
-            current_y = target_y
-        
-        # Измеряем ошибку в конце сегментов
-        err_x = abs(target_x - motor_x.angle())
-        err_y = abs(target_y - motor_y.angle())
-        if err_x > max_err_x:
-            max_err_x = err_x
-        if err_y > max_err_y:
-            max_err_y = err_y
-        
+        for i in range(1, steps + 1):
+            x = current_x + (dx * i) // steps
+            y = current_y + (dy * i) // steps
+            motor_x.track_target(x)
+            motor_y.track_target(y)
+            await wait(UPDATE_MS)
+
+        motor_x.track_target(target_x)
+        motor_y.track_target(target_y)
+        current_x = target_x
+        current_y = target_y
+
         segment_count += 1
         if segment_count % 20 == 0:
             usys.stdout.buffer.write(
-                "SEG %d: X=%d Y=%d EX=%d EY=%d MAXEX=%d MAXEY=%d UF=%d\n" %
-                (segment_count, motor_x.angle(), motor_y.angle(),
-                err_x, err_y, max_err_x, max_err_y, underflow_count)
+                "SEG %d: X = %d Y = %d\n" %
+                (segment_count, motor_x.angle(), motor_y.angle())
             )
             usys.stdout.flush()
 
