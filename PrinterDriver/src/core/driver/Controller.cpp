@@ -696,13 +696,19 @@ bool Controller::runMotionTest() {
 	}
 
 	for (size_t i = 0; i < segments.size(); ++i) {
+		// Ждём, пока хаб не освободит место в буфере
+		while (remoteBufferFull.load()) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+
 		const LineSegment& seg = segments[i];
 		if (!sendLineSegment(seg.target_x, seg.target_y, seg.duration_ms)) {
 			LOG_ERROR("Failed to send segment %d", i);
 			return false;
 		}
 
-		//std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		// Небольшая задержка, чтобы не переполнять BLE стек
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
 	}
 
 	LOG_INFO("All %d segments sent. Printer should be moving", segments.size());

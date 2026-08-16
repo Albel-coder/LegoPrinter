@@ -68,10 +68,12 @@ state = WAIT_SYNC
 packet_buf = bytearray(PACKET_SIZE)
 packet_idx = 0
 
-async def receiver():
+# В функции receiver()
+global state, packet_idx, flow_state
+flow_state = 0  # 0 - норма, 1 - пауза
 
-    global state
-    global packet_idx
+async def receiver():
+    global state, packet_idx, flow_state
 
     usys.stdout.buffer.write(b"receiver ready\n")
     usys.stdout.flush()
@@ -81,18 +83,18 @@ async def receiver():
         if not events:
             await wait(1)
             continue
-        
+
         chunk = usys.stdin.buffer.read(1)
         if not chunk:
             await wait(1)
             continue
-        
+
         if state == WAIT_SYNC:
             if chunk == START_MARKER:
                 packet_buf[0] = chunk[0]
                 packet_idx = 1
                 state = IN_PACKET
-        else: # IN_PACKET
+        else:
             packet_buf[packet_idx] = chunk[0]
             packet_idx += 1
             if packet_idx == PACKET_SIZE:
@@ -101,9 +103,19 @@ async def receiver():
                     tx = struct.unpack('<i', packet_buf[2:6])[0]
                     ty = struct.unpack('<i', packet_buf[6:10])[0]
                     dur = struct.unpack('<H', packet_buf[10:12])[0]
-                    buffer_put(tx, ty, dur)
+                    if buffer_put(tx, ty, dur):
+                        # Проверяем заполнение буфера
+                        if buffer_space() < 100 and flow_state == 0:
+                            usys.stdout.buffer.write(b"COMMAND_PAUSE\n")
+                            usys.stdout.flush()
+                            flow_state = 1
+                        elif buffer_space() > 300 and flow_state == 1:
+                            usys.stdout.buffer.write(b"COMMAND_RESUME\n")
+                            usys.stdout.flush()
+                            flow_state = 0
+                    # else: буфер полон, пакет потерян (не должно случиться при работающем flow control)
                 state = WAIT_SYNC
-        
+
         if head % 200 == 0:
             gc.collect()
 
