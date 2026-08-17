@@ -448,11 +448,12 @@ struct MotionLimits {
 	double max_velocity; // steps / s
 	double max_accel; // steps / s^2
 	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
+	double junction_min_factor = 0.9; // минимальна€ скорость как дол€ от max_velocity
 };
 
-// м€гкое ограничение скорости в узле на основе угла поворота
 double computeJunctionVelocity(
-	const Point& prev, const Point& curr, const Point& next, const MotionLimits& limits)
+	const Point& prev, const Point& curr, const Point& next,
+	const MotionLimits& limits)
 {
 	double dx1 = curr.x - prev.x;
 	double dy1 = curr.y - prev.y;
@@ -461,37 +462,35 @@ double computeJunctionVelocity(
 	double len1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
 	double len2 = std::sqrt(dx2 * dx2 + dy2 * dy2);
 	if (len1 < 1e-6 || len2 < 1e-6) {
-		return 0.0;
+		return limits.max_velocity; // не 0, чтобы не останавливатьс€ при вырожденных сегментах
 	}
 
 	double cos_angle = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
 	cos_angle = std::max(-1.0, std::min(1.0, cos_angle));
-	double angle = std::acos(cos_angle); // угол поворота (0 - пр€мо, 180 - разворот)
-
-	// ѕочти полный разворот - останавливаемс€
-	if (angle > 2.9) {
-		return 0.0;
-	}
+	double angle = std::acos(cos_angle);
 
 	double half_angle = angle * 0.5;
 	double cos_half = std::cos(half_angle);
 	double denom = 1.0 - cos_half;
 	if (denom < 1e-9) {
-		// почти пр€мой участок - разрешаем максимальную скорость
-		return limits.max_velocity;
+		return limits.max_velocity; // почти пр€мой участок
 	}
 
-	// v = std::sqrt(alpha * beta * std::cos(theta / 2) / (1 - std::cos(theta / 2)))
 	double v_sq = limits.max_accel * limits.junction_deviation * cos_half / denom;
-	if (v_sq < 0) {
-		v_sq = 0;
-	}
+	if (v_sq < 0) v_sq = 0;
 	double v = std::sqrt(v_sq);
 
-	// ќграничиваем сверху максимальной скоростью
-	if (v > limits.max_velocity) {
-		v = limits.max_velocity;
+	// ќграничение сверху
+	if (v > limits.max_velocity) { 
+		v = limits.max_velocity; 
 	}
+
+	// ќграничение снизу, чтобы не было полной остановки
+	double v_min = limits.junction_min_factor * limits.max_velocity;
+	if (v < v_min) { 
+		v = v_min;
+	}
+
 	return v;
 }
 
@@ -625,26 +624,28 @@ bool Controller::runMotionTest() {
 	LOG_INFO("After RDP: %d points", simplified.size());
 
 	// Ќовый шаг: ресемплинг
-	double resample_spacing = 30.0; // можно сделать параметром
-	std::vector<Point> resampled = simplified;
+	//double resample_spacing = 20.0; // можно сделать параметром
 	//std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
-	LOG_INFO("After resampling: %d points", resampled.size());
+	//LOG_INFO("After resampling: %d points", resampled.size());
 
 	// ƒалее используем resampled вместо simplified
 	MotionLimits limits;
-	limits.max_velocity = 800.0;
-	limits.max_accel = 2000.0;
+	limits.max_velocity = 1200.0;
+	limits.max_accel = 3000.0;
 	limits.junction_deviation = 2.0; // новое поле
 
-	auto durations_sec = planVelocity(resampled, limits);
+	std::vector<Point> trajectory = cleaned;
+	LOG_INFO("Using cleaned points directly: %d points", trajectory.size());
+
+	auto durations_sec = planVelocity(trajectory, limits);
 
 	std::vector<LineSegment> segments;
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
 		uint16_t dur_ms = static_cast<uint16_t>(durations_sec[i] * 1000.0);
-		if (dur_ms < 10) { // уменьшаем минимальную длительность
-			dur_ms = 10;
+		if (dur_ms < 5) { // уменьшаем минимальную длительность
+			dur_ms = 5;
 		}
-		segments.push_back({ resampled[i + 1].x, resampled[i + 1].y, dur_ms });
+		segments.push_back({ trajectory[i + 1].x, trajectory[i + 1].y, dur_ms });
 	}
 
 	LOG_INFO("Generated %d elements", segments.size());
@@ -683,31 +684,37 @@ bool Controller::runMotionTest() {
 		double min_len = std::numeric_limits<double>::max();
 		double max_len = 0;
 		double total_len = 0;
-		for (size_t i = 0; i + 1 < resampled.size(); ++i) {
-			double dx = resampled[i + 1].x - resampled[i].x;
-			double dy = resampled[i + 1].y - resampled[i].y;
+		for (size_t i = 0; i + 1 < trajectory.size(); ++i) {
+			double dx = trajectory[i + 1].x - trajectory[i].x;
+			double dy = trajectory[i + 1].y - trajectory[i].y;
 			double len = std::sqrt(dx * dx + dy * dy);
 			min_len = std::min(min_len, len);
 			max_len = std::max(max_len, len);
 			total_len += len;
 		}
-		double avg_len = total_len / (resampled.size() - 1);
+		double avg_len = total_len / (trajectory.size() - 1);
 		LOG_INFO("Geometry stats: points=%zu, segment_lengths: min=%.2f, max=%.2f, avg=%.2f",
-			resampled.size(), min_len, max_len, avg_len);
+			trajectory.size(), min_len, max_len, avg_len);
 	}
 
 	for (size_t i = 0; i < segments.size(); ++i) {
+		// ∆дЄм, пока хаб не освободит место в буфере
 		while (remoteBufferFull.load()) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 
 		const LineSegment& seg = segments[i];
-		LOG_INFO("Sending %d: tx=%d ty=%d dur=%u", i, seg.target_x, seg.target_y, seg.duration_ms);
 		if (!sendLineSegment(seg.target_x, seg.target_y, seg.duration_ms)) {
 			LOG_ERROR("Failed to send segment %d", i);
 			return false;
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		else {
+			LOG_DEBUG("Succeed send segment %d, target_x: %d, target_y: %d, dur_ms: %d", 
+				i, seg.target_x, seg.target_y, seg.duration_ms);
+		}
+
+		// Ќебольша€ задержка, чтобы не переполн€ть BLE стек
+		//std::this_thread::sleep_for(std::chrono::milliseconds(500));
 	}
 
 	LOG_INFO("All %d segments sent. Printer should be moving", segments.size());
