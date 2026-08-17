@@ -14,7 +14,7 @@ kbd_intr(-1)
 hub = TechnicHub()
 hub.light.on(Color.GREEN)
 
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 4096
 segments = [(0, 0, 0)] * BUFFER_SIZE
 head = 0
 tail = 0
@@ -50,8 +50,8 @@ poll.register(usys.stdin, uselect.POLLIN)
 
 motor_x = Motor(Port.A)
 motor_y = Motor(Port.B)
-motor_x.control.limits(speed=1000, acceleration=2000)
-motor_y.control.limits(speed=1000, acceleration=2000)
+motor_x.control.limits(speed=1500, acceleration=3000)
+motor_y.control.limits(speed=1500, acceleration=3000)
 
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
@@ -79,30 +79,32 @@ async def receiver():
             await wait(1)
             continue
 
-        chunk = usys.stdin.buffer.read(1)
-        if not chunk:
+        # Читаем все доступные данные за один раз
+        data = usys.stdin.buffer.read(1024)  # можно и без размера: usys.stdin.buffer.read()
+        if not data:
             await wait(1)
             continue
 
-        if state == WAIT_SYNC:
-            if chunk == START_MARKER:
-                packet_buf[0] = chunk[0]
-                packet_idx = 1
-                state = IN_PACKET
-        else:
-            packet_buf[packet_idx] = chunk[0]
-            packet_idx += 1
-            if packet_idx == PACKET_SIZE:
-                cmd = packet_buf[1]
-                if cmd == CMD_LINE:
-                    tx = struct.unpack('<i', packet_buf[2:6])[0]
-                    ty = struct.unpack('<i', packet_buf[6:10])[0]
-                    dur = struct.unpack('<H', packet_buf[10:12])[0]
-                    buffer_put(tx, ty, dur)
-                state = WAIT_SYNC
+        for b in data:
+            if state == WAIT_SYNC:
+                if b == START_MARKER[0]:  # START_MARKER = b'\x01'
+                    packet_buf[0] = b
+                    packet_idx = 1
+                    state = IN_PACKET
+            else:  # IN_PACKET
+                packet_buf[packet_idx] = b
+                packet_idx += 1
+                if packet_idx == PACKET_SIZE:
+                    cmd = packet_buf[1]
+                    if cmd == CMD_LINE:
+                        tx = struct.unpack('<i', packet_buf[2:6])[0]
+                        ty = struct.unpack('<i', packet_buf[6:10])[0]
+                        dur = struct.unpack('<H', packet_buf[10:12])[0]
+                        buffer_put(tx, ty, dur)
+                    state = WAIT_SYNC
 
-        if head % 200 == 0:
-            gc.collect()
+        # Периодическая сборка мусора не по head, а по количеству обработанных пакетов
+        # Но можно оставить как есть, если не мешает
 
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
@@ -113,7 +115,10 @@ async def smooth_executor():
     segment_count = 0
     UPDATE_MS = 5
 
-    while True:
+    while buffer_count() < 900:
+        await wait(10)
+
+    while True:        
         seg = buffer_get()
         if seg is None:
             await wait(1)
