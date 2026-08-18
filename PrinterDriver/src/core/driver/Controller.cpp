@@ -9,25 +9,11 @@
 #include <fstream>
 #include <sstream>
 
-constexpr uint8_t CMD_MOVE_BLOCK = 0x13;
-constexpr uint8_t CMD_SYNC_START = 0x11;
-constexpr uint8_t CMD_SET_LIMITS = 0x20;
-constexpr uint8_t CMD_RESET_POS = 0x21;
-constexpr uint8_t CMD_GET_STATUS = 0x30;
-constexpr uint8_t CMD_EMERGENCY_STOP = 0x40;
-constexpr uint8_t CMD_PING = 0x41;
-constexpr uint8_t CMD_CLEAR_BUFFER = 0x42;
-constexpr uint8_t CMD_ENABLE_WATCHDOG = 0x50;
-constexpr uint8_t CMD_SET_BACKLASH = 0x60;
-
-constexpr uint8_t AXIS_ALL = 0xFF;
 constexpr uint8_t REPLY_STATUS = 0x80;
 constexpr uint8_t REPLY_PONG = 0x81;
 constexpr uint8_t REPLY_ERROR = 0xFF;
 
-constexpr uint8_t SEG_FLAG_STOP = 0x02;
-
-constexpr float STEPS_PER_MM = 10.0f;
+constexpr uint8_t CMD_MOTION_BLOCK = 0x02;
 
 Controller::Controller(ITransport& transportPointer)
 	: transport(transportPointer) {
@@ -645,6 +631,49 @@ std::vector<Point> smoothSharpCorners(const std::vector<Point>& pts, double angl
 	return smoothed;
 }
 
+bool Controller::sendMotionBlock(const std::vector<MotionSegment>& segments) {
+	if (segments.empty()) return true;
+
+	const size_t SEGMENT_SIZE = 10; // 4 + 4 + 2
+	size_t maxWrite = transport.getMaxWriteSize();
+	if (maxWrite < 4) return false; // не хватает места для заголовка
+
+	size_t maxSegmentsPerWrite = (maxWrite - 3) / SEGMENT_SIZE; // 3 байта: type, cmd, count
+	if (maxSegmentsPerWrite == 0) return false;
+
+	size_t offset = 0;
+	while (offset < segments.size()) {
+		size_t count = std::min(maxSegmentsPerWrite, segments.size() - offset);
+		size_t packetSize = 3 + count * SEGMENT_SIZE;
+		std::vector<uint8_t> buffer(packetSize);
+
+		buffer[0] = 0x06;                // тип данных (как в sendLineSegment)
+		buffer[1] = CMD_MOTION_BLOCK;    // команда
+		buffer[2] = static_cast<uint8_t>(count);
+
+		for (size_t i = 0; i < count; ++i) {
+			const MotionSegment& seg = segments[offset + i];
+			size_t base = 3 + i * SEGMENT_SIZE;
+			memcpy(&buffer[base], &seg.target_x, 4);
+			memcpy(&buffer[base + 4], &seg.target_y, 4);
+			memcpy(&buffer[base + 8], &seg.duration_ms, 2);
+		}
+
+		if (!transport.write(pybricksCommandEvent, buffer.data(), buffer.size(), true)) {
+			LOG_ERROR("Failed to send motion block at offset %zu", offset);
+			return false;
+		}
+
+		offset += count;
+
+		// Небольшая пауза между блоками, чтобы не переполнять BLE стек
+		if (offset < segments.size()) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	}
+	return true;
+}
+
 bool Controller::runMotionTest() {
 	auto rawPoints = readSkeletonCsv("one_contour.csv");
 	if (rawPoints.empty()) {
@@ -653,6 +682,7 @@ bool Controller::runMotionTest() {
 	}
 	LOG_INFO("Loaded %d raw points", rawPoints.size());
 
+	// Очистка от дубликатов
 	std::vector<Point> cleaned;
 	Point last = { -9999, -9999 };
 	for (auto& p : rawPoints) {
@@ -663,106 +693,83 @@ bool Controller::runMotionTest() {
 	}
 	LOG_INFO("after cleaning: %d points", cleaned.size());
 
-	// После RDP
-	double epsilon = 6.0;
+	// RDP с меньшим epsilon для сохранения деталей
+	double epsilon = 3.0;
 	std::vector<Point> simplified;
 	simplifyRDP(cleaned, epsilon, simplified);
 	LOG_INFO("After RDP: %d points", simplified.size());
 
-	// Новый шаг: ресемплинг
-	//double resample_spacing = 20.0; // можно сделать параметром
-	//std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
-	//LOG_INFO("After resampling: %d points", resampled.size());
+	// Ресемплинг по расстоянию (равномерное распределение точек)
+	double resample_spacing = 15.0; // шагов
+	std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
+	LOG_INFO("After resampling: %d points", resampled.size());
 
-	// Далее используем resampled вместо simplified
+	// Лёгкое сглаживание скользящим средним
+	std::vector<Point> smoothed = smoothPoints(resampled, 2);
+	LOG_INFO("After smoothing: %d points", smoothed.size());
+
+	// Планировщик скорости
 	MotionLimits limits;
 	limits.max_velocity = 1200.0;
 	limits.max_accel = 3000.0;
-	limits.junction_deviation = 3.0; // новое поле
-
-	std::vector<Point> smoothed = smoothSharpCorners(simplified, 2);
-	LOG_INFO("Using smoothed points directly: %d points", smoothed.size());
+	limits.junction_deviation = 3.0;
 
 	auto durations_sec = planVelocity(smoothed, limits);
 
-	std::vector<LineSegment> segments;
+	// Формируем сегменты с длительностями
+	std::vector<MotionSegment> motionSegments;
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
 		uint16_t dur_ms = static_cast<uint16_t>(durations_sec[i] * 1000.0);
-		if (dur_ms < 5) { // уменьшаем минимальную длительность
-			dur_ms = 5;
-		}
-		segments.push_back({ smoothed[i + 1].x, smoothed[i + 1].y, dur_ms });
+		if (dur_ms < 10) dur_ms = 10; // поднимаем минимум, чтобы хаб успевал
+		motionSegments.push_back({ smoothed[i + 1].x, smoothed[i + 1].y, dur_ms });
 	}
+	LOG_INFO("Generated %d motion segments", motionSegments.size());
 
-	LOG_INFO("Generated %d elements", segments.size());
-
-	if (!segments.empty()) {
-		int start_tx = simplified[0].x;
-		int start_ty = simplified[0].y;
-		if (!sendLineSegment(start_tx, start_ty, 800)) {
+	// Отправка стартовой точки с задержкой 800 мс
+	if (!motionSegments.empty()) {
+		int start_tx = smoothed[0].x;
+		int start_ty = smoothed[0].y;
+		uint16_t start_dur = 800;
+		MotionSegment startSeg = { start_tx, start_ty, start_dur };
+		std::vector<MotionSegment> startBlock = { startSeg };
+		if (!sendMotionBlock(startBlock)) {
 			LOG_ERROR("Failed to send start point");
 			return false;
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(800));
+		std::this_thread::sleep_for(std::chrono::milliseconds(start_dur));
 	}
 
-	size_t n = segments.size();
-	if (n > 0) {
-		// Статистика длительностей
-		uint16_t min_dur = std::numeric_limits<uint16_t>::max();
-		uint16_t max_dur = 0;
-		double total_dur = 0;
-		for (const auto& seg : segments) {
-			total_dur += seg.duration_ms;
-			if (seg.duration_ms < min_dur) {
-				min_dur = seg.duration_ms;
-			}
-			if (seg.duration_ms > max_dur) {
-				max_dur = seg.duration_ms;
-			}
-		}
-		double avg_dur = total_dur / n;
-		LOG_INFO("Motion stats: segments=%zu, total_time=%.2f s, min_dur=%u ms, max_dur=%u ms, avg_dur=%.2f ms",
-			n, total_dur / 1000.0, min_dur, max_dur, avg_dur);
-
-		// Статистика длин сегментов (используем simplified/resampled точки)
-		// Предполагаем, что у нас есть вектор resampled (смотри следующий раздел)
-		double min_len = std::numeric_limits<double>::max();
-		double max_len = 0;
-		double total_len = 0;
-		for (size_t i = 0; i + 1 < smoothed.size(); ++i) {
-			double dx = smoothed[i + 1].x - smoothed[i].x;
-			double dy = smoothed[i + 1].y - smoothed[i].y;
-			double len = std::sqrt(dx * dx + dy * dy);
-			min_len = std::min(min_len, len);
-			max_len = std::max(max_len, len);
-			total_len += len;
-		}
-		double avg_len = total_len / (smoothed.size() - 1);
-		LOG_INFO("Geometry stats: points=%zu, segment_lengths: min=%.2f, max=%.2f, avg=%.2f",
-			smoothed.size(), min_len, max_len, avg_len);
-	}
-
-	for (size_t i = 0; i < segments.size(); ++i) {
-		// Ждём, пока хаб не освободит место в буфере
+	// Отправка всех сегментов блоками с учётом flow control
+	size_t sent = 0;
+	while (sent < motionSegments.size()) {
+		// Ждём, если хаб сообщил о переполнении буфера
 		while (remoteBufferFull.load()) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 
-		const LineSegment& seg = segments[i];
-		if (!sendLineSegment(seg.target_x, seg.target_y, seg.duration_ms)) {
-			LOG_ERROR("Failed to send segment %d", i);
+		// Определяем размер блока (не более maxSegmentsPerWrite)
+		size_t maxWrite = transport.getMaxWriteSize();
+		size_t maxSegments = (maxWrite - 3) / 10;
+		if (maxSegments == 0) maxSegments = 1;
+		size_t count = std::min(maxSegments, motionSegments.size() - sent);
+
+		std::vector<MotionSegment> block(
+			motionSegments.begin() + sent,
+			motionSegments.begin() + sent + count
+		);
+
+		if (!sendMotionBlock(block)) {
+			LOG_ERROR("Failed to send motion block starting at %zu", sent);
 			return false;
 		}
-		else {
-			LOG_DEBUG("Succeed send segment %d, target_x: %d, target_y: %d, dur_ms: %d", 
-				i, seg.target_x, seg.target_y, seg.duration_ms);
-		}
 
-		// Небольшая задержка, чтобы не переполнять BLE стек
-		//std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		sent += count;
+		LOG_DEBUG("Sent block of %zu segments (total %zu/%zu)", count, sent, motionSegments.size());
+
+		// Небольшая пауза между блоками
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
 
-	LOG_INFO("All %d segments sent. Printer should be moving", segments.size());
+	LOG_INFO("All %d segments sent in blocks.", motionSegments.size());
 	return true;
 }

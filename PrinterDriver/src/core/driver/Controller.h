@@ -6,6 +6,14 @@
 #include <vector>
 #include <atomic>
 
+#pragma pack(push, 1)
+struct MotionSegment {
+	int32_t target_x;
+	int32_t target_y;
+	uint16_t duration_ms;
+};
+#pragma pack(pop)
+
 class Controller {
 public:
 	explicit Controller(ITransport& transportPointer);
@@ -20,6 +28,8 @@ public:
 	bool isConnected() const;
 
 	bool runMotionTest();
+
+	bool sendMotionBlock(const std::vector<MotionSegment>& segments);
 
 private:
 	ITransport& transport;
