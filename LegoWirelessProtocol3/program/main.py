@@ -83,83 +83,89 @@ async def receiver():
             await wait(1)
             continue
 
-        data = usys.stdin.buffer.read()
+        # Читаем ОДИН байт, как раньше
+        data = usys.stdin.buffer.read(1)
         if not data:
             await wait(1)
             continue
 
-        for b in data:
-            if state == WAIT_SYNC:
-                if b == START_MARKER[0]:
-                    packet_buf[0] = b
-                    packet_idx = 1
-                    expected_len = 0
-                    state = IN_PACKET
-                continue
+        # Обрабатываем байт
+        b = data[0]
 
-            if packet_idx >= len(packet_buf):
+        if state == WAIT_SYNC:
+            if b == START_MARKER[0]:
+                packet_buf[0] = b
+                packet_idx = 1
+                expected_len = 0
+                state = IN_PACKET
+            continue
+
+        if packet_idx >= len(packet_buf):
+            state = WAIT_SYNC
+            packet_idx = 0
+            expected_len = 0
+            continue
+
+        packet_buf[packet_idx] = b
+        packet_idx += 1
+
+        if packet_idx == 2:
+            cmd = packet_buf[1]
+            if cmd == CMD_LINE:
+                expected_len = 12
+            elif cmd == CMD_MOTION_BLOCK:
+                expected_len = 0  # ждём count
+            else:
                 state = WAIT_SYNC
                 packet_idx = 0
                 expected_len = 0
                 continue
 
-            packet_buf[packet_idx] = b
-            packet_idx += 1
+        elif packet_idx == 3 and packet_buf[1] == CMD_MOTION_BLOCK:
+            count = packet_buf[2]
+            if count == 0:
+                state = WAIT_SYNC
+                packet_idx = 0
+                expected_len = 0
+                continue
+            expected_len = 3 + count * 6
+            if expected_len > len(packet_buf):
+                state = WAIT_SYNC
+                packet_idx = 0
+                expected_len = 0
+                continue
 
-            if packet_idx == 2:
-                cmd = packet_buf[1]
-                if cmd == CMD_LINE:
-                    expected_len = 12
-                elif cmd == CMD_MOTION_BLOCK:
-                    expected_len = 0  # ждём count
-                else:
-                    state = WAIT_SYNC
-                    packet_idx = 0
-                    expected_len = 0
-                    continue
+        if expected_len > 0 and packet_idx == expected_len:
+            cmd = packet_buf[1]
 
-            elif packet_idx == 3 and packet_buf[1] == CMD_MOTION_BLOCK:
+            if cmd == CMD_LINE:
+                tx = struct.unpack('<i', packet_buf[2:6])[0]
+                ty = struct.unpack('<i', packet_buf[6:10])[0]
+                dur = struct.unpack('<H', packet_buf[10:12])[0]
+                buffer_put(tx, ty, dur)
+                last_x = tx
+                last_y = ty
+                # Отладочное сообщение
+                usys.stdout.buffer.write(b"LINE %d %d %d\n" % (tx, ty, dur))
+                usys.stdout.flush()
+
+            elif cmd == CMD_MOTION_BLOCK:
                 count = packet_buf[2]
-                if count == 0:
-                    state = WAIT_SYNC
-                    packet_idx = 0
-                    expected_len = 0
-                    continue
-                expected_len = 3 + count * 6  # delta-сегмент: 2+2+2
-                if expected_len > len(packet_buf):
-                    state = WAIT_SYNC
-                    packet_idx = 0
-                    expected_len = 0
-                    continue
+                offset = 3
+                for _ in range(count):
+                    dx = struct.unpack('<h', packet_buf[offset:offset+2])[0]
+                    dy = struct.unpack('<h', packet_buf[offset+2:offset+4])[0]
+                    dur = struct.unpack('<H', packet_buf[offset+4:offset+6])[0]
+                    offset += 6
 
-            if expected_len > 0 and packet_idx == expected_len:
-                cmd = packet_buf[1]
+                    last_x += dx
+                    last_y += dy
+                    if not buffer_put(last_x, last_y, dur):
+                        break
 
-                if cmd == CMD_LINE:
-                    tx = struct.unpack('<i', packet_buf[2:6])[0]
-                    ty = struct.unpack('<i', packet_buf[6:10])[0]
-                    dur = struct.unpack('<H', packet_buf[10:12])[0]
-                    buffer_put(tx, ty, dur)
-                    last_x = tx
-                    last_y = ty
-
-                elif cmd == CMD_MOTION_BLOCK:
-                    count = packet_buf[2]
-                    offset = 3
-                    for _ in range(count):
-                        dx = struct.unpack('<h', packet_buf[offset:offset+2])[0]
-                        dy = struct.unpack('<h', packet_buf[offset+2:offset+4])[0]
-                        dur = struct.unpack('<H', packet_buf[offset+4:offset+6])[0]
-                        offset += 6
-
-                        last_x += dx
-                        last_y += dy
-                        if not buffer_put(last_x, last_y, dur):
-                            break
-
-                state = WAIT_SYNC
-                packet_idx = 0
-                expected_len = 0
+            state = WAIT_SYNC
+            packet_idx = 0
+            expected_len = 0
 
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
