@@ -1,13 +1,12 @@
 from pybricks.hubs import TechnicHub
 from pybricks.pupdevices import Motor
 from pybricks.parameters import Port, Stop, Color
-from pybricks.tools import multitask, run_task, wait
+from pybricks.tools import multitask, run_task, wait, StopWatch
 import umath
 import usys
 import uselect
 import ustruct as struct
 import gc
-import utime
 
 from micropython import kbd_intr
 kbd_intr(-1)
@@ -57,70 +56,48 @@ motor_y.control.limits(speed=1500, acceleration=3000)
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
 
+START_MARKER = b'\x01'
 CMD_LINE = 0x01
 CMD_MOTION_BLOCK = 0x02
 
 WAIT_SYNC = 0
 IN_PACKET = 1
-
 state = WAIT_SYNC
+
+packet_buf = bytearray(256)
 packet_idx = 0
 expected_len = 0
 
-packet_buf = bytearray(256)
-
-# Абсолютная координата, относительно которой
-# декодируются следующие delta-сегменты.
 last_x = 0
 last_y = 0
 
 async def receiver():
-    global state
-    global packet_idx
-    global expected_len
-    global last_x
-    global last_y
+    global state, packet_idx, expected_len, last_x, last_y
 
     usys.stdout.buffer.write(b"receiver ready\n")
     usys.stdout.flush()
 
     while True:
         events = poll.poll(0)
-
         if not events:
             await wait(1)
             continue
 
         data = usys.stdin.buffer.read()
-
         if not data:
             await wait(1)
             continue
 
         for b in data:
-
-            # -------------------------------------------------
-            # WAIT_SYNC
-            # -------------------------------------------------
-
             if state == WAIT_SYNC:
-
                 if b == START_MARKER[0]:
                     packet_buf[0] = b
-
                     packet_idx = 1
                     expected_len = 0
-
                     state = IN_PACKET
-
                 continue
 
-            # -------------------------------------------------
-            # IN_PACKET
-            # -------------------------------------------------
-
             if packet_idx >= len(packet_buf):
-                # Защита от переполнения
                 state = WAIT_SYNC
                 packet_idx = 0
                 expected_len = 0
@@ -129,155 +106,56 @@ async def receiver():
             packet_buf[packet_idx] = b
             packet_idx += 1
 
-            # -------------------------------------------------
-            # Получили CMD
-            # -------------------------------------------------
-
             if packet_idx == 2:
-
                 cmd = packet_buf[1]
-
                 if cmd == CMD_LINE:
-
-                    # marker + cmd + X + Y + duration
-                    #
-                    # 1 + 1 + 4 + 4 + 2 = 12
                     expected_len = 12
-
                 elif cmd == CMD_MOTION_BLOCK:
-
-                    # Пока знаем только marker + cmd.
-                    # Ждём count.
-                    expected_len = 0
-
+                    expected_len = 0  # ждём count
                 else:
-
-                    # Неизвестная команда.
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
-
                     continue
 
-            # -------------------------------------------------
-            # Получили COUNT для motion block
-            # -------------------------------------------------
-
-            elif (
-                packet_idx == 3
-                and packet_buf[1] == CMD_MOTION_BLOCK
-            ):
-
+            elif packet_idx == 3 and packet_buf[1] == CMD_MOTION_BLOCK:
                 count = packet_buf[2]
-
                 if count == 0:
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
                     continue
-
-                # header:
-                # marker + cmd + count = 3 bytes
-                #
-                # segment:
-                # dx + dy + duration = 6 bytes
-                #
-                # total:
-                # 3 + count * 6
-
-                expected_len = 3 + count * 6
-
+                expected_len = 3 + count * 6  # delta-сегмент: 2+2+2
                 if expected_len > len(packet_buf):
-
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
-
                     continue
 
-            # -------------------------------------------------
-            # Проверяем полный пакет
-            # -------------------------------------------------
-
-            if (
-                expected_len > 0
-                and packet_idx == expected_len
-            ):
-
+            if expected_len > 0 and packet_idx == expected_len:
                 cmd = packet_buf[1]
 
-                # =============================================
-                # CMD_LINE
-                # =============================================
-
                 if cmd == CMD_LINE:
-
-                    tx = struct.unpack(
-                        '<i',
-                        packet_buf[2:6]
-                    )[0]
-
-                    ty = struct.unpack(
-                        '<i',
-                        packet_buf[6:10]
-                    )[0]
-
-                    dur = struct.unpack(
-                        '<H',
-                        packet_buf[10:12]
-                    )[0]
-
-                    if buffer_put(tx, ty, dur):
-
-                        # Теперь delta-сегменты будут
-                        # продолжаться именно от этой точки.
-                        last_x = tx
-                        last_y = ty
-
-                # =============================================
-                # CMD_MOTION_BLOCK
-                # =============================================
+                    tx = struct.unpack('<i', packet_buf[2:6])[0]
+                    ty = struct.unpack('<i', packet_buf[6:10])[0]
+                    dur = struct.unpack('<H', packet_buf[10:12])[0]
+                    buffer_put(tx, ty, dur)
+                    last_x = tx
+                    last_y = ty
 
                 elif cmd == CMD_MOTION_BLOCK:
-
                     count = packet_buf[2]
-
                     offset = 3
-
                     for _ in range(count):
-
-                        dx = struct.unpack(
-                            '<h',
-                            packet_buf[offset:offset + 2]
-                        )[0]
-
-                        dy = struct.unpack(
-                            '<h',
-                            packet_buf[offset + 2:offset + 4]
-                        )[0]
-
-                        dur = struct.unpack(
-                            '<H',
-                            packet_buf[offset + 4:offset + 6]
-                        )[0]
-
+                        dx = struct.unpack('<h', packet_buf[offset:offset+2])[0]
+                        dy = struct.unpack('<h', packet_buf[offset+2:offset+4])[0]
+                        dur = struct.unpack('<H', packet_buf[offset+4:offset+6])[0]
                         offset += 6
 
-                        # Delta -> абсолютная координата
                         last_x += dx
                         last_y += dy
-
-                        if not buffer_put(
-                            last_x,
-                            last_y,
-                            dur
-                        ):
-                            # Ring buffer заполнен.
+                        if not buffer_put(last_x, last_y, dur):
                             break
-
-                # -------------------------------------------------
-                # Пакет обработан
-                # -------------------------------------------------
 
                 state = WAIT_SYNC
                 packet_idx = 0
@@ -290,13 +168,13 @@ async def smooth_executor():
     UPDATE_MS = 10
     START_BUFFER = 30
 
-    # Плановая траектория (идеальные координаты)
+    # Плановая траектория (не зависит от фактического положения моторов)
     trajectory_x = 0
     trajectory_y = 0
 
     flow_stopped = False
+    watch = StopWatch()
 
-    # Ждём начального наполнения буфера
     while buffer_count() < START_BUFFER:
         await wait(10)
 
@@ -312,27 +190,25 @@ async def smooth_executor():
     if segment_duration < UPDATE_MS:
         segment_duration = UPDATE_MS
 
-    segment_start_time = utime.ticks_ms()
+    segment_start_time = watch.time()
 
     while True:
         count = buffer_count()
 
-        # Flow control с гистерезисом
-        if not flow_stopped and count > 3000:
+        # Flow control с гистерезисом (уменьшенные пороги)
+        if not flow_stopped and count > 1000:
             usys.stdout.buffer.write(b"FLOW_STOP\n")
             usys.stdout.flush()
             flow_stopped = True
-        elif flow_stopped and count < 2000:
+        elif flow_stopped and count < 500:
             usys.stdout.buffer.write(b"FLOW_RESUME\n")
             usys.stdout.flush()
             flow_stopped = False
 
-        now = utime.ticks_ms()
-        elapsed = utime.ticks_diff(now, segment_start_time)
+        now = watch.time()
+        elapsed = now - segment_start_time
 
-        # Переход к следующим сегментам, если текущий завершён
         while elapsed >= segment_duration:
-            # Фиксируем конечную точку сегмента как новую стартовую
             trajectory_x = segment_target_x
             trajectory_y = segment_target_y
 
@@ -341,7 +217,6 @@ async def smooth_executor():
 
             next_seg = buffer_get()
             if next_seg is None:
-                # Данных временно нет – удерживаем последнюю целевую точку
                 motor_x.track_target(trajectory_x)
                 motor_y.track_target(trajectory_y)
                 await wait(UPDATE_MS)
@@ -354,9 +229,7 @@ async def smooth_executor():
             segment_duration = next_seg[2]
             if segment_duration < UPDATE_MS:
                 segment_duration = UPDATE_MS
-
         else:
-            # Integer-интерполяция внутри сегмента
             dx = segment_target_x - segment_start_x
             dy = segment_target_y - segment_start_y
 
