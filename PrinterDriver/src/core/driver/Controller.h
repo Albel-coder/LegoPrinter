@@ -14,6 +14,11 @@ struct MotionSegmentDelta {
 };
 #pragma pack(pop)
 
+static_assert(
+	sizeof(MotionSegmentDelta) == 6,
+	"MotionSegmentDelta must be 6 bytes"
+);
+
 class Controller {
 public:
 	explicit Controller(ITransport& transportPointer);

@@ -57,50 +57,70 @@ motor_y.control.limits(speed=1500, acceleration=3000)
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
 
-last_x = 0
-last_y = 0
-
-START_MARKER = b'\x01'
-
-WAIT_SYNC = 0
-IN_PACKET = 1
-state = WAIT_SYNC
-
-packet_buf = bytearray(256)
-packet_idx = 0
-expected_len = 0
-
 CMD_LINE = 0x01
 CMD_MOTION_BLOCK = 0x02
 
+WAIT_SYNC = 0
+IN_PACKET = 1
+
+state = WAIT_SYNC
+packet_idx = 0
+expected_len = 0
+
+packet_buf = bytearray(256)
+
+# Абсолютная координата, относительно которой
+# декодируются следующие delta-сегменты.
+last_x = 0
+last_y = 0
+
 async def receiver():
-    global state, packet_idx, expected_len
+    global state
+    global packet_idx
+    global expected_len
+    global last_x
+    global last_y
 
     usys.stdout.buffer.write(b"receiver ready\n")
     usys.stdout.flush()
 
     while True:
         events = poll.poll(0)
+
         if not events:
             await wait(1)
             continue
 
         data = usys.stdin.buffer.read()
+
         if not data:
             await wait(1)
             continue
 
         for b in data:
+
+            # -------------------------------------------------
+            # WAIT_SYNC
+            # -------------------------------------------------
+
             if state == WAIT_SYNC:
-                if b == START_MARKER[0]:  # 0x01
+
+                if b == START_MARKER[0]:
                     packet_buf[0] = b
+
                     packet_idx = 1
                     expected_len = 0
+
                     state = IN_PACKET
+
                 continue
 
+            # -------------------------------------------------
             # IN_PACKET
+            # -------------------------------------------------
+
             if packet_idx >= len(packet_buf):
+                # Защита от переполнения
                 state = WAIT_SYNC
                 packet_idx = 0
                 expected_len = 0
@@ -109,62 +129,155 @@ async def receiver():
             packet_buf[packet_idx] = b
             packet_idx += 1
 
-            # Получили cmd
+            # -------------------------------------------------
+            # Получили CMD
+            # -------------------------------------------------
+
             if packet_idx == 2:
+
                 cmd = packet_buf[1]
+
                 if cmd == CMD_LINE:
+
+                    # marker + cmd + X + Y + duration
+                    #
+                    # 1 + 1 + 4 + 4 + 2 = 12
                     expected_len = 12
+
                 elif cmd == CMD_MOTION_BLOCK:
-                    # ждём байт count
+
+                    # Пока знаем только marker + cmd.
+                    # Ждём count.
                     expected_len = 0
+
                 else:
+
+                    # Неизвестная команда.
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
+
                     continue
 
-            # Получили count для блока
-            elif packet_idx == 3 and packet_buf[1] == CMD_MOTION_BLOCK:
+            # -------------------------------------------------
+            # Получили COUNT для motion block
+            # -------------------------------------------------
+
+            elif (
+                packet_idx == 3
+                and packet_buf[1] == CMD_MOTION_BLOCK
+            ):
+
                 count = packet_buf[2]
+
                 if count == 0:
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
                     continue
-                expected_len = 3 + count * 6  # теперь delta: 2+2+2 = 6 байт
+
+                # header:
+                # marker + cmd + count = 3 bytes
+                #
+                # segment:
+                # dx + dy + duration = 6 bytes
+                #
+                # total:
+                # 3 + count * 6
+
+                expected_len = 3 + count * 6
+
                 if expected_len > len(packet_buf):
+
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
+
                     continue
 
-            # Полный пакет
-            if expected_len > 0 and packet_idx == expected_len:
+            # -------------------------------------------------
+            # Проверяем полный пакет
+            # -------------------------------------------------
+
+            if (
+                expected_len > 0
+                and packet_idx == expected_len
+            ):
+
                 cmd = packet_buf[1]
 
+                # =============================================
+                # CMD_LINE
+                # =============================================
+
                 if cmd == CMD_LINE:
-                    tx = struct.unpack('<i', packet_buf[2:6])[0]
-                    ty = struct.unpack('<i', packet_buf[6:10])[0]
-                    dur = struct.unpack('<H', packet_buf[10:12])[0]
-                    buffer_put(tx, ty, dur)
-                    # обновляем базовую точку для последующих delta
-                    last_x = tx
-                    last_y = ty
+
+                    tx = struct.unpack(
+                        '<i',
+                        packet_buf[2:6]
+                    )[0]
+
+                    ty = struct.unpack(
+                        '<i',
+                        packet_buf[6:10]
+                    )[0]
+
+                    dur = struct.unpack(
+                        '<H',
+                        packet_buf[10:12]
+                    )[0]
+
+                    if buffer_put(tx, ty, dur):
+
+                        # Теперь delta-сегменты будут
+                        # продолжаться именно от этой точки.
+                        last_x = tx
+                        last_y = ty
+
+                # =============================================
+                # CMD_MOTION_BLOCK
+                # =============================================
 
                 elif cmd == CMD_MOTION_BLOCK:
+
                     count = packet_buf[2]
+
                     offset = 3
+
                     for _ in range(count):
-                        dx = struct.unpack('<h', packet_buf[offset:offset+2])[0]
-                        dy = struct.unpack('<h', packet_buf[offset+2:offset+4])[0]
-                        dur = struct.unpack('<H', packet_buf[offset+4:offset+6])[0]
+
+                        dx = struct.unpack(
+                            '<h',
+                            packet_buf[offset:offset + 2]
+                        )[0]
+
+                        dy = struct.unpack(
+                            '<h',
+                            packet_buf[offset + 2:offset + 4]
+                        )[0]
+
+                        dur = struct.unpack(
+                            '<H',
+                            packet_buf[offset + 4:offset + 6]
+                        )[0]
+
                         offset += 6
 
-                        # delta -> абсолютные координаты
+                        # Delta -> абсолютная координата
                         last_x += dx
                         last_y += dy
-                        if not buffer_put(last_x, last_y, dur):
+
+                        if not buffer_put(
+                            last_x,
+                            last_y,
+                            dur
+                        ):
+                            # Ring buffer заполнен.
                             break
+
+                # -------------------------------------------------
+                # Пакет обработан
+                # -------------------------------------------------
 
                 state = WAIT_SYNC
                 packet_idx = 0

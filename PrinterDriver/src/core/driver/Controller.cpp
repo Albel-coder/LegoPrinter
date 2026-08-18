@@ -639,99 +639,311 @@ std::vector<Point> smoothSharpCorners(const std::vector<Point>& pts, double angl
 	return smoothed;
 }
 
-bool Controller::sendMotionBlock(const std::vector<MotionSegmentDelta>& segments) {
-	if (segments.empty()) return true;
+bool Controller::sendMotionBlock(
+	const std::vector<MotionSegmentDelta>& segments)
+{
+	if (segments.empty())
+		return true;
 
-	const size_t SEGMENT_SIZE = 6; // 2 + 2 + 2
-	size_t maxWrite = transport.getMaxWriteSize();
-	if (maxWrite < 4) return false;
+	constexpr size_t SEGMENT_SIZE = 6;
+	constexpr size_t HEADER_SIZE = 3;
 
-	size_t maxSegmentsPerWrite = (maxWrite - 3) / SEGMENT_SIZE;
-	if (maxSegmentsPerWrite == 0) return false;
+	const size_t maxWrite =
+		transport.getMaxWriteSize();
+
+	if (maxWrite < HEADER_SIZE + SEGMENT_SIZE)
+		return false;
+
+	const size_t maxSegmentsPerWrite =
+		(maxWrite - HEADER_SIZE) / SEGMENT_SIZE;
+
+	if (maxSegmentsPerWrite == 0)
+		return false;
 
 	size_t offset = 0;
-	while (offset < segments.size()) {
-		size_t count = std::min(maxSegmentsPerWrite, segments.size() - offset);
-		size_t packetSize = 3 + count * SEGMENT_SIZE;
+
+	while (offset < segments.size())
+	{
+		const size_t count =
+			std::min(
+				maxSegmentsPerWrite,
+				segments.size() - offset
+			);
+
+		const size_t packetSize =
+			HEADER_SIZE +
+			count * SEGMENT_SIZE;
+
 		std::vector<uint8_t> buffer(packetSize);
 
-		buffer[0] = 0x06;                // тип данных (как раньше)
-		buffer[1] = CMD_MOTION_BLOCK;    // команда блока
-		buffer[2] = static_cast<uint8_t>(count);
+		// ---------------------------------------------
+		// Header
+		// ---------------------------------------------
 
-		for (size_t i = 0; i < count; ++i) {
-			const auto& seg = segments[offset + i];
-			size_t base = 3 + i * SEGMENT_SIZE;
-			memcpy(&buffer[base], &seg.dx, 2);
-			memcpy(&buffer[base + 2], &seg.dy, 2);
-			memcpy(&buffer[base + 4], &seg.duration_ms, 2);
+		buffer[0] = 0x06;
+		buffer[1] = CMD_MOTION_BLOCK;
+		buffer[2] =
+			static_cast<uint8_t>(count);
+
+		// ---------------------------------------------
+		// Segments
+		// ---------------------------------------------
+
+		for (size_t i = 0; i < count; ++i)
+		{
+			const auto& seg =
+				segments[offset + i];
+
+			const size_t base =
+				HEADER_SIZE +
+				i * SEGMENT_SIZE;
+
+			memcpy(
+				&buffer[base],
+				&seg.dx,
+				sizeof(seg.dx)
+			);
+
+			memcpy(
+				&buffer[base + 2],
+				&seg.dy,
+				sizeof(seg.dy)
+			);
+
+			memcpy(
+				&buffer[base + 4],
+				&seg.duration_ms,
+				sizeof(seg.duration_ms)
+			);
 		}
 
-		if (!transport.write(pybricksCommandEvent, buffer.data(), buffer.size(), true)) {
-			LOG_ERROR("Failed to send motion block at offset %zu", offset);
+		// ---------------------------------------------
+		// BLE write
+		// ---------------------------------------------
+
+		if (!transport.write(
+			pybricksCommandEvent,
+			buffer.data(),
+			buffer.size(),
+			true))
+		{
+			LOG_ERROR(
+				"Failed to send motion block at offset %zu",
+				offset
+			);
+
 			return false;
 		}
 
 		offset += count;
 
-		if (offset < segments.size()) {
-			// Небольшая пауза между блоками, чтобы не забивать BLE стек
-			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		// ---------------------------------------------
+		// Небольшая пауза между BLE writes
+		// ---------------------------------------------
+
+		if (offset < segments.size())
+		{
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(2)
+			);
 		}
 	}
+
 	return true;
 }
 
-bool Controller::runMotionTest() {
-	auto rawPoints = readSkeletonCsv("one_contour.csv");
-	if (rawPoints.empty()) {
+bool Controller::runMotionTest()
+{
+	// =====================================================
+	// 1. Load
+	// =====================================================
+
+	auto rawPoints =
+		readSkeletonCsv("one_contour.csv");
+
+	if (rawPoints.empty())
+	{
 		LOG_ERROR("No points loaded");
 		return false;
 	}
-	LOG_INFO("Loaded %d raw points", rawPoints.size());
 
-	// Очистка от дубликатов
+	LOG_INFO(
+		"Loaded %zu raw points",
+		rawPoints.size()
+	);
+
+	// =====================================================
+	// 2. Cleaning
+	// =====================================================
+
 	std::vector<Point> cleaned;
-	Point last = { -9999, -9999 };
-	for (auto& p : rawPoints) {
-		if (std::abs(p.x - last.x) + std::abs(p.y - last.y) >= 2) {
+
+	Point last = {
+		-9999,
+		-9999
+	};
+
+	for (const auto& p : rawPoints)
+	{
+		if (
+			std::abs(p.x - last.x) +
+			std::abs(p.y - last.y) >= 2
+			)
+		{
 			cleaned.push_back(p);
 			last = p;
 		}
 	}
-	LOG_INFO("after cleaning: %d points", cleaned.size());
 
-	// RDP с меньшим epsilon для сохранения деталей
-	double epsilon = 3.0;
+	LOG_INFO(
+		"After cleaning: %zu points",
+		cleaned.size()
+	);
+
+	if (cleaned.size() < 2)
+	{
+		LOG_ERROR("Not enough points after cleaning");
+		return false;
+	}
+
+	// =====================================================
+	// 3. RDP
+	// =====================================================
+
+	constexpr double RDP_EPSILON = 3.0;
+
 	std::vector<Point> simplified;
-	simplifyRDP(cleaned, epsilon, simplified);
-	LOG_INFO("After RDP: %d points", simplified.size());
 
-	// Ресемплинг по расстоянию (равномерное распределение)
-	double resample_spacing = 15.0;
-	std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
-	LOG_INFO("After resampling: %d points", resampled.size());
+	simplifyRDP(
+		cleaned,
+		RDP_EPSILON,
+		simplified
+	);
 
-	// Планировщик скорости
+	LOG_INFO(
+		"After RDP: %zu points",
+		simplified.size()
+	);
+
+	if (simplified.size() < 2)
+	{
+		LOG_ERROR("Not enough points after RDP");
+		return false;
+	}
+
+	// =====================================================
+	// 4. Resampling
+	// =====================================================
+
+	constexpr double RESAMPLE_SPACING = 15.0;
+
+	std::vector<Point> resampled =
+		resampleByDistance(
+			simplified,
+			RESAMPLE_SPACING
+		);
+
+	LOG_INFO(
+		"After resampling: %zu points",
+		resampled.size()
+	);
+
+	if (resampled.size() < 2)
+	{
+		LOG_ERROR(
+			"Not enough points after resampling"
+		);
+		return false;
+	}
+
+	// =====================================================
+	// 5. Velocity planner
+	// =====================================================
+
 	MotionLimits limits;
+
 	limits.max_velocity = 1200.0;
 	limits.max_accel = 3000.0;
 	limits.junction_deviation = 3.0;
 
-	auto durations_sec = planVelocity(resampled, limits);
+	auto durations_sec =
+		planVelocity(
+			resampled,
+			limits
+		);
 
-	// Формируем delta‑сегменты, начиная со второй точки
-	std::vector<MotionSegmentDelta> deltaSegments;
-	for (size_t i = 0; i < durations_sec.size(); ++i) {
-		uint16_t dur_ms = static_cast<uint16_t>(durations_sec[i] * 1000.0);
-		if (dur_ms < 10) dur_ms = 10;
+	if (
+		durations_sec.size() + 1
+		!= resampled.size()
+		)
+	{
+		LOG_ERROR(
+			"Invalid duration count: durations=%zu points=%zu",
+			durations_sec.size(),
+			resampled.size()
+		);
 
-		int32_t dx = resampled[i + 1].x - resampled[i].x;
-		int32_t dy = resampled[i + 1].y - resampled[i].y;
+		return false;
+	}
 
-		// Проверяем, что dx/dy влезают в int16_t
-		if (dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767) {
-			LOG_ERROR("Delta out of range: dx=%d, dy=%d", dx, dy);
+	// =====================================================
+	// 6. Build delta segments
+	// =====================================================
+
+	std::vector<MotionSegmentDelta>
+		deltaSegments;
+
+	deltaSegments.reserve(
+		durations_sec.size()
+	);
+
+	for (
+		size_t i = 0;
+		i < durations_sec.size();
+		++i)
+	{
+		// ---------------------------------------------
+		// Duration
+		// ---------------------------------------------
+
+		uint16_t dur_ms =
+			static_cast<uint16_t>(
+				durations_sec[i] * 1000.0
+				);
+
+		if (dur_ms < 10)
+			dur_ms = 10;
+
+		// ---------------------------------------------
+		// Delta
+		// ---------------------------------------------
+
+		const int32_t dx =
+			resampled[i + 1].x -
+			resampled[i].x;
+
+		const int32_t dy =
+			resampled[i + 1].y -
+			resampled[i].y;
+
+		// ---------------------------------------------
+		// int16 range check
+		// ---------------------------------------------
+
+		if (
+			dx < INT16_MIN ||
+			dx > INT16_MAX ||
+			dy < INT16_MIN ||
+			dy > INT16_MAX
+			)
+		{
+			LOG_ERROR(
+				"Delta out of int16 range: "
+				"dx=%d dy=%d",
+				dx,
+				dy
+			);
+
 			return false;
 		}
 
@@ -741,48 +953,208 @@ bool Controller::runMotionTest() {
 			dur_ms
 			});
 	}
-	LOG_INFO("Generated %d delta segments", deltaSegments.size());
 
-	// Отправляем стартовую точку как абсолютную (CMD_LINE)
-	int start_tx = resampled[0].x;
-	int start_ty = resampled[0].y;
-	uint16_t start_dur = 800;
-	if (!sendLineSegment(start_tx, start_ty, start_dur)) {
-		LOG_ERROR("Failed to send start point");
-		return false;
+	LOG_INFO(
+		"Generated %zu delta segments",
+		deltaSegments.size()
+	);
+
+	// =====================================================
+	// 7. Verify delta accumulation
+	// =====================================================
+
+	int64_t totalDx = 0;
+	int64_t totalDy = 0;
+
+	for (const auto& seg : deltaSegments)
+	{
+		totalDx += seg.dx;
+		totalDy += seg.dy;
 	}
-	std::this_thread::sleep_for(std::chrono::milliseconds(start_dur));
 
-	// Отправляем все delta‑сегменты блоками
-	size_t sent = 0;
-	while (sent < deltaSegments.size()) {
-		// Проверяем flow control от хаба
-		while (remoteBufferFull.load()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}
+	const int64_t expectedDx =
+		static_cast<int64_t>(
+			resampled.back().x
+			) -
+		static_cast<int64_t>(
+			resampled.front().x
+			);
 
-		// Определяем размер блока
-		size_t maxWrite = transport.getMaxWriteSize();
-		size_t maxSegments = (maxWrite - 3) / 6;
-		if (maxSegments == 0) maxSegments = 1;
+	const int64_t expectedDy =
+		static_cast<int64_t>(
+			resampled.back().y
+			) -
+		static_cast<int64_t>(
+			resampled.front().y
+			);
 
-		size_t count = std::min(maxSegments, deltaSegments.size() - sent);
-		std::vector<MotionSegmentDelta> block(
-			deltaSegments.begin() + sent,
-			deltaSegments.begin() + sent + count
+	LOG_INFO(
+		"Delta verification: "
+		"sum=(%lld,%lld) expected=(%lld,%lld)",
+		totalDx,
+		totalDy,
+		expectedDx,
+		expectedDy
+	);
+
+	if (
+		totalDx != expectedDx ||
+		totalDy != expectedDy
+		)
+	{
+		LOG_ERROR(
+			"Delta verification FAILED"
 		);
 
-		if (!sendMotionBlock(block)) {
-			LOG_ERROR("Failed to send motion block starting at %zu", sent);
+		return false;
+	}
+
+	LOG_INFO(
+		"Delta verification PASSED"
+	);
+
+	// =====================================================
+	// 8. Move to starting point
+	// =====================================================
+
+	const int start_tx =
+		resampled.front().x;
+
+	const int start_ty =
+		resampled.front().y;
+
+	constexpr uint16_t START_DURATION_MS = 800;
+
+	LOG_INFO(
+		"Moving to start point: X=%d Y=%d",
+		start_tx,
+		start_ty
+	);
+
+	if (!sendLineSegment(
+		start_tx,
+		start_ty,
+		START_DURATION_MS))
+	{
+		LOG_ERROR(
+			"Failed to send start point"
+		);
+
+		return false;
+	}
+
+	// Даём хабу выполнить стартовое движение.
+	std::this_thread::sleep_for(
+		std::chrono::milliseconds(
+			START_DURATION_MS
+		)
+	);
+
+	// =====================================================
+	// 9. Send motion blocks
+	// =====================================================
+
+	size_t sent = 0;
+
+	const size_t maxWrite =
+		transport.getMaxWriteSize();
+
+	if (maxWrite < 9)
+	{
+		LOG_ERROR(
+			"BLE write size too small: %zu",
+			maxWrite
+		);
+
+		return false;
+	}
+
+	const size_t maxSegments =
+		(maxWrite - 3) / 6;
+
+	LOG_INFO(
+		"BLE maxWrite=%zu, "
+		"segments per packet=%zu",
+		maxWrite,
+		maxSegments
+	);
+
+	while (
+		sent < deltaSegments.size())
+	{
+		// ---------------------------------------------
+		// Flow control
+		// ---------------------------------------------
+
+		while (
+			remoteBufferFull.load())
+		{
+			std::this_thread::sleep_for(
+				std::chrono::milliseconds(5)
+			);
+		}
+
+		// ---------------------------------------------
+		// Размер текущего блока
+		// ---------------------------------------------
+
+		const size_t count =
+			std::min(
+				maxSegments,
+				deltaSegments.size() - sent
+			);
+
+		std::vector<MotionSegmentDelta>
+			block;
+
+		block.reserve(count);
+
+		block.insert(
+			block.end(),
+			deltaSegments.begin() + sent,
+			deltaSegments.begin() +
+			sent + count
+		);
+
+		// ---------------------------------------------
+		// Send
+		// ---------------------------------------------
+
+		if (!sendMotionBlock(block))
+		{
+			LOG_ERROR(
+				"Failed to send motion block "
+				"starting at %zu",
+				sent
+			);
+
 			return false;
 		}
 
 		sent += count;
-		LOG_DEBUG("Sent block of %zu segments (total %zu/%zu)", count, sent, deltaSegments.size());
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		LOG_DEBUG(
+			"Sent block: %zu segments, "
+			"total %zu/%zu",
+			count,
+			sent,
+			deltaSegments.size()
+		);
+
+		// Небольшой rate limit.
+		std::this_thread::sleep_for(
+			std::chrono::milliseconds(2)
+		);
 	}
 
-	LOG_INFO("All %d segments sent in blocks.", deltaSegments.size());
+	// =====================================================
+	// 10. Done
+	// =====================================================
+
+	LOG_INFO(
+		"All %zu motion segments sent",
+		deltaSegments.size()
+	);
+
 	return true;
 }
