@@ -170,7 +170,7 @@ async def smooth_executor():
     segment_count = 0
     UPDATE_MS = 5
 
-    while buffer_count() < 30:
+    while buffer_count() < 300:
         await wait(10)
 
     usys.stdout.buffer.write(b"start printing\n")

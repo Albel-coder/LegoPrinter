@@ -840,7 +840,7 @@ bool Controller::runMotionTest() {
 
 		sent += count;
 		LOG_DEBUG("Sent block: %zu segments, total %zu/%zu", count,	sent, deltaSegments.size());
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 	}
 
 	LOG_INFO("All %zu motion segments sent", deltaSegments.size());
