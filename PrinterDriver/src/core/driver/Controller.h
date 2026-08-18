@@ -7,9 +7,9 @@
 #include <atomic>
 
 #pragma pack(push, 1)
-struct MotionSegment {
-	int32_t target_x;
-	int32_t target_y;
+struct MotionSegmentDelta {
+	int16_t dx;
+	int16_t dy;
 	uint16_t duration_ms;
 };
 #pragma pack(pop)
@@ -29,7 +29,7 @@ public:
 
 	bool runMotionTest();
 
-	bool sendMotionBlock(const std::vector<MotionSegment>& segments);
+	bool sendMotionBlock(const std::vector<MotionSegmentDelta>& segments);
 
 private:
 	ITransport& transport;

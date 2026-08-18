@@ -1,4 +1,4 @@
-#include "Controller.h"
+п»ї#include "Controller.h"
 #include "protocol/PrinterProtocol.h"
 #include "../logging/LogManager.h"
 
@@ -198,8 +198,16 @@ void Controller::onData(const uint8_t* data, size_t length) {
 	if (type == 0x01) { // stdout
 		std::string text(reinterpret_cast<const char*>(payload), payloadLength);
 
-		// Перехватываем управление потоком
-		if (text.find("COMMAND_PAUSE") != std::string::npos) {
+		// РџРµСЂРµС…РІР°С‚С‹РІР°РµРј СѓРїСЂР°РІР»РµРЅРёРµ РїРѕС‚РѕРєРѕРј
+		if (text.find("FLOW_STOP") != std::string::npos) {
+			remoteBufferFull.store(true);
+			LOG_WARNING("Host paused: robot buffer is nearly full");
+		}
+		else if (text.find("FLOW_RESUME") != std::string::npos) {
+			remoteBufferFull.store(false);
+			LOG_INFO("Host resumed: robot buffer has free space");
+		}
+		else if (text.find("COMMAND_PAUSE") != std::string::npos) {
 			remoteBufferFull.store(true);
 			LOG_WARNING("Host paused: Robot buffer is nearly full");
 		}
@@ -433,8 +441,8 @@ std::vector<Point> readSkeletonCsv(const std::string& filename) {
 struct MotionLimits {
 	double max_velocity; // steps / s
 	double max_accel; // steps / s^2
-	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
-	double junction_min_factor = 0.5; // минимальная скорость как доля от max_velocity
+	double junction_deviation = 2.0; // РґРѕРїСѓСЃС‚РёРјРѕРµ РѕС‚РєР»РѕРЅРµРЅРёРµ РЅР° СЃС‚С‹РєРµ, С€Р°РіРѕРІ
+	double junction_min_factor = 0.5; // РјРёРЅРёРјР°Р»СЊРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ РєР°Рє РґРѕР»СЏ РѕС‚ max_velocity
 };
 
 double computeJunctionVelocity(
@@ -448,7 +456,7 @@ double computeJunctionVelocity(
 	double len1 = std::sqrt(dx1 * dx1 + dy1 * dy1);
 	double len2 = std::sqrt(dx2 * dx2 + dy2 * dy2);
 	if (len1 < 1e-6 || len2 < 1e-6) {
-		return limits.max_velocity; // не 0, чтобы не останавливаться при вырожденных сегментах
+		return limits.max_velocity; // РЅРµ 0, С‡С‚РѕР±С‹ РЅРµ РѕСЃС‚Р°РЅР°РІР»РёРІР°С‚СЊСЃСЏ РїСЂРё РІС‹СЂРѕР¶РґРµРЅРЅС‹С… СЃРµРіРјРµРЅС‚Р°С…
 	}
 
 	double cos_angle = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
@@ -459,19 +467,19 @@ double computeJunctionVelocity(
 	double cos_half = std::cos(half_angle);
 	double denom = 1.0 - cos_half;
 	if (denom < 1e-9) {
-		return limits.max_velocity; // почти прямой участок
+		return limits.max_velocity; // РїРѕС‡С‚Рё РїСЂСЏРјРѕР№ СѓС‡Р°СЃС‚РѕРє
 	}
 
 	double v_sq = limits.max_accel * limits.junction_deviation * cos_half / denom;
 	if (v_sq < 0) v_sq = 0;
 	double v = std::sqrt(v_sq);
 
-	// Ограничение сверху
+	// РћРіСЂР°РЅРёС‡РµРЅРёРµ СЃРІРµСЂС…Сѓ
 	if (v > limits.max_velocity) { 
 		v = limits.max_velocity; 
 	}
 
-	// Ограничение снизу, чтобы не было полной остановки
+	// РћРіСЂР°РЅРёС‡РµРЅРёРµ СЃРЅРёР·Сѓ, С‡С‚РѕР±С‹ РЅРµ Р±С‹Р»Рѕ РїРѕР»РЅРѕР№ РѕСЃС‚Р°РЅРѕРІРєРё
 	double v_min = limits.junction_min_factor * limits.max_velocity;
 	if (v < v_min) { 
 		v = v_min;
@@ -480,13 +488,13 @@ double computeJunctionVelocity(
 	return v;
 }
 
-// Основной планировщик скорости
+// РћСЃРЅРѕРІРЅРѕР№ РїР»Р°РЅРёСЂРѕРІС‰РёРє СЃРєРѕСЂРѕСЃС‚Рё
 std::vector<double> planVelocity(const std::vector<Point>& points, const MotionLimits& limits) {
 	if (points.size() < 2) {
 		return {};
 	}
 
-	size_t N = points.size() - 1; // количество сегментов
+	size_t N = points.size() - 1; // РєРѕР»РёС‡РµСЃС‚РІРѕ СЃРµРіРјРµРЅС‚РѕРІ
 	std::vector<double> lengths(N);
 	for (size_t i = 0; i < N; ++i) {
 		double dx = points[i + 1].x - points[i].x;
@@ -494,17 +502,17 @@ std::vector<double> planVelocity(const std::vector<Point>& points, const MotionL
 		lengths[i] = std::sqrt(dx * dx + dy * dy);
 	}
 
-	// единый массив скоростей в вершинах (v[0] - старт, v[1] - финиш)
+	// РµРґРёРЅС‹Р№ РјР°СЃСЃРёРІ СЃРєРѕСЂРѕСЃС‚РµР№ РІ РІРµСЂС€РёРЅР°С… (v[0] - СЃС‚Р°СЂС‚, v[1] - С„РёРЅРёС€)
 	std::vector<double> v(N + 1, limits.max_velocity);
-	v[0] = 0.0; // начальная скорость
-	v[N] = 0.0; // конечная скорость
+	v[0] = 0.0; // РЅР°С‡Р°Р»СЊРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ
+	v[N] = 0.0; // РєРѕРЅРµС‡РЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ
 
-	// Junction velocity в промежуточных узлах
+	// Junction velocity РІ РїСЂРѕРјРµР¶СѓС‚РѕС‡РЅС‹С… СѓР·Р»Р°С…
 	for (size_t i = 1; i < N; ++i) {
 		v[i] = computeJunctionVelocity(points[i - 1], points[i], points[i + 1], limits);
 	}
 
-	// Forward pass: ограничиваем скорость возможностью разогнаться
+	// Forward pass: РѕРіСЂР°РЅРёС‡РёРІР°РµРј СЃРєРѕСЂРѕСЃС‚СЊ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊСЋ СЂР°Р·РѕРіРЅР°С‚СЊСЃСЏ
 	for (size_t i = 0; i < N; ++i) {
 		double reachable = std::sqrt(v[i] * v[i] + 2.0 * limits.max_accel * lengths[i]);
 		if (v[i + 1] > reachable) {
@@ -512,7 +520,7 @@ std::vector<double> planVelocity(const std::vector<Point>& points, const MotionL
 		}
 	}
 
-	// Backward pass: ограничиваем скорость возможностью затормозить
+	// Backward pass: РѕРіСЂР°РЅРёС‡РёРІР°РµРј СЃРєРѕСЂРѕСЃС‚СЊ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊСЋ Р·Р°С‚РѕСЂРјРѕР·РёС‚СЊ
 	for (size_t i = N; i-- > 0; ) {
 		double reachable = std::sqrt(v[i + 1] * v[i + 1] + 2.0 * limits.max_accel * lengths[i]);
 		if (v[i] > reachable) {
@@ -520,7 +528,7 @@ std::vector<double> planVelocity(const std::vector<Point>& points, const MotionL
 		}
 	}
 
-	// Вычисляем длительности сегментов
+	// Р’С‹С‡РёСЃР»СЏРµРј РґР»РёС‚РµР»СЊРЅРѕСЃС‚Рё СЃРµРіРјРµРЅС‚РѕРІ
 	std::vector<double> durations(N);
 	for (size_t i = 0; i < N; ++i) {
 		if (v[i] + v[i + 1] > 0) {
@@ -538,7 +546,7 @@ std::vector<Point> resampleByDistance(const std::vector<Point>& points, double s
 		return points;
 	}
 
-	// Вычисляем кумулятивные длины
+	// Р’С‹С‡РёСЃР»СЏРµРј РєСѓРјСѓР»СЏС‚РёРІРЅС‹Рµ РґР»РёРЅС‹
 	std::vector<double> cum_len(points.size(), 0.0);
 	for (size_t i = 1; i < points.size(); ++i) {
 		double dx = points[i].x - points[i - 1].x;
@@ -547,16 +555,16 @@ std::vector<Point> resampleByDistance(const std::vector<Point>& points, double s
 	}
 	double total_len = cum_len.back();
 	if (total_len < spacing) {
-		return points; // слишком короткая траектория - не ресемплируем
+		return points; // СЃР»РёС€РєРѕРј РєРѕСЂРѕС‚РєР°СЏ С‚СЂР°РµРєС‚РѕСЂРёСЏ - РЅРµ СЂРµСЃРµРјРїР»РёСЂСѓРµРј
 	}
 
 	std::vector<Point> resampled;
 	resampled.push_back(points.front());
 
 	double target = spacing;
-	size_t index = 0; // индекс текущего сегмента (index -> index + 1)
+	size_t index = 0; // РёРЅРґРµРєСЃ С‚РµРєСѓС‰РµРіРѕ СЃРµРіРјРµРЅС‚Р° (index -> index + 1)
 	while (target < total_len - 1e-9) {
-		// Находим сегмент, содержащий target
+		// РќР°С…РѕРґРёРј СЃРµРіРјРµРЅС‚, СЃРѕРґРµСЂР¶Р°С‰РёР№ target
 		while (index + 1 < cum_len.size() && cum_len[index + 1] < target) {
 			index++;
 		}
@@ -577,7 +585,7 @@ std::vector<Point> resampleByDistance(const std::vector<Point>& points, double s
 		target += spacing;
 	}
 
-	// Добавляем конечную точку, если она не совпадает с последней добавленной
+	// Р”РѕР±Р°РІР»СЏРµРј РєРѕРЅРµС‡РЅСѓСЋ С‚РѕС‡РєСѓ, РµСЃР»Рё РѕРЅР° РЅРµ СЃРѕРІРїР°РґР°РµС‚ СЃ РїРѕСЃР»РµРґРЅРµР№ РґРѕР±Р°РІР»РµРЅРЅРѕР№
 	if (resampled.back().x != points.back().x || resampled.back().y != points.back().y) {
 		resampled.push_back(points.back());
 	}
@@ -623,7 +631,7 @@ std::vector<Point> smoothSharpCorners(const std::vector<Point>& pts, double angl
 	for (size_t i = 1; i < pts.size() - 1; ++i) {
 		double angle = angleBetween(pts[i - 1], pts[i], pts[i + 1]);
 		if (angle > angleThreshold) {
-			// Заменяем вершину на среднее с соседями (или используем дуговое сглаживание)
+			// Р—Р°РјРµРЅСЏРµРј РІРµСЂС€РёРЅСѓ РЅР° СЃСЂРµРґРЅРµРµ СЃ СЃРѕСЃРµРґСЏРјРё (РёР»Рё РёСЃРїРѕР»СЊР·СѓРµРј РґСѓРіРѕРІРѕРµ СЃРіР»Р°Р¶РёРІР°РЅРёРµ)
 			smoothed[i].x = (pts[i - 1].x + pts[i].x + pts[i + 1].x) / 3;
 			smoothed[i].y = (pts[i - 1].y + pts[i].y + pts[i + 1].y) / 3;
 		}
@@ -631,14 +639,14 @@ std::vector<Point> smoothSharpCorners(const std::vector<Point>& pts, double angl
 	return smoothed;
 }
 
-bool Controller::sendMotionBlock(const std::vector<MotionSegment>& segments) {
+bool Controller::sendMotionBlock(const std::vector<MotionSegmentDelta>& segments) {
 	if (segments.empty()) return true;
 
-	const size_t SEGMENT_SIZE = 10; // 4 + 4 + 2
+	const size_t SEGMENT_SIZE = 6; // 2 + 2 + 2
 	size_t maxWrite = transport.getMaxWriteSize();
-	if (maxWrite < 4) return false; // не хватает места для заголовка
+	if (maxWrite < 4) return false;
 
-	size_t maxSegmentsPerWrite = (maxWrite - 3) / SEGMENT_SIZE; // 3 байта: type, cmd, count
+	size_t maxSegmentsPerWrite = (maxWrite - 3) / SEGMENT_SIZE;
 	if (maxSegmentsPerWrite == 0) return false;
 
 	size_t offset = 0;
@@ -647,16 +655,16 @@ bool Controller::sendMotionBlock(const std::vector<MotionSegment>& segments) {
 		size_t packetSize = 3 + count * SEGMENT_SIZE;
 		std::vector<uint8_t> buffer(packetSize);
 
-		buffer[0] = 0x06;                // тип данных (как в sendLineSegment)
-		buffer[1] = CMD_MOTION_BLOCK;    // команда
+		buffer[0] = 0x06;                // С‚РёРї РґР°РЅРЅС‹С… (РєР°Рє СЂР°РЅСЊС€Рµ)
+		buffer[1] = CMD_MOTION_BLOCK;    // РєРѕРјР°РЅРґР° Р±Р»РѕРєР°
 		buffer[2] = static_cast<uint8_t>(count);
 
 		for (size_t i = 0; i < count; ++i) {
-			const MotionSegment& seg = segments[offset + i];
+			const auto& seg = segments[offset + i];
 			size_t base = 3 + i * SEGMENT_SIZE;
-			memcpy(&buffer[base], &seg.target_x, 4);
-			memcpy(&buffer[base + 4], &seg.target_y, 4);
-			memcpy(&buffer[base + 8], &seg.duration_ms, 2);
+			memcpy(&buffer[base], &seg.dx, 2);
+			memcpy(&buffer[base + 2], &seg.dy, 2);
+			memcpy(&buffer[base + 4], &seg.duration_ms, 2);
 		}
 
 		if (!transport.write(pybricksCommandEvent, buffer.data(), buffer.size(), true)) {
@@ -666,9 +674,9 @@ bool Controller::sendMotionBlock(const std::vector<MotionSegment>& segments) {
 
 		offset += count;
 
-		// Небольшая пауза между блоками, чтобы не переполнять BLE стек
 		if (offset < segments.size()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			// РќРµР±РѕР»СЊС€Р°СЏ РїР°СѓР·Р° РјРµР¶РґСѓ Р±Р»РѕРєР°РјРё, С‡С‚РѕР±С‹ РЅРµ Р·Р°Р±РёРІР°С‚СЊ BLE СЃС‚РµРє
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		}
 	}
 	return true;
@@ -682,7 +690,7 @@ bool Controller::runMotionTest() {
 	}
 	LOG_INFO("Loaded %d raw points", rawPoints.size());
 
-	// Очистка от дубликатов
+	// РћС‡РёСЃС‚РєР° РѕС‚ РґСѓР±Р»РёРєР°С‚РѕРІ
 	std::vector<Point> cleaned;
 	Point last = { -9999, -9999 };
 	for (auto& p : rawPoints) {
@@ -693,69 +701,75 @@ bool Controller::runMotionTest() {
 	}
 	LOG_INFO("after cleaning: %d points", cleaned.size());
 
-	// RDP с меньшим epsilon для сохранения деталей
+	// RDP СЃ РјРµРЅСЊС€РёРј epsilon РґР»СЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ РґРµС‚Р°Р»РµР№
 	double epsilon = 3.0;
 	std::vector<Point> simplified;
 	simplifyRDP(cleaned, epsilon, simplified);
 	LOG_INFO("After RDP: %d points", simplified.size());
 
-	// Ресемплинг по расстоянию (равномерное распределение точек)
-	double resample_spacing = 15.0; // шагов
+	// Р РµСЃРµРјРїР»РёРЅРі РїРѕ СЂР°СЃСЃС‚РѕСЏРЅРёСЋ (СЂР°РІРЅРѕРјРµСЂРЅРѕРµ СЂР°СЃРїСЂРµРґРµР»РµРЅРёРµ)
+	double resample_spacing = 15.0;
 	std::vector<Point> resampled = resampleByDistance(simplified, resample_spacing);
 	LOG_INFO("After resampling: %d points", resampled.size());
 
-	// Лёгкое сглаживание скользящим средним
-	std::vector<Point> smoothed = smoothPoints(resampled, 2);
-	LOG_INFO("After smoothing: %d points", smoothed.size());
-
-	// Планировщик скорости
+	// РџР»Р°РЅРёСЂРѕРІС‰РёРє СЃРєРѕСЂРѕСЃС‚Рё
 	MotionLimits limits;
 	limits.max_velocity = 1200.0;
 	limits.max_accel = 3000.0;
 	limits.junction_deviation = 3.0;
 
-	auto durations_sec = planVelocity(smoothed, limits);
+	auto durations_sec = planVelocity(resampled, limits);
 
-	// Формируем сегменты с длительностями
-	std::vector<MotionSegment> motionSegments;
+	// Р¤РѕСЂРјРёСЂСѓРµРј deltaвЂ‘СЃРµРіРјРµРЅС‚С‹, РЅР°С‡РёРЅР°СЏ СЃРѕ РІС‚РѕСЂРѕР№ С‚РѕС‡РєРё
+	std::vector<MotionSegmentDelta> deltaSegments;
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
 		uint16_t dur_ms = static_cast<uint16_t>(durations_sec[i] * 1000.0);
-		if (dur_ms < 10) dur_ms = 10; // поднимаем минимум, чтобы хаб успевал
-		motionSegments.push_back({ smoothed[i + 1].x, smoothed[i + 1].y, dur_ms });
-	}
-	LOG_INFO("Generated %d motion segments", motionSegments.size());
+		if (dur_ms < 10) dur_ms = 10;
 
-	// Отправка стартовой точки с задержкой 800 мс
-	if (!motionSegments.empty()) {
-		int start_tx = smoothed[0].x;
-		int start_ty = smoothed[0].y;
-		uint16_t start_dur = 800;
-		MotionSegment startSeg = { start_tx, start_ty, start_dur };
-		std::vector<MotionSegment> startBlock = { startSeg };
-		if (!sendMotionBlock(startBlock)) {
-			LOG_ERROR("Failed to send start point");
+		int32_t dx = resampled[i + 1].x - resampled[i].x;
+		int32_t dy = resampled[i + 1].y - resampled[i].y;
+
+		// РџСЂРѕРІРµСЂСЏРµРј, С‡С‚Рѕ dx/dy РІР»РµР·Р°СЋС‚ РІ int16_t
+		if (dx < -32768 || dx > 32767 || dy < -32768 || dy > 32767) {
+			LOG_ERROR("Delta out of range: dx=%d, dy=%d", dx, dy);
 			return false;
 		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(start_dur));
-	}
 
-	// Отправка всех сегментов блоками с учётом flow control
+		deltaSegments.push_back({
+			static_cast<int16_t>(dx),
+			static_cast<int16_t>(dy),
+			dur_ms
+			});
+	}
+	LOG_INFO("Generated %d delta segments", deltaSegments.size());
+
+	// РћС‚РїСЂР°РІР»СЏРµРј СЃС‚Р°СЂС‚РѕРІСѓСЋ С‚РѕС‡РєСѓ РєР°Рє Р°Р±СЃРѕР»СЋС‚РЅСѓСЋ (CMD_LINE)
+	int start_tx = resampled[0].x;
+	int start_ty = resampled[0].y;
+	uint16_t start_dur = 800;
+	if (!sendLineSegment(start_tx, start_ty, start_dur)) {
+		LOG_ERROR("Failed to send start point");
+		return false;
+	}
+	std::this_thread::sleep_for(std::chrono::milliseconds(start_dur));
+
+	// РћС‚РїСЂР°РІР»СЏРµРј РІСЃРµ deltaвЂ‘СЃРµРіРјРµРЅС‚С‹ Р±Р»РѕРєР°РјРё
 	size_t sent = 0;
-	while (sent < motionSegments.size()) {
-		// Ждём, если хаб сообщил о переполнении буфера
+	while (sent < deltaSegments.size()) {
+		// РџСЂРѕРІРµСЂСЏРµРј flow control РѕС‚ С…Р°Р±Р°
 		while (remoteBufferFull.load()) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
 
-		// Определяем размер блока (не более maxSegmentsPerWrite)
+		// РћРїСЂРµРґРµР»СЏРµРј СЂР°Р·РјРµСЂ Р±Р»РѕРєР°
 		size_t maxWrite = transport.getMaxWriteSize();
-		size_t maxSegments = (maxWrite - 3) / 10;
+		size_t maxSegments = (maxWrite - 3) / 6;
 		if (maxSegments == 0) maxSegments = 1;
-		size_t count = std::min(maxSegments, motionSegments.size() - sent);
 
-		std::vector<MotionSegment> block(
-			motionSegments.begin() + sent,
-			motionSegments.begin() + sent + count
+		size_t count = std::min(maxSegments, deltaSegments.size() - sent);
+		std::vector<MotionSegmentDelta> block(
+			deltaSegments.begin() + sent,
+			deltaSegments.begin() + sent + count
 		);
 
 		if (!sendMotionBlock(block)) {
@@ -764,12 +778,11 @@ bool Controller::runMotionTest() {
 		}
 
 		sent += count;
-		LOG_DEBUG("Sent block of %zu segments (total %zu/%zu)", count, sent, motionSegments.size());
+		LOG_DEBUG("Sent block of %zu segments (total %zu/%zu)", count, sent, deltaSegments.size());
 
-		// Небольшая пауза между блоками
-		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
 	}
 
-	LOG_INFO("All %d segments sent in blocks.", motionSegments.size());
+	LOG_INFO("All %d segments sent in blocks.", deltaSegments.size());
 	return true;
 }

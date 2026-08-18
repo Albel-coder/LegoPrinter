@@ -57,9 +57,10 @@ motor_y.control.limits(speed=1500, acceleration=3000)
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
 
+last_x = 0
+last_y = 0
+
 START_MARKER = b'\x01'
-CMD_LINE = 0x01
-PACKET_SIZE = 12
 
 WAIT_SYNC = 0
 IN_PACKET = 1
@@ -67,12 +68,13 @@ state = WAIT_SYNC
 
 packet_buf = bytearray(256)
 packet_idx = 0
+expected_len = 0
 
 CMD_LINE = 0x01
 CMD_MOTION_BLOCK = 0x02
 
 async def receiver():
-    global state, packet_idx
+    global state, packet_idx, expected_len
 
     usys.stdout.buffer.write(b"receiver ready\n")
     usys.stdout.flush()
@@ -90,135 +92,169 @@ async def receiver():
 
         for b in data:
             if state == WAIT_SYNC:
-                if b == 0x01:  # START_MARKER
+                if b == START_MARKER[0]:  # 0x01
                     packet_buf[0] = b
                     packet_idx = 1
+                    expected_len = 0
                     state = IN_PACKET
-            else:  # IN_PACKET
-                packet_buf[packet_idx] = b
-                packet_idx += 1
+                continue
 
-                # Определяем ожидаемую длину пакета после получения cmd
-                if packet_idx == 2:
-                    cmd = packet_buf[1]
-                    if cmd == CMD_LINE:
-                        expected_len = 12  # 1 (marker) + 1 (cmd) + 10 (data)
-                    elif cmd == CMD_MOTION_BLOCK:
-                        # ждём ещё байт count
-                        if packet_idx < 3:
-                            continue
-                        count = packet_buf[2]
-                        expected_len = 3 + count * 10  # 1 marker + 1 cmd + 1 count + N*10
-                    else:
-                        state = WAIT_SYNC
-                        continue
+            # IN_PACKET
+            if packet_idx >= len(packet_buf):
+                state = WAIT_SYNC
+                packet_idx = 0
+                expected_len = 0
+                continue
 
-                if packet_idx >= expected_len:
-                    cmd = packet_buf[1]
-                    if cmd == CMD_LINE:
-                        tx = struct.unpack('<i', packet_buf[2:6])[0]
-                        ty = struct.unpack('<i', packet_buf[6:10])[0]
-                        dur = struct.unpack('<H', packet_buf[10:12])[0]
-                        buffer_put(tx, ty, dur)
-                    elif cmd == CMD_MOTION_BLOCK:
-                        count = packet_buf[2]
-                        offset = 3
-                        for _ in range(count):
-                            tx = struct.unpack('<i', packet_buf[offset:offset+4])[0]
-                            ty = struct.unpack('<i', packet_buf[offset+4:offset+8])[0]
-                            dur = struct.unpack('<H', packet_buf[offset+8:offset+10])[0]
-                            offset += 10
-                            buffer_put(tx, ty, dur)
+            packet_buf[packet_idx] = b
+            packet_idx += 1
+
+            # Получили cmd
+            if packet_idx == 2:
+                cmd = packet_buf[1]
+                if cmd == CMD_LINE:
+                    expected_len = 12
+                elif cmd == CMD_MOTION_BLOCK:
+                    # ждём байт count
+                    expected_len = 0
+                else:
                     state = WAIT_SYNC
+                    packet_idx = 0
+                    expected_len = 0
+                    continue
+
+            # Получили count для блока
+            elif packet_idx == 3 and packet_buf[1] == CMD_MOTION_BLOCK:
+                count = packet_buf[2]
+                if count == 0:
+                    state = WAIT_SYNC
+                    packet_idx = 0
+                    expected_len = 0
+                    continue
+                expected_len = 3 + count * 6  # теперь delta: 2+2+2 = 6 байт
+                if expected_len > len(packet_buf):
+                    state = WAIT_SYNC
+                    packet_idx = 0
+                    expected_len = 0
+                    continue
+
+            # Полный пакет
+            if expected_len > 0 and packet_idx == expected_len:
+                cmd = packet_buf[1]
+
+                if cmd == CMD_LINE:
+                    tx = struct.unpack('<i', packet_buf[2:6])[0]
+                    ty = struct.unpack('<i', packet_buf[6:10])[0]
+                    dur = struct.unpack('<H', packet_buf[10:12])[0]
+                    buffer_put(tx, ty, dur)
+                    # обновляем базовую точку для последующих delta
+                    last_x = tx
+                    last_y = ty
+
+                elif cmd == CMD_MOTION_BLOCK:
+                    count = packet_buf[2]
+                    offset = 3
+                    for _ in range(count):
+                        dx = struct.unpack('<h', packet_buf[offset:offset+2])[0]
+                        dy = struct.unpack('<h', packet_buf[offset+2:offset+4])[0]
+                        dur = struct.unpack('<H', packet_buf[offset+4:offset+6])[0]
+                        offset += 6
+
+                        # delta -> абсолютные координаты
+                        last_x += dx
+                        last_y += dy
+                        if not buffer_put(last_x, last_y, dur):
+                            break
+
+                state = WAIT_SYNC
+                packet_idx = 0
+                expected_len = 0
 
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
     usys.stdout.flush()
 
-    current_x = 0
-    current_y = 0
-    segment_count = 0
-    UPDATE_MS = 10  # можно оставить 5, если хватает ресурсов
+    UPDATE_MS = 10
+    START_BUFFER = 30
 
-    TARGET_LOOKAHEAD = 50  # сколько сегментов загружать за раз
-    local_segments = []
+    # Плановая траектория (идеальные координаты)
+    trajectory_x = 0
+    trajectory_y = 0
 
-    # Ждём первоначального наполнения буфера
-    while buffer_count() < 30:
+    flow_stopped = False
+
+    # Ждём начального наполнения буфера
+    while buffer_count() < START_BUFFER:
         await wait(10)
 
+    current = buffer_get()
+    if current is None:
+        return
+
+    segment_start_x = trajectory_x
+    segment_start_y = trajectory_y
+    segment_target_x = current[0]
+    segment_target_y = current[1]
+    segment_duration = current[2]
+    if segment_duration < UPDATE_MS:
+        segment_duration = UPDATE_MS
+
+    segment_start_time = utime.ticks_ms()
+
     while True:
-        # --- Flow control ---
-        if buffer_count() < 10:
-            usys.stdout.buffer.write(b"COMMAND_PAUSE\n")
-            usys.stdout.flush()
-        elif buffer_count() > 100:
-            usys.stdout.buffer.write(b"COMMAND_RESUME\n")
-            usys.stdout.flush()
+        count = buffer_count()
 
-        # --- Загрузка новой партии, если текущая исчерпана ---
-        if not local_segments:
-            while len(local_segments) < TARGET_LOOKAHEAD:
-                seg = buffer_get()
-                if seg is None:
-                    break
-                local_segments.append(seg)
+        # Flow control с гистерезисом
+        if not flow_stopped and count > 3000:
+            usys.stdout.buffer.write(b"FLOW_STOP\n")
+            usys.stdout.flush()
+            flow_stopped = True
+        elif flow_stopped and count < 2000:
+            usys.stdout.buffer.write(b"FLOW_RESUME\n")
+            usys.stdout.flush()
+            flow_stopped = False
 
-            if not local_segments:
-                # Буфер пуст, ждём
+        now = utime.ticks_ms()
+        elapsed = utime.ticks_diff(now, segment_start_time)
+
+        # Переход к следующим сегментам, если текущий завершён
+        while elapsed >= segment_duration:
+            # Фиксируем конечную точку сегмента как новую стартовую
+            trajectory_x = segment_target_x
+            trajectory_y = segment_target_y
+
+            elapsed -= segment_duration
+            segment_start_time = now - elapsed
+
+            next_seg = buffer_get()
+            if next_seg is None:
+                # Данных временно нет – удерживаем последнюю целевую точку
+                motor_x.track_target(trajectory_x)
+                motor_y.track_target(trajectory_y)
                 await wait(UPDATE_MS)
-                continue
-
-            # Начинаем новую партию
-            segment_index = 0
-            segment_elapsed = 0
-            prev_target_x = motor_x.angle()
-            prev_target_y = motor_y.angle()
-            start_time = utime.ticks_ms()
-
-        # --- Определяем текущий сегмент и целевую точку ---
-        now = utime.ticks_ms() - start_time
-
-        # Переходим к нужному сегменту
-        while segment_index < len(local_segments):
-            seg = local_segments[segment_index]
-            seg_dur = seg[2]
-            if segment_elapsed + seg_dur > now:
                 break
-            # сегмент завершён
-            segment_elapsed += seg_dur
-            prev_target_x = seg[0]
-            prev_target_y = seg[1]
-            segment_index += 1
 
-        if segment_index >= len(local_segments):
-            # Партия закончилась, в следующей итерации загрузим новую
-            local_segments = []
+            segment_start_x = trajectory_x
+            segment_start_y = trajectory_y
+            segment_target_x = next_seg[0]
+            segment_target_y = next_seg[1]
+            segment_duration = next_seg[2]
+            if segment_duration < UPDATE_MS:
+                segment_duration = UPDATE_MS
+
+        else:
+            # Integer-интерполяция внутри сегмента
+            dx = segment_target_x - segment_start_x
+            dy = segment_target_y - segment_start_y
+
+            target_x = segment_start_x + (dx * elapsed) // segment_duration
+            target_y = segment_start_y + (dy * elapsed) // segment_duration
+
+            motor_x.track_target(target_x)
+            motor_y.track_target(target_y)
+
+            await wait(UPDATE_MS)
             continue
-
-        # Мы внутри сегмента segment_index
-        seg = local_segments[segment_index]
-        seg_dur = seg[2]
-        progress = (now - segment_elapsed) / seg_dur
-        if progress < 0:
-            progress = 0
-        elif progress > 1:
-            progress = 1
-
-        target_x = prev_target_x + (seg[0] - prev_target_x) * progress
-        target_y = prev_target_y + (seg[1] - prev_target_y) * progress
-
-        # Отправляем цель моторам
-        motor_x.track_target(int(round(target_x)))
-        motor_y.track_target(int(round(target_y)))
-
-        segment_count += 1
-        if segment_count % 100 == 0:  # реже логируем
-            usys.stdout.buffer.write(
-                "SEG %d: X = %d Y = %d\n" %
-                (segment_count, motor_x.angle(), motor_y.angle())
-            )
-            usys.stdout.flush()
 
         await wait(UPDATE_MS)
 
