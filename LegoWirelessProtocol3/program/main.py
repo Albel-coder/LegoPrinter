@@ -167,6 +167,8 @@ async def receiver():
             packet_idx = 0
             expected_len = 0
 
+            await wait(1)
+
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
     usys.stdout.flush()
