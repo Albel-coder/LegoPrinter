@@ -1,7 +1,7 @@
 from pybricks.hubs import TechnicHub
 from pybricks.pupdevices import Motor
 from pybricks.parameters import Port, Stop, Color
-from pybricks.tools import multitask, run_task, wait, StopWatch
+from pybricks.tools import multitask, run_task, wait
 import umath
 import usys
 import uselect
@@ -80,26 +80,26 @@ async def receiver():
     while True:
         events = poll.poll(0)
         if not events:
-            await wait(1)
+            await wait(5)
             continue
 
-        # Читаем ОДИН байт, как раньше
         data = usys.stdin.buffer.read(1)
         if not data:
-            await wait(1)
+            await wait(5)
             continue
 
-        # Обрабатываем байт
         b = data[0]
 
         if state == WAIT_SYNC:
-            if b == START_MARKER[0]:
+            # Ждём начало пакета: 0x01 (CMD_LINE) или 0x02 (CMD_MOTION_BLOCK)
+            if b == 0x01 or b == 0x02:
                 packet_buf[0] = b
                 packet_idx = 1
                 expected_len = 0
                 state = IN_PACKET
             continue
 
+        # IN_PACKET
         if packet_idx >= len(packet_buf):
             state = WAIT_SYNC
             packet_idx = 0
@@ -109,49 +109,43 @@ async def receiver():
         packet_buf[packet_idx] = b
         packet_idx += 1
 
+        # После получения второго байта можем вычислить длину пакета
         if packet_idx == 2:
-            cmd = packet_buf[1]
-            if cmd == CMD_LINE:
+            if packet_buf[0] == 0x01:
+                # CMD_LINE: 0x01, axis, tx(4), ty(4), dur(2) = 12 байт
                 expected_len = 12
-            elif cmd == CMD_MOTION_BLOCK:
-                expected_len = 0  # ждём count
+            elif packet_buf[0] == 0x02:
+                # CMD_MOTION_BLOCK: 0x02, count, count*(dx,dy,dur) = 2 + count*6
+                count = packet_buf[1]
+                if count == 0:
+                    state = WAIT_SYNC
+                    packet_idx = 0
+                    expected_len = 0
+                    continue
+                expected_len = 2 + count * 6
             else:
                 state = WAIT_SYNC
                 packet_idx = 0
                 expected_len = 0
                 continue
 
-        elif packet_idx == 3 and packet_buf[1] == CMD_MOTION_BLOCK:
-            count = packet_buf[2]
-            if count == 0:
-                state = WAIT_SYNC
-                packet_idx = 0
-                expected_len = 0
-                continue
-            expected_len = 3 + count * 6
-            if expected_len > len(packet_buf):
-                state = WAIT_SYNC
-                packet_idx = 0
-                expected_len = 0
-                continue
-
+        # Если пакет полностью собран
         if expected_len > 0 and packet_idx == expected_len:
-            cmd = packet_buf[1]
-
-            if cmd == CMD_LINE:
+            if packet_buf[0] == 0x01:
+                # Обработка одиночной линии
                 tx = struct.unpack('<i', packet_buf[2:6])[0]
                 ty = struct.unpack('<i', packet_buf[6:10])[0]
                 dur = struct.unpack('<H', packet_buf[10:12])[0]
                 buffer_put(tx, ty, dur)
                 last_x = tx
                 last_y = ty
-                # Отладочное сообщение
                 usys.stdout.buffer.write(b"LINE %d %d %d\n" % (tx, ty, dur))
                 usys.stdout.flush()
 
-            elif cmd == CMD_MOTION_BLOCK:
-                count = packet_buf[2]
-                offset = 3
+            elif packet_buf[0] == 0x02:
+                # Обработка блока delta-сегментов
+                count = packet_buf[1]
+                offset = 2
                 for _ in range(count):
                     dx = struct.unpack('<h', packet_buf[offset:offset+2])[0]
                     dy = struct.unpack('<h', packet_buf[offset+2:offset+4])[0]
@@ -160,97 +154,66 @@ async def receiver():
 
                     last_x += dx
                     last_y += dy
-                    if not buffer_put(last_x, last_y, dur):
-                        break
+                    buffer_put(last_x, last_y, dur)
 
             state = WAIT_SYNC
             packet_idx = 0
             expected_len = 0
-
-            await wait(1)
+            await wait(5)
 
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
     usys.stdout.flush()
 
-    UPDATE_MS = 10
-    START_BUFFER = 30
+    current_x = 0
+    current_y = 0
+    segment_count = 0
+    UPDATE_MS = 5
 
-    # Плановая траектория (не зависит от фактического положения моторов)
-    trajectory_x = 0
-    trajectory_y = 0
-
-    flow_stopped = False
-    watch = StopWatch()
-
-    while buffer_count() < START_BUFFER:
+    while buffer_count() < 30:
         await wait(10)
 
-    current = buffer_get()
-    if current is None:
-        return
+    usys.stdout.buffer.write(b"start printing\n")
+    usys.stdout.flush()
 
-    segment_start_x = trajectory_x
-    segment_start_y = trajectory_y
-    segment_target_x = current[0]
-    segment_target_y = current[1]
-    segment_duration = current[2]
-    if segment_duration < UPDATE_MS:
-        segment_duration = UPDATE_MS
-
-    segment_start_time = watch.time()
-
-    while True:
-        count = buffer_count()
-
-        # Flow control с гистерезисом (уменьшенные пороги)
-        if not flow_stopped and count > 1000:
-            usys.stdout.buffer.write(b"FLOW_STOP\n")
-            usys.stdout.flush()
-            flow_stopped = True
-        elif flow_stopped and count < 500:
-            usys.stdout.buffer.write(b"FLOW_RESUME\n")
-            usys.stdout.flush()
-            flow_stopped = False
-
-        now = watch.time()
-        elapsed = now - segment_start_time
-
-        while elapsed >= segment_duration:
-            trajectory_x = segment_target_x
-            trajectory_y = segment_target_y
-
-            elapsed -= segment_duration
-            segment_start_time = now - elapsed
-
-            next_seg = buffer_get()
-            if next_seg is None:
-                motor_x.track_target(trajectory_x)
-                motor_y.track_target(trajectory_y)
-                await wait(UPDATE_MS)
-                break
-
-            segment_start_x = trajectory_x
-            segment_start_y = trajectory_y
-            segment_target_x = next_seg[0]
-            segment_target_y = next_seg[1]
-            segment_duration = next_seg[2]
-            if segment_duration < UPDATE_MS:
-                segment_duration = UPDATE_MS
-        else:
-            dx = segment_target_x - segment_start_x
-            dy = segment_target_y - segment_start_y
-
-            target_x = segment_start_x + (dx * elapsed) // segment_duration
-            target_y = segment_start_y + (dy * elapsed) // segment_duration
-
-            motor_x.track_target(target_x)
-            motor_y.track_target(target_y)
-
-            await wait(UPDATE_MS)
+    while True:        
+        seg = buffer_get()
+        if seg is None:
+            await wait(1)
             continue
 
-        await wait(UPDATE_MS)
+        target_x, target_y, duration_ms = seg
+
+        if duration_ms <= UPDATE_MS:
+            motor_x.track_target(target_x)
+            motor_y.track_target(target_y)
+            current_x = target_x
+            current_y = target_y
+            continue
+
+        steps = max(1, duration_ms // UPDATE_MS)
+        dx = target_x - current_x
+        dy = target_y - current_y
+
+        for i in range(1, steps + 1):
+            x = current_x + (dx * i) // steps
+            y = current_y + (dy * i) // steps
+            motor_x.track_target(x)
+            motor_y.track_target(y)
+            await wait(UPDATE_MS)
+
+        motor_x.track_target(target_x)
+        motor_y.track_target(target_y)
+        current_x = target_x
+        current_y = target_y
+
+        segment_count += 1
+        if segment_count % 20 == 0:
+            usys.stdout.buffer.write(
+                "SEG %d: X = %d Y = %d\n" %
+                (segment_count, motor_x.angle(), motor_y.angle())
+            )
+            usys.stdout.flush()
 
 async def main():
     try:

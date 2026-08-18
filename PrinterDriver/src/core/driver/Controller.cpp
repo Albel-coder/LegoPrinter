@@ -197,6 +197,7 @@ void Controller::onData(const uint8_t* data, size_t length) {
 	LOG_INFO("Runtime RX: type = 0x%02X, length = %zu", type, length);
 	if (type == 0x01) { // stdout
 		std::string text(reinterpret_cast<const char*>(payload), payloadLength);
+		LOG_INFO("Hub stdout: %s", text.c_str());
 
 		// Перехватываем управление потоком
 		if (text.find("FLOW_STOP") != std::string::npos) {
@@ -214,9 +215,6 @@ void Controller::onData(const uint8_t* data, size_t length) {
 		else if (text.find("COMMAND_RESUME") != std::string::npos) {
 			remoteBufferFull.store(false);
 			LOG_INFO("Host resumed: Robot buffer has free space");
-		}
-		else {
-			LOG_INFO("Hub stdout: %s", text.c_str());
 		}
 	}
 	else if (type == REPLY_STATUS) {
