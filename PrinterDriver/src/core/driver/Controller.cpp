@@ -448,7 +448,7 @@ struct MotionLimits {
 	double max_velocity; // steps / s
 	double max_accel; // steps / s^2
 	double junction_deviation = 2.0; // допустимое отклонение на стыке, шагов
-	double junction_min_factor = 0.9; // минимальная скорость как доля от max_velocity
+	double junction_min_factor = 0.5; // минимальная скорость как доля от max_velocity
 };
 
 double computeJunctionVelocity(
@@ -599,6 +599,52 @@ std::vector<Point> resampleByDistance(const std::vector<Point>& points, double s
 	return resampled;
 }
 
+std::vector<Point> smoothPoints(const std::vector<Point>& pts, int window = 2) {
+	if (pts.size() < 3) {
+		return pts;
+	}
+	std::vector<Point> smoothed = pts;
+	for (int pass = 0; pass < 2; ++pass) {
+		std::vector<Point> temp = smoothed;
+		for (size_t i = 1; i < pts.size() - 1; ++i) {
+			double sum_x = 0, sum_y = 0;
+			int count = 0;
+			for (int j = -window; j <= window; ++j) {
+				int idx = i + j;
+				if (idx < 0) {
+					idx = 0;
+				}
+				if (idx >= (int)pts.size()) {
+					idx = pts.size() - 1;
+				}
+				sum_x += smoothed[idx].x;
+				sum_y += smoothed[idx].y;
+				count++;
+			}
+			temp[i] = { static_cast<int>(std::round(sum_x / count)),
+						static_cast<int>(std::round(sum_y / count)) };
+		}
+		smoothed = temp;
+	}
+	return smoothed;
+}
+
+std::vector<Point> smoothSharpCorners(const std::vector<Point>& pts, double angleThreshold = 0.4) {
+	if (pts.size() < 3) {
+		return pts;
+	}
+	std::vector<Point> smoothed = pts;
+	for (size_t i = 1; i < pts.size() - 1; ++i) {
+		double angle = angleBetween(pts[i - 1], pts[i], pts[i + 1]);
+		if (angle > angleThreshold) {
+			// Заменяем вершину на среднее с соседями (или используем дуговое сглаживание)
+			smoothed[i].x = (pts[i - 1].x + pts[i].x + pts[i + 1].x) / 3;
+			smoothed[i].y = (pts[i - 1].y + pts[i].y + pts[i + 1].y) / 3;
+		}
+	}
+	return smoothed;
+}
+
 bool Controller::runMotionTest() {
 	auto rawPoints = readSkeletonCsv("one_contour.csv");
 	if (rawPoints.empty()) {
@@ -618,7 +664,7 @@ bool Controller::runMotionTest() {
 	LOG_INFO("after cleaning: %d points", cleaned.size());
 
 	// После RDP
-	double epsilon = 10.0;
+	double epsilon = 6.0;
 	std::vector<Point> simplified;
 	simplifyRDP(cleaned, epsilon, simplified);
 	LOG_INFO("After RDP: %d points", simplified.size());
@@ -632,12 +678,12 @@ bool Controller::runMotionTest() {
 	MotionLimits limits;
 	limits.max_velocity = 1200.0;
 	limits.max_accel = 3000.0;
-	limits.junction_deviation = 2.0; // новое поле
+	limits.junction_deviation = 3.0; // новое поле
 
-	std::vector<Point> trajectory = cleaned;
-	LOG_INFO("Using cleaned points directly: %d points", trajectory.size());
+	std::vector<Point> smoothed = smoothSharpCorners(simplified, 2);
+	LOG_INFO("Using smoothed points directly: %d points", smoothed.size());
 
-	auto durations_sec = planVelocity(trajectory, limits);
+	auto durations_sec = planVelocity(smoothed, limits);
 
 	std::vector<LineSegment> segments;
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
@@ -645,7 +691,7 @@ bool Controller::runMotionTest() {
 		if (dur_ms < 5) { // уменьшаем минимальную длительность
 			dur_ms = 5;
 		}
-		segments.push_back({ trajectory[i + 1].x, trajectory[i + 1].y, dur_ms });
+		segments.push_back({ smoothed[i + 1].x, smoothed[i + 1].y, dur_ms });
 	}
 
 	LOG_INFO("Generated %d elements", segments.size());
@@ -684,17 +730,17 @@ bool Controller::runMotionTest() {
 		double min_len = std::numeric_limits<double>::max();
 		double max_len = 0;
 		double total_len = 0;
-		for (size_t i = 0; i + 1 < trajectory.size(); ++i) {
-			double dx = trajectory[i + 1].x - trajectory[i].x;
-			double dy = trajectory[i + 1].y - trajectory[i].y;
+		for (size_t i = 0; i + 1 < smoothed.size(); ++i) {
+			double dx = smoothed[i + 1].x - smoothed[i].x;
+			double dy = smoothed[i + 1].y - smoothed[i].y;
 			double len = std::sqrt(dx * dx + dy * dy);
 			min_len = std::min(min_len, len);
 			max_len = std::max(max_len, len);
 			total_len += len;
 		}
-		double avg_len = total_len / (trajectory.size() - 1);
+		double avg_len = total_len / (smoothed.size() - 1);
 		LOG_INFO("Geometry stats: points=%zu, segment_lengths: min=%.2f, max=%.2f, avg=%.2f",
-			trajectory.size(), min_len, max_len, avg_len);
+			smoothed.size(), min_len, max_len, avg_len);
 	}
 
 	for (size_t i = 0; i < segments.size(); ++i) {

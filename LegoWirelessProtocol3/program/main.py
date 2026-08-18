@@ -80,7 +80,7 @@ async def receiver():
             continue
 
         # Читаем все доступные данные за один раз
-        data = usys.stdin.buffer.read(1024)  # можно и без размера: usys.stdin.buffer.read()
+        data = usys.stdin.buffer.read(1)  # можно и без размера: usys.stdin.buffer.read()
         if not data:
             await wait(1)
             continue
@@ -115,7 +115,7 @@ async def smooth_executor():
     segment_count = 0
     UPDATE_MS = 5
 
-    while buffer_count() < 900:
+    while buffer_count() < 30:
         await wait(10)
 
     while True:        
