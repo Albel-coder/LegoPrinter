@@ -689,6 +689,11 @@ bool Controller::sendMotionBlock(const std::vector<MotionSegmentDelta>& segments
 	return true;
 }
 
+struct SlowSegment {
+	size_t index;
+	double duration_ms;
+};
+
 bool Controller::runMotionTest() {
 
 	auto rawPoints = readSkeletonCsv("one_contour.csv");
@@ -744,6 +749,74 @@ bool Controller::runMotionTest() {
 	limits.junction_min_factor = 0.3; // was 0.5
 
 	auto durations_sec = planVelocity(resampled, limits);
+
+	double min_ms = 1e100;
+	double max_ms = 0.0;
+	double total_ms = 0.0;
+
+	size_t below5 = 0;
+	size_t below10 = 0;
+	size_t from10to20 = 0;
+	size_t from20to50 = 0;
+	size_t above50 = 0;
+
+	for (double duration : durations_sec) {
+		const double ms = duration * 1000.0;
+
+		min_ms = std::min(min_ms, ms);
+		max_ms = std::max(max_ms, ms);
+		total_ms += ms;
+
+		if (ms < 5.0)
+			++below5;
+		else if (ms < 10.0)
+			++below10;
+		else if (ms < 20.0)
+			++from10to20;
+		else if (ms < 50.0)
+			++from20to50;
+		else
+			++above50;
+	}
+
+	LOG_INFO(
+		"Planner stats: segments=%zu total=%.2f sec "
+		"min=%.2fms max=%.2fms avg=%.2fms "
+		"<5=%zu 5-10=%zu 10-20=%zu 20-50=%zu >=50=%zu",
+		durations_sec.size(),
+		total_ms / 1000.0,
+		min_ms,
+		max_ms,
+		total_ms / durations_sec.size(),
+		below5,
+		below10,
+		from10to20,
+		from20to50,
+		above50
+	);
+
+	std::vector<SlowSegment> slowest;
+
+	for (size_t i = 0; i < durations_sec.size(); ++i) {
+		slowest.push_back({i, durations_sec[i] * 1000.0	});
+	}
+
+	std::sort(slowest.begin(), slowest.end(),[](const SlowSegment& a, const SlowSegment& b) {
+			return a.duration_ms > b.duration_ms;
+		}
+	);
+
+	const size_t count = std::min<size_t>(10, slowest.size());
+
+	for (size_t j = 0; j < count; ++j) {
+		const auto& s = slowest[j];
+		const Point& a = resampled[s.index];
+		const Point& b = resampled[s.index + 1];
+		LOG_INFO(
+			"Slow segment #%zu: %.2f ms, (%d,%d) -> (%d,%d)",
+			s.index, s.duration_ms,	a.x, a.y, b.x, b.y
+		);
+	}
 
 	if (durations_sec.size() + 1 != resampled.size()) {
 		LOG_ERROR("Invalid duration count: durations=%zu points=%zu",
