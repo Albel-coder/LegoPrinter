@@ -58,8 +58,8 @@ poll.register(usys.stdin, uselect.POLLIN)
 
 motor_x = Motor(Port.A)
 motor_y = Motor(Port.B)
-motor_x.control.limits(speed=2000, acceleration=5000)
-motor_y.control.limits(speed=2000, acceleration=5000)
+motor_x.control.limits(speed=2000, acceleration=6000)
+motor_y.control.limits(speed=2000, acceleration=6000)
 
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
@@ -166,7 +166,7 @@ async def smooth_executor():
     flow_stopped = False
 
     # Ждем наполнения буфера до безопасного уровня (800 из 1024)
-    while buffer_count() < 650:
+    while buffer_count() < 310:
         await wait(10)
 
     usys.stdout.buffer.write(b"start printing\n")

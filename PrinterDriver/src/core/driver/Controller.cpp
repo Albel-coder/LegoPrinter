@@ -722,7 +722,7 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	constexpr double RDP_EPSILON = 2.0;
+	constexpr double RDP_EPSILON = 8.0;
 	std::vector<Point> simplified;
 	simplifyRDP(cleaned, RDP_EPSILON, simplified);
 
@@ -732,7 +732,7 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	constexpr double RESAMPLE_SPACING = 8.0;
+	constexpr double RESAMPLE_SPACING = 16.0;
 	std::vector<Point> resampled = resampleByDistance(simplified, RESAMPLE_SPACING);
 
 	LOG_INFO("After resampling: %zu points", resampled.size());
@@ -743,10 +743,10 @@ bool Controller::runMotionTest() {
 	}
 
 	MotionLimits limits;
-	limits.max_velocity = 1800.0; // was 1200
-	limits.max_accel = 5000.0; // was 3000
-	limits.junction_deviation = 5.0; // was 3.0
-	limits.junction_min_factor = 0.3; // was 0.5
+	limits.max_velocity = 2200.0; // was 1200
+	limits.max_accel = 8000.0; // was 3000
+	limits.junction_deviation = 12.0; // was 3.0
+	limits.junction_min_factor = 0.8; // was 0.5
 
 	auto durations_sec = planVelocity(resampled, limits);
 
