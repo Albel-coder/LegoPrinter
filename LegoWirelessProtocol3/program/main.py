@@ -14,7 +14,7 @@ kbd_intr(-1)
 hub = TechnicHub()
 hub.light.on(Color.GREEN)
 
-BUFFER_SIZE = 4096
+BUFFER_SIZE = 512
 segments = [(0, 0, 0)] * BUFFER_SIZE
 head = 0
 tail = 0
@@ -112,12 +112,11 @@ async def receiver():
         # После второго байта определяем длину пакета
         if packet_idx == 2:
             if packet_buf[0] == CMD_LINE:
-                # Формат: [0x01][axis][tx(4)][ty(4)][dur(2)] = 12 байт
                 expected_len = 12
             elif packet_buf[0] == CMD_MOTION_BLOCK:
-                # Формат: [0x02][count][count*(dx,dy,dur)] = 2 + count*6 байт
                 count = packet_buf[1]
-                if count == 0:
+                # Защита от недопустимо больших пакетов
+                if count == 0 or (2 + count * 6) > len(packet_buf):
                     state = WAIT_SYNC
                     packet_idx = 0
                     expected_len = 0
@@ -132,7 +131,6 @@ async def receiver():
         # Полный пакет?
         if expected_len > 0 and packet_idx == expected_len:
             if packet_buf[0] == CMD_LINE:
-                # Читаем без создания срезов
                 tx = struct.unpack_from('<i', packet_buf, 2)[0]
                 ty = struct.unpack_from('<i', packet_buf, 6)[0]
                 dur = struct.unpack_from('<H', packet_buf, 10)[0]
@@ -146,7 +144,6 @@ async def receiver():
                 count = packet_buf[1]
                 offset = 2
                 for _ in range(count):
-                    # Читаем сразу три поля одной операцией, без срезов
                     dx, dy, dur = struct.unpack_from('<hhH', packet_buf, offset)
                     offset += 6
                     last_x += dx
@@ -156,8 +153,8 @@ async def receiver():
             state = WAIT_SYNC
             packet_idx = 0
             expected_len = 0
-            gc.collect()          # принудительная сборка мусора
-            await wait(5)         # даём поработать другим корутинам
+            gc.collect()
+            await wait(5)
 
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
@@ -169,15 +166,14 @@ async def smooth_executor():
     UPDATE_MS = 5
     flow_stopped = False
 
-    # Ждём первоначального наполнения буфера
-    while buffer_count() < 300:
+    while buffer_count() < 333:
         await wait(10)
 
     usys.stdout.buffer.write(b"start printing\n")
     usys.stdout.flush()
 
     while True:
-        # Flow control с гистерезисом
+        # Flow control
         count = buffer_count()
         if not flow_stopped and count > 3000:
             usys.stdout.buffer.write(b"FLOW_STOP\n")
@@ -230,8 +226,13 @@ async def main():
     try:
         await multitask(receiver(), smooth_executor())
     except Exception as e:
-        usys.stdout.buffer.write(b"CRITICAL_ERR: %s\n" % str(e).encode())
-        usys.stdout.flush()
+        try:
+            err_msg = "CRITICAL_ERR: " + str(e) + "\n"
+            usys.stdout.write(err_msg)
+            usys.stdout.flush()
+        except:
+            pass
+        
         hub.light.on(Color.RED)
         while True:
             await wait(100)
