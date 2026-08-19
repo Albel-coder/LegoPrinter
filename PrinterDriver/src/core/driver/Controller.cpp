@@ -717,7 +717,7 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	constexpr double RDP_EPSILON = 3.0;
+	constexpr double RDP_EPSILON = 2.0;
 	std::vector<Point> simplified;
 	simplifyRDP(cleaned, RDP_EPSILON, simplified);
 
@@ -727,7 +727,7 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	constexpr double RESAMPLE_SPACING = 15.0;
+	constexpr double RESAMPLE_SPACING = 5.0;
 	std::vector<Point> resampled = resampleByDistance(simplified, RESAMPLE_SPACING);
 
 	LOG_INFO("After resampling: %zu points", resampled.size());
