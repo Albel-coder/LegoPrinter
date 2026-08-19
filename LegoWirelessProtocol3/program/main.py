@@ -2,11 +2,11 @@ from pybricks.hubs import TechnicHub
 from pybricks.pupdevices import Motor
 from pybricks.parameters import Port, Stop, Color
 from pybricks.tools import multitask, run_task, wait
+import umath
 import usys
 import uselect
 import ustruct as struct
 import gc
-from array import array  # Импортируем эффективные плоские массивы
 
 from micropython import kbd_intr
 kbd_intr(-1)
@@ -14,12 +14,13 @@ kbd_intr(-1)
 hub = TechnicHub()
 hub.light.on(Color.GREEN)
 
-# --- ОПТИМИЗАЦИЯ БУФЕРА (ZERO-ALLOCATION) ---
+# --- БЕЗОПАСНЫЙ ZERO-ALLOCATION БУФЕР НА ОБЫЧНЫХ СПИСКАХ ---
 BUFFER_SIZE = 1024
-# array('i') — массив 32-битных signed int, array('H') — 16-битных unsigned short
-buf_x = array('i', [0] * BUFFER_SIZE)
-buf_y = array('i', [0] * BUFFER_SIZE)
-buf_dur = array('H', [0] * BUFFER_SIZE)
+# Создаем три плоских массива фиксированной длины. 
+# Они выделяются ОДИН РАЗ и больше не запрашивают память у кучи.
+buf_x = [0] * BUFFER_SIZE
+buf_y = [0] * BUFFER_SIZE
+buf_dur = [0] * BUFFER_SIZE
 
 head = 0
 tail = 0
@@ -29,7 +30,7 @@ def buffer_put(dx, dy, duration):
     next_head = (head + 1) % BUFFER_SIZE
     if next_head == tail:
         return False
-    # Записываем атомарные значения напрямую в массивы без создания кортежей!
+    # Перезаписываем существующие ячейки памяти без создания кортежей!
     buf_x[head] = dx
     buf_y[head] = dy
     buf_dur[head] = duration
@@ -37,13 +38,12 @@ def buffer_put(dx, dy, duration):
     return True
 
 def buffer_get_count():
-    # Возвращаем количество элементов, не создавая новые объекты
     global tail
     if tail == head:
-        return -1 # Буфер пуст
+        return -1  # Буфер пуст
     t = tail
     tail = (tail + 1) % BUFFER_SIZE
-    return t # Возвращаем только индекс, откуда исполнителю читать данные
+    return t  # Возвращаем только индекс для чтения
 
 def buffer_count():
     if head >= tail:
@@ -51,15 +51,15 @@ def buffer_count():
     else:
         return BUFFER_SIZE - (tail - head)
 
-# --------------------------------------------
+# -----------------------------------------------------------
 
 poll = uselect.poll()
 poll.register(usys.stdin, uselect.POLLIN)
 
 motor_x = Motor(Port.A)
 motor_y = Motor(Port.B)
-motor_x.control.limits(speed=1500, acceleration=3000)
-motor_y.control.limits(speed=1500, acceleration=3000)
+motor_x.control.limits(speed=2000, acceleration=5000)
+motor_y.control.limits(speed=2000, acceleration=5000)
 
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
@@ -79,7 +79,7 @@ last_x = 0
 last_y = 0
 
 async def receiver():
-    global state, packet_idx, expected_len, last_x, last_y
+    global state, packet_idx, expected_len, last_x, last_y, packet_buf
 
     usys.stdout.buffer.write(b"receiver ready\n")
     usys.stdout.flush()
@@ -153,8 +153,7 @@ async def receiver():
             state = WAIT_SYNC
             packet_idx = 0
             expected_len = 0
-            # Сборка мусора больше не обязательна каждую итерацию, так как память стабильна
-            await wait(1) 
+            await wait(1)
 
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
@@ -163,18 +162,18 @@ async def smooth_executor():
     current_x = 0
     current_y = 0
     segment_count = 0
-    UPDATE_MS = 5
+    UPDATE_MS = 4
     flow_stopped = False
 
-    # Ждём наполнения буфера (1000 элементов для буфера 1024 — это предел, лучше 800)
-    while buffer_count() < 1000:
+    # Ждем наполнения буфера до безопасного уровня (800 из 1024)
+    while buffer_count() < 650:
         await wait(10)
 
     usys.stdout.buffer.write(b"start printing\n")
     usys.stdout.flush()
 
     while True:
-        # Flow control скорректирован под размер 1024
+        # Корректный Flow Control под размер буфера 1024
         count = buffer_count()
         if not flow_stopped and count > 900:
             usys.stdout.buffer.write(b"FLOW_STOP\n")
@@ -185,13 +184,12 @@ async def smooth_executor():
             usys.stdout.flush()
             flow_stopped = False
 
-        # Получаем индекс из буфера
         idx = buffer_get_count()
         if idx == -1:
             await wait(1)
             continue
 
-        # Читаем значения напрямую из плоских массивов по индексу
+        # Читаем данные напрямую по индексу массива
         target_x = buf_x[idx]
         target_y = buf_y[idx]
         duration_ms = buf_dur[idx]
@@ -219,7 +217,7 @@ async def smooth_executor():
         current_x = target_x
         current_y = target_y
 
-        # БЕЗОПАСНЫЙ ОТЛАДОЧНЫЙ ВЫВОД БЕЗ ФОРМАТИРОВАНИЯ СТРОК
+        # Вывод прогресса без динамического выделения строк
         segment_count += 1
         if segment_count % 20 == 0:
             usys.stdout.write("SEG ")
