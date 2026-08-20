@@ -166,7 +166,7 @@ async def smooth_executor():
     flow_stopped = False
 
     # Ждем наполнения буфера до безопасного уровня (800 из 1024)
-    while buffer_count() < 70:
+    while buffer_count() < 500:
         await wait(10)
 
     usys.stdout.buffer.write(b"start printing\n")

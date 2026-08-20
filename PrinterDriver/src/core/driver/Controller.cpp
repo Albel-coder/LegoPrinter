@@ -431,7 +431,7 @@ std::vector<Point> readSkeletonCsv(const std::string& filename) {
 		if (std::getline(iss, token, ',')) {
 			x = std::stoi(token);
 		}
-		pts.push_back({ x * 5, y * 5 });
+		pts.push_back({ x * 30, y * 30 });
 	}
 	return pts;
 }
@@ -823,36 +823,121 @@ std::vector<PreparedMotionPacket> prepareMotionPackets(
 	return packets;
 }
 
-bool Controller::sendPreparedMotionPackets(const std::vector<PreparedMotionPacket>& packets) {
+bool Controller::sendPreparedMotionPackets(
+	const std::vector<PreparedMotionPacket>& packets)
+{
 	if (packets.empty()) {
 		return true;
 	}
 
-	const auto startTime = std::chrono::steady_clock::now();
+	struct PacketTiming {
+		double waitMs = 0.0;
+		double writeMs = 0.0;
+	};
+
+	std::vector<PacketTiming> timings;
+	timings.reserve(packets.size());
+
+	size_t totalBytes = 0;
 	size_t sentPackets = 0;
 	size_t sentSegments = 0;
 
-	for (const auto& packet : packets) {
+	const auto startTime = std::chrono::steady_clock::now();
+
+	for (size_t i = 0; i < packets.size(); ++i) {
+		const auto& packet = packets[i];
+
+		// Замеряем ожидание буфера
+		const auto waitStart = std::chrono::steady_clock::now();
+
 		while (remoteBufferFull.load(std::memory_order_acquire)) {
+			// Пока буфер полон, ждём.
+			// Вместо yield можно использовать sleep(0) или sleep(1) для меньшего потребления CPU.
 			std::this_thread::yield();
 		}
 
-		if (!transport.write(pybricksCommandEvent, packet.data.data(), packet.size, true)) {
-			LOG_ERROR("Failed to send prepared packet %zu/%zu", sentPackets, packets.size());
+		const auto waitEnd = std::chrono::steady_clock::now();
+		double waitMs = std::chrono::duration<double, std::milli>(waitEnd - waitStart).count();
+
+		// Замеряем сам write
+		const auto writeStart = std::chrono::steady_clock::now();
+
+		const bool ok = transport.write(
+			pybricksCommandEvent,
+			packet.data.data(),
+			packet.size,
+			true
+		);
+
+		const auto writeEnd = std::chrono::steady_clock::now();
+		double writeMs = std::chrono::duration<double, std::milli>(writeEnd - writeStart).count();
+
+		timings.push_back({ waitMs, writeMs });
+
+		if (!ok) {
+			LOG_ERROR(
+				"Failed to send prepared packet %zu/%zu",
+				i,
+				packets.size()
+			);
 			return false;
 		}
 
-		++sentPackets;
+		totalBytes += packet.size;
 		sentSegments += packet.segmentCount;
+		++sentPackets;
 	}
 
 	const auto endTime = std::chrono::steady_clock::now();
-	const double seconds = std::chrono::duration<double>(endTime - startTime).count();
-	const double packetsPerSecond = seconds > 0.0 ? sentPackets / seconds : 0.0;
-	const double segmentsPerSecond = seconds > 0.0 ? sentSegments / seconds : 0.0;
+	const double totalSeconds =
+		std::chrono::duration<double>(endTime - startTime).count();
 
-	LOG_INFO("Motion TX: packets=%zu segments=%zu time=%.3f sec packets/sec=%.1f segments/sec=%.1f",
-		sentPackets, sentSegments, seconds, packetsPerSecond, segmentsPerSecond);
+	// Агрегируем статистику
+	double totalWaitMs = 0.0;
+	double totalWriteMs = 0.0;
+	double maxWaitMs = 0.0;
+	double maxWriteMs = 0.0;
+
+	for (const auto& t : timings) {
+		totalWaitMs += t.waitMs;
+		totalWriteMs += t.writeMs;
+		maxWaitMs = std::max(maxWaitMs, t.waitMs);
+		maxWriteMs = std::max(maxWriteMs, t.writeMs);
+	}
+
+	const double avgWaitMs = timings.empty() ? 0.0 : totalWaitMs / timings.size();
+	const double avgWriteMs = timings.empty() ? 0.0 : totalWriteMs / timings.size();
+
+	LOG_INFO(
+		"Motion TX: packets=%zu segments=%zu total=%.3f sec "
+		"packets/sec=%.1f segments/sec=%.1f bytes/sec=%.1f",
+		sentPackets,
+		sentSegments,
+		totalSeconds,
+		sentPackets / totalSeconds,
+		sentSegments / totalSeconds,
+		totalBytes / totalSeconds
+	);
+
+	LOG_INFO(
+		"TX timing: avg wait=%.3f ms max wait=%.3f ms | "
+		"avg write=%.3f ms max write=%.3f ms",
+		avgWaitMs,
+		maxWaitMs,
+		avgWriteMs,
+		maxWriteMs
+	);
+
+	// Выводим детальную информацию по каждому пакету (для отладки)
+	for (size_t i = 0; i < timings.size(); ++i) {
+		LOG_DEBUG(
+			"TX packet %zu: wait=%.3f ms write=%.3f ms",
+			i,
+			timings[i].waitMs,
+			timings[i].writeMs
+		);
+	}
+
 	return true;
 }
 
