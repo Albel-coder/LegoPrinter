@@ -711,9 +711,12 @@ struct CornerInfo {
 	Point next;
 };
 
+// Находит самые острые углы (минимальный угол между сегментами)
 std::vector<CornerInfo> findSharpestCorners(const std::vector<Point>& points) {
 	std::vector<CornerInfo> result;
-	if (points.size() < 3) return result;
+	if (points.size() < 3) {
+		return result;
+	}
 	result.reserve(points.size() - 2);
 
 	for (size_t i = 1; i + 1 < points.size(); ++i) {
@@ -724,14 +727,137 @@ std::vector<CornerInfo> findSharpestCorners(const std::vector<Point>& points) {
 	std::sort(result.begin(), result.end(),
 		[](const CornerInfo& a, const CornerInfo& b) {
 			return a.angle_deg < b.angle_deg;
-		});
+	});
 
 	return result;
 }
 
+// Жадное упрощение: выбрасывает точки, если отклонение от новой прямой не превышает maxDeviation
+std::vector<Point> simplifyByDeviation(const std::vector<Point>& points, double maxDeviation) {
+	if (points.size() < 3) {
+		return points;
+	}
+
+	std::vector<Point> result;
+	result.reserve(points.size());
+
+	size_t anchor = 0;
+	result.push_back(points[anchor]);
+
+	while (anchor + 1 < points.size()) {
+		size_t best = anchor + 1;
+
+		for (size_t candidate = anchor + 2; candidate < points.size(); ++candidate) {
+			bool valid = true;
+			for (size_t j = anchor + 1; j < candidate; ++j) {
+				double deviation = pointToSegmentDist(points[j], points[anchor], points[candidate]);
+				if (deviation > maxDeviation) {
+					valid = false;
+					break;
+				}
+			}
+			if (!valid) {
+				break;
+			}
+			best = candidate;
+		}
+
+		result.push_back(points[best]);
+		anchor = best;
+	}
+
+	return result;
+}
+
+// Предварительная упаковка всех сегментов в пакеты
+std::vector<PreparedMotionPacket> prepareMotionPackets(
+	const std::vector<MotionSegmentDelta>& segments,
+	size_t maxWrite)
+{
+	constexpr size_t HEADER_SIZE = 3;
+	constexpr size_t SEGMENT_SIZE = 6;
+
+	std::vector<PreparedMotionPacket> packets;
+	if (segments.empty()) {
+		return packets;
+	}
+
+	if (maxWrite > PreparedMotionPacket{}.data.size()) {
+		maxWrite = PreparedMotionPacket{}.data.size();
+	}
+
+	if (maxWrite < HEADER_SIZE + SEGMENT_SIZE) {
+		return packets;
+	}
+
+	const size_t maxSegmentsPerPacket = (maxWrite - HEADER_SIZE) / SEGMENT_SIZE;
+	const size_t packetCount = (segments.size() + maxSegmentsPerPacket - 1) / maxSegmentsPerPacket;
+	packets.reserve(packetCount);
+
+	size_t offset = 0;
+	while (offset < segments.size()) {
+		const size_t count = std::min(maxSegmentsPerPacket, segments.size() - offset);
+
+		PreparedMotionPacket packet;
+		packet.data[0] = 0x06;
+		packet.data[1] = CMD_MOTION_BLOCK;
+		packet.data[2] = static_cast<uint8_t>(count);
+
+		size_t writeOffset = HEADER_SIZE;
+		for (size_t i = 0; i < count; ++i) {
+			const MotionSegmentDelta& seg = segments[offset + i];
+			std::memcpy(packet.data.data() + writeOffset, &seg.dx, sizeof(seg.dx));
+			writeOffset += sizeof(seg.dx);
+			std::memcpy(packet.data.data() + writeOffset, &seg.dy, sizeof(seg.dy));
+			writeOffset += sizeof(seg.dy);
+			std::memcpy(packet.data.data() + writeOffset, &seg.duration_ms, sizeof(seg.duration_ms));
+			writeOffset += sizeof(seg.duration_ms);
+		}
+
+		packet.size = static_cast<uint8_t>(writeOffset);
+		packet.segmentCount = static_cast<uint8_t>(count);
+		packets.push_back(packet);
+		offset += count;
+	}
+
+	return packets;
+}
+
+bool Controller::sendPreparedMotionPackets(const std::vector<PreparedMotionPacket>& packets) {
+	if (packets.empty()) {
+		return true;
+	}
+
+	const auto startTime = std::chrono::steady_clock::now();
+	size_t sentPackets = 0;
+	size_t sentSegments = 0;
+
+	for (const auto& packet : packets) {
+		while (remoteBufferFull.load(std::memory_order_acquire)) {
+			std::this_thread::yield();
+		}
+
+		if (!transport.write(pybricksCommandEvent, packet.data.data(), packet.size, true)) {
+			LOG_ERROR("Failed to send prepared packet %zu/%zu", sentPackets, packets.size());
+			return false;
+		}
+
+		++sentPackets;
+		sentSegments += packet.segmentCount;
+	}
+
+	const auto endTime = std::chrono::steady_clock::now();
+	const double seconds = std::chrono::duration<double>(endTime - startTime).count();
+	const double packetsPerSecond = seconds > 0.0 ? sentPackets / seconds : 0.0;
+	const double segmentsPerSecond = seconds > 0.0 ? sentSegments / seconds : 0.0;
+
+	LOG_INFO("Motion TX: packets=%zu segments=%zu time=%.3f sec packets/sec=%.1f segments/sec=%.1f",
+		sentPackets, sentSegments, seconds, packetsPerSecond, segmentsPerSecond);
+	return true;
+}
+
 bool Controller::runMotionTest() {
 	auto rawPoints = readSkeletonCsv("one_contour.csv");
-
 	if (rawPoints.empty()) {
 		LOG_ERROR("No points loaded");
 		return false;
@@ -739,9 +865,9 @@ bool Controller::runMotionTest() {
 
 	LOG_INFO("Loaded %zu raw points", rawPoints.size());
 
+	// 1. Cleaning
 	std::vector<Point> cleaned;
 	cleaned.reserve(rawPoints.size());
-
 	Point last = { -9999, -9999 };
 	for (const auto& p : rawPoints) {
 		if (std::abs(p.x - last.x) + std::abs(p.y - last.y) >= 2) {
@@ -749,7 +875,6 @@ bool Controller::runMotionTest() {
 			last = p;
 		}
 	}
-
 	LOG_INFO("After cleaning: %zu points", cleaned.size());
 
 	if (cleaned.size() < 2) {
@@ -757,14 +882,11 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	// -------------------------------
-	// 1. RDP simplification only
-	// -------------------------------
+	// 2. RDP simplification
 	constexpr double RDP_EPSILON = 4.0;
 	std::vector<Point> simplified;
 	simplified.reserve(cleaned.size());
 	simplifyRDP(cleaned, RDP_EPSILON, simplified);
-
 	LOG_INFO("After RDP: %zu points (%.1f%% of cleaned)",
 		simplified.size(), 100.0 * simplified.size() / cleaned.size());
 
@@ -773,38 +895,31 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	// -------------------------------
-	// 2. Diagnostic: sharpest corners
-	// -------------------------------
+	// 3. Диагностика самых острых углов после RDP
 	auto sharpCorners = findSharpestCorners(simplified);
-	LOG_INFO("--- %zu sharpest corners after RDP ---", std::min<size_t>(10, sharpCorners.size()));
-
-	const size_t cornerCount = std::min<size_t>(10, sharpCorners.size());
-	for (size_t i = 0; i < cornerCount; ++i) {
+	const size_t cornerLogCount = std::min<size_t>(10, sharpCorners.size());
+	LOG_INFO("--- %zu sharpest corners after RDP ---", cornerLogCount);
+	for (size_t i = 0; i < cornerLogCount; ++i) {
 		const auto& c = sharpCorners[i];
 		LOG_INFO("CORNER #%zu: angle=%.2f deg  (%d,%d) -> (%d,%d) -> (%d,%d)",
-			c.index, c.angle_deg,
-			c.prev.x, c.prev.y,
-			c.point.x, c.point.y,
-			c.next.x, c.next.y);
+			c.index, c.angle_deg, c.prev.x, c.prev.y, c.point.x, c.point.y, c.next.x, c.next.y);
 	}
 
-	// -------------------------------
-	// 3. Select motion path (direct simplified, no resampling)
-	// -------------------------------
-	const std::vector<Point>& motionPath = simplified;
+	// 4. Дополнительное сжатие через deviation simplification
+	constexpr double FAST_MODE_MAX_DEVIATION = 3.0;  // можно менять для экспериментов
+	std::vector<Point> motionPath = simplifyByDeviation(simplified, FAST_MODE_MAX_DEVIATION);
 
-	LOG_INFO("Motion path: %zu points, %zu segments (direct simplified path)",
-		motionPath.size(), motionPath.size() - 1);
+	LOG_INFO("After deviation simplification: %zu points (removed %zu, deviation=%.2f)",
+		motionPath.size(), simplified.size() - motionPath.size(), FAST_MODE_MAX_DEVIATION);
 
 	if (motionPath.size() < 2) {
-		LOG_ERROR("Not enough points in motion path");
+		LOG_ERROR("Not enough points after deviation simplification");
 		return false;
 	}
 
-	// -------------------------------
-	// 4. Velocity planning
-	// -------------------------------
+	LOG_INFO("Final motion path: %zu points, %zu segments", motionPath.size(), motionPath.size() - 1);
+
+	// 5. Velocity planning
 	MotionLimits limits;
 	limits.max_velocity = 2200.0;
 	limits.max_accel = 8000.0;
@@ -812,7 +927,6 @@ bool Controller::runMotionTest() {
 	limits.junction_min_factor = 0.8;
 
 	auto durations_sec = planVelocity(motionPath, limits);
-
 	if (durations_sec.empty()) {
 		LOG_ERROR("Motion planner returned no durations");
 		return false;
@@ -824,20 +938,14 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
-	// -------------------------------
-	// 5. Duration statistics
-	// -------------------------------
-	double min_ms = 1e100;
-	double max_ms = 0.0;
-	double total_ms = 0.0;
+	// 6. Статистика по длительностям
+	double min_ms = 1e100, max_ms = 0.0, total_ms = 0.0;
 	size_t below5 = 0, below10 = 0, from10to20 = 0, from20to50 = 0, above50 = 0;
-
-	for (double duration : durations_sec) {
-		const double ms = duration * 1000.0;
+	for (double d : durations_sec) {
+		double ms = d * 1000.0;
 		min_ms = std::min(min_ms, ms);
 		max_ms = std::max(max_ms, ms);
 		total_ms += ms;
-
 		if (ms < 5.0) ++below5;
 		else if (ms < 10.0) ++below10;
 		else if (ms < 20.0) ++from10to20;
@@ -845,26 +953,18 @@ bool Controller::runMotionTest() {
 		else ++above50;
 	}
 
-	LOG_INFO("Planner stats: segments=%zu total=%.2f sec "
-		"min=%.2fms max=%.2fms avg=%.2fms "
+	LOG_INFO("Planner stats: segments=%zu total=%.2f sec min=%.2fms max=%.2fms avg=%.2fms "
 		"<5=%zu 5-10=%zu 10-20=%zu 20-50=%zu >=50=%zu",
-		durations_sec.size(),
-		total_ms / 1000.0,
-		min_ms, max_ms, total_ms / durations_sec.size(),
-		below5, below10, from10to20, from20to50, above50);
+		durations_sec.size(), total_ms / 1000.0, min_ms, max_ms,
+		total_ms / durations_sec.size(), below5, below10, from10to20, from20to50, above50);
 
-	// -------------------------------
-	// 6. Slowest segments by duration
-	// -------------------------------
+	// 7. Самые медленные по длительности сегменты
 	std::vector<SlowSegment> slowest;
 	slowest.reserve(durations_sec.size());
-	for (size_t i = 0; i < durations_sec.size(); ++i) {
+	for (size_t i = 0; i < durations_sec.size(); ++i)
 		slowest.push_back({ i, durations_sec[i] * 1000.0 });
-	}
 	std::sort(slowest.begin(), slowest.end(),
-		[](const SlowSegment& a, const SlowSegment& b) {
-			return a.duration_ms > b.duration_ms;
-		});
+		[](const SlowSegment& a, const SlowSegment& b) { return a.duration_ms > b.duration_ms; });
 
 	const size_t slowCount = std::min<size_t>(10, slowest.size());
 	LOG_INFO("--- %zu slowest segments by duration ---", slowCount);
@@ -876,35 +976,19 @@ bool Controller::runMotionTest() {
 			s.index, s.duration_ms, a.x, a.y, b.x, b.y);
 	}
 
-	// -------------------------------
-	// 7. Generate delta segments
-	// -------------------------------
+	// 8. Генерация delta-сегментов
 	constexpr uint16_t MIN_SEGMENT_DURATION_MS = 5;
 	std::vector<MotionSegmentDelta> deltaSegments;
 	deltaSegments.reserve(durations_sec.size());
-
 	double actual_total_ms = 0.0;
 
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
-		const double planned_ms = durations_sec[i] * 1000.0;
+		double planned_ms = durations_sec[i] * 1000.0;
+		uint16_t dur_ms = static_cast<uint16_t>(std::lround(planned_ms));
+		if (dur_ms < MIN_SEGMENT_DURATION_MS) dur_ms = MIN_SEGMENT_DURATION_MS;
 
-		if (planned_ms > UINT16_MAX) {
-			LOG_ERROR(
-				"Segment duration out of uint16 range: %.2f ms at segment %zu",
-				planned_ms, i
-			);
-			return false;
-		}
-
-		uint16_t dur_ms =
-			static_cast<uint16_t>(std::lround(planned_ms));
-
-		if (dur_ms < MIN_SEGMENT_DURATION_MS) {
-			dur_ms = MIN_SEGMENT_DURATION_MS;
-		}
-
-		const int32_t dx = motionPath[i + 1].x - motionPath[i].x;
-		const int32_t dy = motionPath[i + 1].y - motionPath[i].y;
+		int32_t dx = motionPath[i + 1].x - motionPath[i].x;
+		int32_t dy = motionPath[i + 1].y - motionPath[i].y;
 
 		if (dx < INT16_MIN || dx > INT16_MAX || dy < INT16_MIN || dy > INT16_MAX) {
 			LOG_ERROR("Delta out of int16 range: dx=%d dy=%d", dx, dy);
@@ -920,56 +1004,46 @@ bool Controller::runMotionTest() {
 		total_ms / 1000.0, actual_total_ms / 1000.0,
 		((actual_total_ms - total_ms) / total_ms) * 100.0);
 
-	// -------------------------------
-	// 8. Delta verification
-	// -------------------------------
+	// 9. Проверка сумм дельт
 	int64_t totalDx = 0, totalDy = 0;
 	for (const auto& seg : deltaSegments) {
 		totalDx += seg.dx;
 		totalDy += seg.dy;
 	}
-
-	const int64_t expectedDx = static_cast<int64_t>(motionPath.back().x) - motionPath.front().x;
-	const int64_t expectedDy = static_cast<int64_t>(motionPath.back().y) - motionPath.front().y;
+	int64_t expectedDx = motionPath.back().x - motionPath.front().x;
+	int64_t expectedDy = motionPath.back().y - motionPath.front().y;
 
 	LOG_INFO("Delta verification: sum=(%lld,%lld) expected=(%lld,%lld)",
 		totalDx, totalDy, expectedDx, expectedDy);
-
 	if (totalDx != expectedDx || totalDy != expectedDy) {
 		LOG_ERROR("Delta verification FAILED");
 		return false;
 	}
-
 	LOG_INFO("Delta verification PASSED");
 
-	// -------------------------------
-	// 9. Per-segment speed info (slowest by speed)
-	// -------------------------------
+	// 10. Самые медленные сегменты по фактической скорости
 	std::vector<SegInfo> segInfos;
 	segInfos.reserve(durations_sec.size());
-
 	for (size_t i = 0; i < durations_sec.size(); ++i) {
 		const Point& p0 = motionPath[i];
 		const Point& p1 = motionPath[i + 1];
-		const double dx = p1.x - p0.x;
-		const double dy = p1.y - p0.y;
-		const double length = std::sqrt(dx * dx + dy * dy);
-		const double dur_ms = durations_sec[i] * 1000.0;
-		const double speed = (dur_ms > 0.0) ? (length / dur_ms * 1000.0) : 0.0;
+		double dx = p1.x - p0.x;
+		double dy = p1.y - p0.y;
+		double length = std::sqrt(dx * dx + dy * dy);
+		double dur_ms = durations_sec[i] * 1000.0;
+		double speed = (dur_ms > 0.0) ? (length / dur_ms * 1000.0) : 0.0;
 		double angle_deg = 0.0;
-
 		if (i > 0 && i + 1 < motionPath.size()) {
 			angle_deg = angleBetween(motionPath[i - 1], motionPath[i], motionPath[i + 1]) * 180.0 / 3.141592653589793;
 		}
-
 		segInfos.push_back({ i, length, dur_ms, speed, angle_deg, p0.x, p0.y });
 	}
 
 	std::sort(segInfos.begin(), segInfos.end(),
 		[](const SegInfo& a, const SegInfo& b) { return a.speed < b.speed; });
 
-	LOG_INFO("--- 20 slowest segments by speed ---");
 	const size_t infoCount = std::min<size_t>(20, segInfos.size());
+	LOG_INFO("--- 20 slowest segments by speed ---");
 	for (size_t i = 0; i < infoCount; ++i) {
 		const auto& s = segInfos[i];
 		LOG_INFO("SEG %zu: (%.1f,%.1f) len=%.2f dur=%.2fms speed=%.1f angle=%.1f",
@@ -977,93 +1051,44 @@ bool Controller::runMotionTest() {
 			s.length, s.duration_ms, s.speed, s.angle_deg);
 	}
 
-	size_t almostStraight = 0;
-	size_t mild = 0;
-	size_t medium = 0;
-	size_t sharp = 0;
-	size_t reversal = 0;
-
-	for (const auto& c : sharpCorners) {
-		if (c.angle_deg >= 150.0)
-			++almostStraight;
-		else if (c.angle_deg >= 120.0)
-			++mild;
-		else if (c.angle_deg >= 90.0)
-			++medium;
-		else if (c.angle_deg >= 30.0)
-			++sharp;
-		else
-			++reversal;
-	}
-
-	LOG_INFO(
-		"Corner distribution: >=150=%zu 120-150=%zu 90-120=%zu "
-		"30-90=%zu <30=%zu",
-		almostStraight,
-		mild,
-		medium,
-		sharp,
-		reversal
-	);
-
-	// -------------------------------
-	// 10. Send start point
-	// -------------------------------
-	const int start_tx = motionPath.front().x;
-	const int start_ty = motionPath.front().y;
-	constexpr uint16_t START_DURATION_MS = 800;
-
-	LOG_INFO("Moving to start point: X=%d Y=%d", start_tx, start_ty);
-
-	if (!sendLineSegment(start_tx, start_ty, START_DURATION_MS)) {
-		LOG_ERROR("Failed to send start point");
-		return false;
-	}
-
-	std::this_thread::sleep_for(std::chrono::milliseconds(START_DURATION_MS));
-
-	// -------------------------------
-	// 11. Send motion blocks via BLE
-	// -------------------------------
-	size_t sent = 0;
+	// 11. Подготовка BLE‑пакетов заранее
 	const size_t maxWrite = transport.getMaxWriteSize();
-
 	if (maxWrite < 9) {
 		LOG_ERROR("BLE write size too small: %zu", maxWrite);
 		return false;
 	}
 
-	const size_t maxSegments = (maxWrite - 3) / 6;
-	LOG_INFO("BLE maxWrite=%zu, segments per packet=%zu", maxWrite, maxSegments);
+	auto prepareStart = std::chrono::steady_clock::now();
+	std::vector<PreparedMotionPacket> packets = prepareMotionPackets(deltaSegments, maxWrite);
+	auto prepareEnd = std::chrono::steady_clock::now();
 
-	const auto sendStartTime = std::chrono::steady_clock::now();
-
-	while (sent < deltaSegments.size()) {
-		while (remoteBufferFull.load()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}
-
-		const size_t count = std::min(maxSegments, deltaSegments.size() - sent);
-
-		std::vector<MotionSegmentDelta> block;
-		block.reserve(count);
-		block.insert(block.end(), deltaSegments.begin() + sent, deltaSegments.begin() + sent + count);
-
-		if (!sendMotionBlock(block)) {
-			LOG_ERROR("Failed to send motion block starting at %zu", sent);
-			return false;
-		}
-
-		sent += count;
-		LOG_DEBUG("Sent block: %zu segments, total %zu/%zu", count, sent, deltaSegments.size());
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	if (packets.empty()) {
+		LOG_ERROR("Failed to prepare motion packets");
+		return false;
 	}
 
-	const auto sendEndTime = std::chrono::steady_clock::now();
-	const double sendSeconds = std::chrono::duration<double>(sendEndTime - sendStartTime).count();
+	double prepareMs = std::chrono::duration<double, std::milli>(prepareEnd - prepareStart).count();
+	LOG_INFO("Prepared %zu BLE packets (%zu segments) in %.3f ms",
+		packets.size(), deltaSegments.size(), prepareMs);
 
-	LOG_INFO("All %zu motion segments sent in %.3f sec", deltaSegments.size(), sendSeconds);
+	// 12. Отправка стартовой точки
+	const int start_tx = motionPath.front().x;
+	const int start_ty = motionPath.front().y;
+	constexpr uint16_t START_DURATION_MS = 800;
 
+	LOG_INFO("Moving to start point: X=%d Y=%d", start_tx, start_ty);
+	if (!sendLineSegment(start_tx, start_ty, START_DURATION_MS)) {
+		LOG_ERROR("Failed to send start point");
+		return false;
+	}
+	std::this_thread::sleep_for(std::chrono::milliseconds(START_DURATION_MS));
+
+	// 13. Отправка подготовленных пакетов (без лишних задержек)
+	if (!sendPreparedMotionPackets(packets)) {
+		LOG_ERROR("Failed to send prepared motion packets");
+		return false;
+	}
+
+	LOG_INFO("All %zu motion segments sent successfully", deltaSegments.size());
 	return true;
 }

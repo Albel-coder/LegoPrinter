@@ -1,10 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include "../core/driver/interfaces/ITransport.h"
 #include <cstdint>
 #include <string>
 #include <vector>
 #include <atomic>
+#include <array>
 
 #pragma pack(push, 1)
 struct MotionSegmentDelta {
@@ -13,6 +14,13 @@ struct MotionSegmentDelta {
 	uint16_t duration_ms;
 };
 #pragma pack(pop)
+
+// Подготовленный BLE‑пакет (без динамического выделения в горячем цикле)
+struct PreparedMotionPacket {
+	std::array<uint8_t, 32> data{};
+	uint8_t size = 0;
+	uint8_t segmentCount = 0;
+};
 
 static_assert(
 	sizeof(MotionSegmentDelta) == 6,
@@ -35,6 +43,8 @@ public:
 	bool runMotionTest();
 
 	bool sendMotionBlock(const std::vector<MotionSegmentDelta>& segments);
+
+	bool sendPreparedMotionPackets(const std::vector<PreparedMotionPacket>& packets);
 
 private:
 	ITransport& transport;
