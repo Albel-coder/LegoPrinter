@@ -980,6 +980,43 @@ bool Controller::runMotionTest() {
 		return false;
 	}
 
+	LOG_INFO("--- Simplification preview ---");
+
+	constexpr double testDeviations[] = {
+		3.0, 5.0, 8.0, 12.0, 16.0, 20.0, 30.0, 40.0
+	};
+
+	constexpr double AVG_WRITE_MS = 118.344;
+	constexpr size_t BASE_SEGMENTS = 73; // или лучше вычислить автоматически
+
+	const size_t basePackets = (BASE_SEGMENTS + 3) / 4;
+	const double baseTxMs = basePackets * AVG_WRITE_MS;
+
+	for (double deviation : testDeviations) {
+		auto tempPath = simplifyByDeviation(simplified, deviation);
+
+		const size_t points = tempPath.size();
+		const size_t segments = points > 1 ? points - 1 : 0;
+		const size_t packets = (segments + 3) / 4;
+
+		const double estimatedTxMs = packets * AVG_WRITE_MS;
+		const double savedMs = baseTxMs - estimatedTxMs;
+		const double savedPercent =
+			baseTxMs > 0.0 ? savedMs * 100.0 / baseTxMs : 0.0;
+
+		LOG_INFO(
+			"dev=%5.1f -> %3zu pts, %3zu seg, %2zu pkt, "
+			"TX=%.3f sec, saved=%.3f sec (%.1f%%)",
+			deviation,
+			points,
+			segments,
+			packets,
+			estimatedTxMs / 1000.0,
+			savedMs / 1000.0,
+			savedPercent
+		);
+	}
+
 	// 3. Диагностика самых острых углов после RDP
 	auto sharpCorners = findSharpestCorners(simplified);
 	const size_t cornerLogCount = std::min<size_t>(10, sharpCorners.size());
