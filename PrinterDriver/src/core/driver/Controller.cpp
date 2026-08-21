@@ -431,7 +431,7 @@ std::vector<Point> readSkeletonCsv(const std::string& filename) {
 		if (std::getline(iss, token, ',')) {
 			x = std::stoi(token);
 		}
-		pts.push_back({ x * 30, y * 30 });
+		pts.push_back({ x * 5, y * 5 });
 	}
 	return pts;
 }
@@ -1136,41 +1136,48 @@ bool Controller::runMotionTest() {
 			s.length, s.duration_ms, s.speed, s.angle_deg);
 	}
 
-	LOG_INFO("--- Simplification preview ---");
+	LOG_INFO("--- Full simplification benchmark ---");
 
 	constexpr double testDeviations[] = {
-		3.0, 5.0, 8.0, 12.0, 16.0, 20.0, 30.0, 40.0
+		3.0, 5.0, 8.0, 12.0, 16.0, 20.0, 25.0, 30.0, 35.0, 40.0
 	};
 
-	constexpr double AVG_WRITE_MS = 118.344;
-	constexpr size_t BASE_SEGMENTS = 73; // или лучше вычислить автоматически
+	constexpr double AVG_WRITE_MS = 118.344;   // из последних измерений
+	constexpr size_t SEGMENTS_PER_PACKET = 4;  // при maxWrite=32
 
-	const size_t basePackets = (BASE_SEGMENTS + 3) / 4;
-	const double baseTxMs = basePackets * AVG_WRITE_MS;
+	// Базовые показатели для исходной RDP-траектории (до deviation simplification)
+	const size_t basePoints = simplified.size();
+	const size_t baseSegments = basePoints > 1 ? basePoints - 1 : 0;
+	const size_t basePackets = (baseSegments + SEGMENTS_PER_PACKET - 1) / SEGMENTS_PER_PACKET;
+	const double baseTxSec = basePackets * AVG_WRITE_MS / 1000.0;
+
+	// Планируем базовое время печати
+	MotionLimits baseLimits = limits; // используем те же лимиты
+	auto baseDurations = planVelocity(simplified, baseLimits);
+	double basePrintSec = 0.0;
+	for (double d : baseDurations) basePrintSec += d;
+
+	LOG_INFO("Baseline: %zu pts, %zu seg, %zu pkt, TX=%.3f sec, print=%.3f sec, margin=%+.3f sec",
+		basePoints, baseSegments, basePackets, baseTxSec, basePrintSec,
+		basePrintSec - baseTxSec);
 
 	for (double deviation : testDeviations) {
 		auto tempPath = simplifyByDeviation(simplified, deviation);
+		size_t points = tempPath.size();
+		size_t segments = points > 1 ? points - 1 : 0;
+		size_t packets = (segments + SEGMENTS_PER_PACKET - 1) / SEGMENTS_PER_PACKET;
+		double txSec = packets * AVG_WRITE_MS / 1000.0;
 
-		const size_t points = tempPath.size();
-		const size_t segments = points > 1 ? points - 1 : 0;
-		const size_t packets = (segments + 3) / 4;
+		// Планируем время печати для этого варианта
+		auto durations = planVelocity(tempPath, limits);
+		double printSec = 0.0;
+		for (double d : durations) printSec += d;
 
-		const double estimatedTxMs = packets * AVG_WRITE_MS;
-		const double savedMs = baseTxMs - estimatedTxMs;
-		const double savedPercent =
-			baseTxMs > 0.0 ? savedMs * 100.0 / baseTxMs : 0.0;
+		double marginSec = printSec - txSec;
+		double marginPercent = printSec > 0.0 ? marginSec * 100.0 / printSec : 0.0;
 
-		LOG_INFO(
-			"dev=%5.1f -> %3zu pts, %3zu seg, %2zu pkt, "
-			"TX=%.3f sec, saved=%.3f sec (%.1f%%)",
-			deviation,
-			points,
-			segments,
-			packets,
-			estimatedTxMs / 1000.0,
-			savedMs / 1000.0,
-			savedPercent
-		);
+		LOG_INFO("dev=%5.1f -> %3zu pts, %3zu seg, %2zu pkt, TX=%.3f sec, print=%.3f sec, margin=%+.3f sec (%+.1f%%)",
+			deviation, points, segments, packets, txSec, printSec, marginSec, marginPercent);
 	}
 
 	return true;
