@@ -14,17 +14,17 @@ extern "C" {
 		delete static_cast<MotionCompiler*>(compiler);
 	}
 
-	MOTION_COMPILER_API bool CompileImageProfiles(MotionCompilerHandle handle, const char* inputFilename, const char* outputFilename) {
-		if (!handle) {
+	MOTION_COMPILER_API bool CompileImageProfiles(MotionCompilerHandle handle, const char* inputFilename, const char* outputFilename, bool useSkeleton) {
+		if (!handle || !inputFilename || !outputFilename) {
 			return false;
 		}
 
 		auto* compiler = static_cast<MotionCompiler*>(handle);
-		return compiler->compileImageProfiles(inputFilename, outputFilename);
+		return compiler->compileImageProfiles(inputFilename, outputFilename, useSkeleton);
 	}
 
 	MOTION_COMPILER_API bool CompileCode(MotionCompilerHandle handle, const char* inputFilename, const char* outputFilename) {
-		if (!handle) {
+		if (!handle || !inputFilename || !outputFilename) {
 			return false;
 		}
 
@@ -33,5 +33,5 @@ extern "C" {
 	}
 
 #ifdef __cplusplus
-}
+} // extern "C"
 #endif
