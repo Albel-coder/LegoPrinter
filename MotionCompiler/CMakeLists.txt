@@ -66,11 +66,13 @@ endif()
 
 # Create shared library (DLL) instead of executable
 add_library(MotionCompiler SHARED
-    src/api/MotionCompilerAPI.h
-	src/api/MotionCompilerAPI.cpp
-	src/core/MotionCompiler.h
+    src/core/MotionCompiler.h
 	src/core/MotionCompiler.cpp
+	src/api/MotionCompilerAPI.h
+	src/api/MotionCompilerAPI.cpp
 )
+
+target_compile_definitions(MotionCompiler PRIVATE MOTIONCOMPILER_EXPORTS)
 
 # For Windows DLL export symbols
 if(WIN32)

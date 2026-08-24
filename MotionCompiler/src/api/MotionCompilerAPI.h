@@ -34,8 +34,15 @@
 // C-style for maximum compatibility with C# and Java UI
 #ifdef __cplusplus
 extern "C" {
+#endif
 
     typedef void* MotionCompilerHandle;
+
+    MOTION_COMPILER_API MotionCompilerHandle CreateMotionCompiler();
+    MOTION_COMPILER_API void DestroyMotionCompiler(MotionCompilerHandle compiler);
+
+    MOTION_COMPILER_API bool CompileImageProfiles(MotionCompilerHandle handle, const char* inputFilename, const char* outputFilename);
+    MOTION_COMPILER_API bool CompileCode(MotionCompilerHandle handle, const char* inputFilename, const char* outputFilename);
 
 #ifdef __cplusplus
 }
