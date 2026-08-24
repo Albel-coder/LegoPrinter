@@ -66,10 +66,19 @@ endif()
 
 # Create shared library (DLL) instead of executable
 add_library(MotionCompiler SHARED
-    src/core/MotionCompiler.h
-	src/core/MotionCompiler.cpp
 	src/api/MotionCompilerAPI.h
 	src/api/MotionCompilerAPI.cpp
+	src/core/MotionCompiler.h
+	src/core/MotionCompiler.cpp
+	src/image/ImageProcessor.h
+	src/image/ImageProcessor.cpp
+	src/path/ContourOrganizer.h
+	src/path/ContourOrganizer.cpp
+	src/gcode/GCodeWriter.h
+	src/gcode/GCodeWriter.cpp
+	src/model/Point.h
+	src/model/Contour.h
+	src/model/ImageProfile.h
 )
 
 target_compile_definitions(MotionCompiler PRIVATE MOTIONCOMPILER_EXPORTS)
