@@ -73,8 +73,6 @@ set(CORE_SOURCE
 	src/core/driver/gcode/GCodeCompiler.h
 	src/core/driver/gcode/GCodeCompiler.cpp
 	src/core/driver/gcode/MotionProgram.h
-	src/core/driver/gcode/MotionCompiler.h
-	srr/core/driver/gcode/MotionCompiler.cpp
 	
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
