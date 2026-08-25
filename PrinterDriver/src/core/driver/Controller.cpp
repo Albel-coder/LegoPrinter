@@ -14,8 +14,6 @@ constexpr uint8_t REPLY_STATUS = 0x80;
 constexpr uint8_t REPLY_PONG = 0x81;
 constexpr uint8_t REPLY_ERROR = 0xFF;
 
-constexpr uint8_t CMD_MOTION_BLOCK = 0x02;
-
 Controller::Controller(ITransport& transportPointer)
 	: transport(transportPointer) {
 }
@@ -816,7 +814,7 @@ std::vector<PreparedMotionPacket> prepareMotionPackets(
 		}
 
 		packet.size = static_cast<uint8_t>(writeOffset);
-		packet.segmentCount = static_cast<uint8_t>(count);
+		packet.segmentsCount = static_cast<uint8_t>(count);
 		packets.push_back(packet);
 		offset += count;
 	}
@@ -885,7 +883,7 @@ bool Controller::sendPreparedMotionPackets(
 		}
 
 		totalBytes += packet.size;
-		sentSegments += packet.segmentCount;
+		sentSegments += packet.segmentsCount;
 		++sentPackets;
 	}
 
@@ -1652,7 +1650,7 @@ bool Controller::runGCodeTest(const std::string& filename) {
 			const auto& packet = program.packets[command.packetIndex];
 
 			LOG_INFO("CMD[%zu] XY packet = %u segments = %u bytes = %u",
-				i, command.packetIndex, packet.segmentCount, packet.size);
+				i, command.packetIndex, packet.segmentsCount, packet.size);
 		}
 		else {
 			LOG_INFO("CMD[%zu] Z angle = %d afterXY = %u",

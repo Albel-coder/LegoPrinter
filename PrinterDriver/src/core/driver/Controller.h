@@ -18,13 +18,6 @@ struct MotionSegmentDelta {
 };
 #pragma pack(pop)
 
-// Подготовленный BLE‑пакет (без динамического выделения в горячем цикле)
-struct PreparedMotionPacket {
-	std::array<uint8_t, 32> data{};
-	uint8_t size = 0;
-	uint8_t segmentCount = 0;
-};
-
 static_assert(
 	sizeof(MotionSegmentDelta) == 6,
 	"MotionSegmentDelta must be 6 bytes"
