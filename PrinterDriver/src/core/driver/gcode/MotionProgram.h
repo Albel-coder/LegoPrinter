@@ -36,7 +36,7 @@ struct MotionCommand {
 
 	// для Z_COMMAND
 	int16_t zAngle = 0;
-	uint32_t xySequence = 0;  // сколько XY сегментов должно быть выполнено перед этой Z
+	uint32_t afterXY = 0;  // сколько XY сегментов должно быть выполнено перед этой Z
 };
 
 struct MotionProgram {
