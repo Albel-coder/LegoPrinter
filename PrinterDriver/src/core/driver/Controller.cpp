@@ -8,6 +8,7 @@
 #include <chrono>
 #include <fstream>
 #include <sstream>
+#include <limits>
 
 constexpr uint8_t REPLY_STATUS = 0x80;
 constexpr uint8_t REPLY_PONG = 0x81;
@@ -1524,4 +1525,140 @@ bool Controller::runMotionTest() {
 	LOG_INFO("All %zu motion segments sent successfully", deltaSegments.size());
 
 	return true;
+}
+
+bool Controller::sendStartThreshold(uint16_t threshold) {
+	uint8_t packet[4];
+
+	packet[0] = MOTION_TRANSPORT_PREFIX;
+	packet[1] = CMD_SET_START_THRESHOLD;
+
+	std::memcpy(&packet[2], &threshold, sizeof(threshold));
+
+	return transport.write(pybricksCommandEvent, packet, sizeof(packet), true);
+}
+
+bool Controller::sendZCommand(int16_t angle, uint32_t afterXY) {
+	uint8_t packet[8];
+
+	packet[0] = MOTION_TRANSPORT_PREFIX;
+	packet[1] = CMD_Z;
+
+	std::memcpy(&packet[2], &angle, sizeof(angle));
+	std::memcpy(&packet[4], &afterXY, sizeof(afterXY));
+
+	return transport.write(pybricksCommandEvent, packet, sizeof(packet), true);
+}
+
+bool Controller::sendMotionProgram(const MotionProgram& program) {
+	if (!connected || !transport.isConnected() || pybricksCommandEvent.characteristicUuid.empty()) {
+		LOG_ERROR("Motion program: not connected");
+		return false;
+	}
+
+	if (program.startThreshold > std::numeric_limits<uint16_t>::max()) {
+		LOG_ERROR("Motion program: start threshold too large");
+		return false;
+	}
+
+	// Новый job начинается с threshold command
+	// Hub на её получение сбрасывает runtime state
+	if (!sendStartThreshold(static_cast<uint16_t>(program.startThreshold))) {
+		LOG_ERROR("Failed to send start threshold");
+		return false;
+	}
+
+	const auto start = std::chrono::steady_clock::now();
+
+	size_t sentPackets = 0;
+	size_t sentCommands = 0;
+
+	for (const MotionCommand& command : program.commands) {
+		// Если хаб заявил переполнение, ждем освобождение
+		while (remoteBufferFull.load(std::memory_order_acquire)) {
+			std::this_thread::yield();
+		}
+
+		// XY packet
+		if (command.type == MotionCommandType::XY_PACKET) {
+			if (command.packetIndex >= program.packets.size()) {
+				LOG_ERROR("Invalid XY packet index: %u", command.packetIndex);
+				return false;
+			}
+
+			const PreparedMotionPacket& packet = program.packets[command.packetIndex];
+
+			if (!transport.write(pybricksCommandEvent, packet.data.data(), packet.size, true)) {
+				LOG_ERROR("Failed to send XY packet %u", command.packetIndex);
+				return false;
+			}
+
+			sentPackets++;
+		}
+		else if (command.type == MotionCommandType::Z_COMMAND) {
+			if (!sendZCommand(command.zAngle, command.afterXY)) {
+				LOG_ERROR("Failed to send Z command angle = %d, afterXY = %u", 
+					command.zAngle, command.afterXY);
+				return false;
+			}
+		}
+
+		sentCommands++;
+	}
+
+	const auto end = std::chrono::steady_clock::now();
+
+	const double seconds = std::chrono::duration<double>(end - start).count();
+
+	LOG_INFO("Motion program sent: xyPackets = %zu commands = %zu segments = %zu threshold = %zu estimated = %.3f seconds tx = %.3f seconds",
+		sentPackets, sentCommands, program.xySegmentCount, program.startThreshold, program.estimatedDurationSec, seconds);
+	return true;
+}
+
+bool Controller::runGCodeTest(const std::string& filename) {
+	PrinterConfig config;
+
+	config.stepsPerMmX = 5.0;
+	config.stepsPerMmY = 5.0;
+
+	config.maxFeedrate = 2000.0;
+	config.defaultFeedrate = 1000.0;
+
+	config.zUpAngle = 90;
+	config.zDownAngle = 0;
+
+	config.maxStartThreshold = 900;
+	config.startThresholdSafetyMargin = 5;
+
+	GCodeCompiler compiler(config);
+
+	MotionProgram program;
+
+	if (!compiler.compile(filename, program)) {
+		LOG_ERROR("Failed to compile g-code: %s", filename.c_str());
+		return false;
+	}
+
+	LOG_INFO("MotionProgram compiled: segments = %zu packets = %zu commands = %zu threshold = %zu estimated = %.3f seconds",
+		program.xySegmentCount, program.packets.size(), program.commands.size(), program.startThreshold, program.estimatedDurationSec);
+
+	// Детальная диагностика последовательности
+	// Очень полезно на первом запуске
+
+	for (size_t i = 0; i < program.commands.size(); ++i) {
+		const MotionCommand& command = program.commands[i];
+
+		if (command.type == MotionCommandType::XY_PACKET) {
+			const auto& packet = program.packets[command.packetIndex];
+
+			LOG_INFO("CMD[%zu] XY packet = %u segments = %u bytes = %u",
+				i, command.packetIndex, packet.segmentCount, packet.size);
+		}
+		else {
+			LOG_INFO("CMD[%zu] Z angle = %d afterXY = %u",
+				i, command.zAngle, command.afterXY);
+		}
+	}
+
+	return sendMotionProgram(program);
 }

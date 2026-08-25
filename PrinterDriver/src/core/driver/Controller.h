@@ -1,6 +1,9 @@
 ﻿#pragma once
 
 #include "../core/driver/interfaces/ITransport.h"
+#include "gcode/MotionProgram.h"
+#include "gcode/GCodeCompiler.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -45,6 +48,12 @@ public:
 	bool sendMotionBlock(const std::vector<MotionSegmentDelta>& segments);
 
 	bool sendPreparedMotionPackets(const std::vector<PreparedMotionPacket>& packets);
+
+	bool sendMotionProgram(const MotionProgram& program);
+	bool sendStartThreshold(uint16_t threshold);
+	bool sendZCommand(int16_t angle, uint32_t afterXY);
+
+	bool runGCodeTest(const std::string& filename);
 
 private:
 	ITransport& transport;
