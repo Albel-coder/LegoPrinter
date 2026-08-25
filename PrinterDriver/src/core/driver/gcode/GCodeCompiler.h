@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MotionProgram.h"
+
 #include <cstdint>
 #include <sstream>
 #include <string>
@@ -9,14 +10,17 @@ struct PrinterConfig {
 	double stepsPerMmX = 5.0;
 	double stepsPerMmY = 5.0;
 
-	double maxFeedrate = 2000.0; // мм/мин
+	// mm/min
+	double maxFeedrate = 2000.0;
 	double defaultFeedrate = 1000.0;
 
+	// Углы Z-мотора
 	double zUpAngle = 90.0;
 	double zDownAngle = 0.0;
 
+	// Защита от попытки накопить в hub больше чем способен вместить его XY ring buffer
 	uint16_t maxStartThreshold = 900;
-	uint16_t startThresholdSafetyMargin = 5;
+	uint16_t startThresholdSafetyMargin = 5; // Сколько сегментов оставляем как небольшой запас
 };
 
 class GCodeCompiler {
@@ -28,19 +32,25 @@ public:
 private:
 	PrinterConfig config;
 
+	// G90 / G91
 	bool absolute = true;
 
+	// Текущие координаты g-code, mm
 	double currentX = 0.0;
 	double currentY = 0.0;
 	double currentZ = 0.0;
 
+	// Текущие координаты уже в шагах
 	int32_t currentStepsX = 0;
 	int32_t currentStepsY = 0;
 
+	// Текущий feedrate, mm/min
 	double feedrate = 1000.0;
 
-	size_t compiledCommandPacketCount = 0; // сколько пакетов уже добавлено в commands
+	// сколько пакетов XY уже добавлено в MotionProgram::commands
+	size_t compiledCommandPacketCount = 0;
 
+private:
 	void resetState();
 	bool processLine(const std::string& line, MotionProgram& program);
 	bool processMovement(const std::string& command, std::istringstream& stream, MotionProgram& program);

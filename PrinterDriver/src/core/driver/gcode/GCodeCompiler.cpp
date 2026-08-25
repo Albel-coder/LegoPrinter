@@ -1,10 +1,12 @@
 #include "GCodeCompiler.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <sstream>
 
 namespace {
 	constexpr double EPSILON = 1e-9;
@@ -31,21 +33,24 @@ GCodeCompiler::GCodeCompiler(const PrinterConfig& printerConfig) : config(printe
 
 void GCodeCompiler::resetState() {
 	absolute = true;
+
 	currentX = 0.0;
 	currentY = 0.0;
 	currentZ = 0.0;
+
 	currentStepsX = 0;
 	currentStepsY = 0;
+
 	feedrate = config.defaultFeedrate;
 	compiledCommandPacketCount = 0;
 }
 
 std::string GCodeCompiler::trim(const std::string& value) {
-	size_t start = value .find_first_not_of(" \t\r\n");
+	const size_t start = value .find_first_not_of(" \t\r\n");
 	if (start == std::string::npos) {
-		return "";
+		return {};
 	}
-	size_t end = value.find_last_not_of(" \t\r\n");
+	const size_t end = value.find_last_not_of(" \t\r\n");
 	return value.substr(start, end - start + 1);
 }
 
@@ -73,10 +78,13 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
 
 bool GCodeCompiler::processLine(const std::string& rawLine, MotionProgram& program) {
 	std::string line = rawLine;
+
+	// Удаляем комментарий
 	size_t commentPos = line.find(';');
 	if (commentPos != std::string::npos) {
 		line.erase(commentPos);
 	}
+
 	line = trim(line);
 	if (line.empty()) {
 		return true;
@@ -99,13 +107,14 @@ bool GCodeCompiler::processLine(const std::string& rawLine, MotionProgram& progr
 		return true;
 	}
 	if (command == "G21") {
+		// millimeters
 		return true;
 	}
 	if (command == "G20") {
-		return false; // inches is not available
+		return false; // inches is not available for now
 	}
 	if (command == "M2" || command == "M30") {
-		return true;
+		return true; // end of program
 	}
 	if (command == "G0" || command == "G1") {
 		return processMovement(command, stream, program);
@@ -127,6 +136,7 @@ bool GCodeCompiler::processLine(const std::string& rawLine, MotionProgram& progr
 	return true;
 }
 
+// G0 / G1 commands
 bool GCodeCompiler::processMovement(const std::string& command, std::istringstream& stream, MotionProgram& program) {
 	double targetX = absolute ? currentX : 0.0;
 	double targetY = absolute ? currentY : 0.0;
@@ -138,14 +148,17 @@ bool GCodeCompiler::processMovement(const std::string& command, std::istringstre
 		if (token.size() < 2) {
 			return false;
 		}
+
 		char axis = static_cast<char>(std::toupper(static_cast<unsigned char>(token[0])));
-		double value;
+		double value = 0.0;
+
 		try {
-			value = std::stoi(token.substr(1));
+			value = std::stod(token.substr(1));
 		}
 		catch (...) {
 			return false;
 		}
+
 		switch (axis) {
 			case 'X':
 				targetX = absolute ? value : currentX + value;
@@ -160,6 +173,8 @@ bool GCodeCompiler::processMovement(const std::string& command, std::istringstre
 				if (value <= 0) {
 					return false;
 				}
+
+				newFeedrate = value;
 				break;
 			default:
 				return false;
@@ -167,6 +182,17 @@ bool GCodeCompiler::processMovement(const std::string& command, std::istringstre
 	}
 
 	feedrate = newFeedrate;
+
+	// Z
+	if (!nearlyEqual(targetZ, currentZ)) {
+		const int16_t zAngle = targetZ > currentZ ? config.zUpAngle : config.zDownAngle;
+
+		if (!addZCommand(zAngle, program)) {
+			return false;
+		}
+
+		currentZ = targetZ;
+	}
 
 	// Z всегда перед XY
 	if (!nearlyEqual(targetX, currentX) || !nearlyEqual(targetY, currentY)) {
@@ -179,13 +205,16 @@ bool GCodeCompiler::processMovement(const std::string& command, std::istringstre
 			return true;
 		}
 
-		double feed = (command == "G0") ? config.maxFeedrate : feedrate;
-		if (feed <= 0) {
+		double moveFeedrate = (command == "G0") ? config.maxFeedrate : feedrate;
+		if (moveFeedrate <= 0) {
 			return false;
 		}
-		double durationSec = distance / (feed / 60.0);
+
+		// простое время движения, позже сюда перенесем проверенный velocity planner
+
+		double durationSec = distance / (moveFeedrate / 60.0);
 		double durationMsDouble = durationSec * 1000.0;
-		if (durationMsDouble < 0 || durationMsDouble > static_cast<double>(std::numeric_limits<uint16_t>::max())) {
+		if (durationMsDouble < 0.0 || durationMsDouble > static_cast<double>(std::numeric_limits<uint16_t>::max())) {
 			return false;
 		}
 		uint16_t durationMs = static_cast<uint16_t>(std::lround(durationMsDouble));
@@ -193,19 +222,31 @@ bool GCodeCompiler::processMovement(const std::string& command, std::istringstre
 			durationMs = 1;
 		}
 
-		int32_t targetStepsX = static_cast<int32_t>(std::lround(targetX * config.stepsPerMmX));
-		int32_t targetStepsY = static_cast<int32_t>(std::lround(targetY * config.stepsPerMmY));
+		// convert mm -> steps
 
-		int64_t deltaX64 = static_cast<int64_t>(targetStepsX) - static_cast<int64_t>(currentStepsX);
-		int64_t deltaY64 = static_cast<int64_t>(targetStepsY) - static_cast<int64_t>(currentStepsY);
+		const int32_t targetStepsX = static_cast<int32_t>(std::lround(targetX * config.stepsPerMmX));
+		const int32_t targetStepsY = static_cast<int32_t>(std::lround(targetY * config.stepsPerMmY));
+
+		const int64_t deltaX64 = static_cast<int64_t>(targetStepsX) - static_cast<int64_t>(currentStepsX);
+		const int64_t deltaY64 = static_cast<int64_t>(targetStepsY) - static_cast<int64_t>(currentStepsY);
 
 		if (deltaX64 < INT16_MIN || deltaX64 > INT16_MAX ||
 			deltaY64 < INT16_MIN || deltaY64 > INT16_MAX) {
 			return false;
 		}
 
+		if (!addXYSegment(
+			static_cast<int32_t>(deltaX64), 
+			static_cast<int32_t>(deltaY64), 
+			durationMs, 
+			program)) {
+			return false;
+		}
+
+		// Только после успешного добавления изменяем current state
 		currentStepsX = targetStepsX;
 		currentStepsY = targetStepsY;
+
 		currentX = targetX;
 		currentY = targetY;
 	}
@@ -214,7 +255,16 @@ bool GCodeCompiler::processMovement(const std::string& command, std::istringstre
 }
 
 bool GCodeCompiler::addXYSegment(int32_t dx, int32_t dy, uint16_t durationMs, MotionProgram& program) {
-	if (!appendSegmentToPacket(static_cast<int16_t>(dx), static_cast<int16_t>(dy), durationMs, program)) {
+	if (dx < INT16_MIN || dx > INT16_MAX ||
+		dy < INT16_MIN || dy > INT16_MAX) {
+		return false;
+	}
+	
+	if (!appendSegmentToPacket(
+		static_cast<int16_t>(dx), 
+		static_cast<int16_t>(dy), 
+		durationMs, 
+		program)) {
 		return false;
 	}
 
@@ -235,7 +285,7 @@ bool GCodeCompiler::appendSegmentToPacket(int16_t dx, int16_t dy, uint16_t durat
 	}
 
 	PreparedMotionPacket& packet = program.packets.back();
-	size_t offset = MOTION_PACKET_HEADER_SIZE + packet.segmentsCount * MOTION_SEGMNET_SIZE;
+	const size_t offset = MOTION_PACKET_HEADER_SIZE + packet.segmentsCount * MOTION_SEGMNET_SIZE;
 	std::memcpy(packet.data.data() + offset, &dx, sizeof(dx));
 	std::memcpy(packet.data.data() + offset + 2, &dy, sizeof(dy));
 	std::memcpy(packet.data.data() + offset + 4, &durationMs, sizeof(durationMs));
@@ -278,7 +328,8 @@ size_t GCodeCompiler::calculateStartThreshold(size_t segmentCount) const {
 	if (segmentCount == 0) {
 		return 0;
 	}
-	size_t safetyMargin = config.startThresholdSafetyMargin;
+
+	const size_t safetyMargin = config.startThresholdSafetyMargin;
 	size_t threshold = (segmentCount > safetyMargin) ? segmentCount - safetyMargin : segmentCount;
 	threshold = std::min(threshold, static_cast<size_t>(config.maxStartThreshold));
 	return threshold;
