@@ -12,6 +12,7 @@ namespace LPStudio
 {
     public partial class CalibrationUserControl : UserControl
     {
+        private MotionCompilerController motionCompilerController;
         public CalibrationUserControl()
         {
             InitializeComponent();
@@ -25,6 +26,11 @@ namespace LPStudio
         private void labelPrinterHead_Click(object sender, EventArgs e)
         {
 
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            motionCompilerController.GenerateGCode("testImage.png", "test.gcode", true);
         }
     }
 }

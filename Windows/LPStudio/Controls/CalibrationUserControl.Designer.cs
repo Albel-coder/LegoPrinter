@@ -31,9 +31,9 @@
             this.tableLayoutPanel = new System.Windows.Forms.TableLayoutPanel();
             this.tableLayoutPanelMainMenu = new System.Windows.Forms.TableLayoutPanel();
             this.panelPrinter = new System.Windows.Forms.Panel();
+            this.button1 = new System.Windows.Forms.Button();
             this.panelPrinterHead = new System.Windows.Forms.Panel();
             this.labelPrinterHead = new System.Windows.Forms.Label();
-            this.button1 = new System.Windows.Forms.Button();
             this.tableLayoutPanel.SuspendLayout();
             this.tableLayoutPanelMainMenu.SuspendLayout();
             this.panelPrinter.SuspendLayout();
@@ -83,6 +83,16 @@
             this.panelPrinter.Size = new System.Drawing.Size(205, 227);
             this.panelPrinter.TabIndex = 0;
             // 
+            // button1
+            // 
+            this.button1.Location = new System.Drawing.Point(42, 62);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(97, 42);
+            this.button1.TabIndex = 1;
+            this.button1.Text = "button1";
+            this.button1.UseVisualStyleBackColor = true;
+            this.button1.Click += new System.EventHandler(this.button1_Click);
+            // 
             // panelPrinterHead
             // 
             this.panelPrinterHead.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(51)))), ((int)(((byte)(51)))), ((int)(((byte)(55)))));
@@ -103,15 +113,6 @@
             this.labelPrinterHead.Text = "Printer";
             this.labelPrinterHead.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             this.labelPrinterHead.Click += new System.EventHandler(this.labelPrinterHead_Click);
-            // 
-            // button1
-            // 
-            this.button1.Location = new System.Drawing.Point(42, 62);
-            this.button1.Name = "button1";
-            this.button1.Size = new System.Drawing.Size(97, 42);
-            this.button1.TabIndex = 1;
-            this.button1.Text = "button1";
-            this.button1.UseVisualStyleBackColor = true;
             // 
             // CalibrationUserControl
             // 

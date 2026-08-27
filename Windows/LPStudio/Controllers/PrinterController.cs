@@ -335,68 +335,76 @@ public class PrinterController : IDisposable
     }
 }
 
-public class MotionCompilerController : IDisposable
+public sealed class MotionCompilerController : IDisposable
 {
-    private IntPtr CompilerHandle;
-    private bool Disposed = false;
+    private IntPtr compilerHandle;
+    private bool disposed;
 
     public MotionCompilerController()
     {
-        CompilerHandle = CreateMotionCompiler();
+        compilerHandle = CreateMotionCompiler();
 
-        if (CompilerHandle == IntPtr.Zero)
+        if (compilerHandle == IntPtr.Zero)
         {
-            throw new InvalidOperationException("Failed to create MotionCompiler instance");
+            throw new InvalidOperationException("Failed to create MotionCompiler instance.");
         }
     }
 
-    public bool GenerateGCode(string inputPath, string outputPath)
+    public bool GenerateGCode(string inputPath, string outputPath, bool useSkeleton = false)
     {
-        if (Disposed)
+        ThrowIfDisposed();
+
+        if (string.IsNullOrWhiteSpace(inputPath))
+        {
+            throw new ArgumentException("Input path cannot be empty.", nameof(inputPath));
+        }
+
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            throw new ArgumentException("Output path cannot be empty.", nameof(outputPath));
+        }
+
+        return CompileImageProfiles(compilerHandle, inputPath, outputPath, useSkeleton);
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (disposed)
         {
             throw new ObjectDisposedException(nameof(MotionCompilerController));
         }
-
-        return GenerateMotionGCode(CompilerHandle, inputPath, outputPath);
     }
 
-    public bool GenerateTestGCode(string outputPath)
-    {
-        if (Disposed)
-        {
-            throw new ObjectDisposedException(nameof(MotionCompilerController));
-        }
-
-        return GenerateTestMotionGCode(CompilerHandle, outputPath);
-    }
-
-    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern IntPtr CreateMotionCompiler();
 
     [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool GenerateMotionGCode(IntPtr compiler, string inputPath, string outputPath);
-
-    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool GenerateTestMotionGCode(IntPtr compiler, string outputPath);
+    private static extern bool CompileImageProfiles(IntPtr compiler, string inputFilename, string outputFilename, [MarshalAs(UnmanagedType.I1)] bool useSkeleton);
 
     [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern void DestroyMotionCompiler(IntPtr compiler);
 
     public void Dispose()
     {
-        if (Disposed)
+        if (disposed)
         {
             return;
         }
 
-        if (CompilerHandle != IntPtr.Zero)
+        if (compilerHandle != IntPtr.Zero)
         {
-            DestroyMotionCompiler(CompilerHandle);
-            CompilerHandle = IntPtr.Zero;
+            DestroyMotionCompiler(compilerHandle);
+            compilerHandle = IntPtr.Zero;
         }
 
-        Disposed = true;
+        disposed = true;
+
+        GC.SuppressFinalize(this);
+    }
+
+    ~MotionCompilerController()
+    {
+        Dispose();
     }
 }
