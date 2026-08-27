@@ -532,5 +532,7 @@ bool PrinterDriver::runPrinterTest(const char* testName) {
     
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-    return runtime->runMotionTest();
+    //return runtime->runMotionTest();
+
+    return runtime->runGCodeTest("test.gcode");
 }
