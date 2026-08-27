@@ -334,3 +334,69 @@ public class PrinterController : IDisposable
         }
     }
 }
+
+public class MotionCompilerController : IDisposable
+{
+    private IntPtr CompilerHandle;
+    private bool Disposed = false;
+
+    public MotionCompilerController()
+    {
+        CompilerHandle = CreateMotionCompiler();
+
+        if (CompilerHandle == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("Failed to create MotionCompiler instance");
+        }
+    }
+
+    public bool GenerateGCode(string inputPath, string outputPath)
+    {
+        if (Disposed)
+        {
+            throw new ObjectDisposedException(nameof(MotionCompilerController));
+        }
+
+        return GenerateMotionGCode(CompilerHandle, inputPath, outputPath);
+    }
+
+    public bool GenerateTestGCode(string outputPath)
+    {
+        if (Disposed)
+        {
+            throw new ObjectDisposedException(nameof(MotionCompilerController));
+        }
+
+        return GenerateTestMotionGCode(CompilerHandle, outputPath);
+    }
+
+    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    private static extern IntPtr CreateMotionCompiler();
+
+    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool GenerateMotionGCode(IntPtr compiler, string inputPath, string outputPath);
+
+    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool GenerateTestMotionGCode(IntPtr compiler, string outputPath);
+
+    [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void DestroyMotionCompiler(IntPtr compiler);
+
+    public void Dispose()
+    {
+        if (Disposed)
+        {
+            return;
+        }
+
+        if (CompilerHandle != IntPtr.Zero)
+        {
+            DestroyMotionCompiler(CompilerHandle);
+            CompilerHandle = IntPtr.Zero;
+        }
+
+        Disposed = true;
+    }
+}
