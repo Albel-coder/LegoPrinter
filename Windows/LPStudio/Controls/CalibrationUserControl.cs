@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.IO;
 
 namespace LPStudio
 {
@@ -16,6 +17,15 @@ namespace LPStudio
         public CalibrationUserControl()
         {
             InitializeComponent();
+
+            string dllPath = Path.Combine(
+            AppContext.BaseDirectory,
+                "MotionCompiler.dll");
+
+            Console.WriteLine($"DLL: {dllPath}\n" +
+                $"Exists: {File.Exists(dllPath)}");
+
+            motionCompilerController = new MotionCompilerController();
         }
 
         private void tableLayoutPanel1_Paint(object sender, PaintEventArgs e)
