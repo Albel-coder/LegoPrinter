@@ -19,13 +19,21 @@ constexpr size_t MOTION_PACKET_HEADER_SIZE = 3;
 // [1] = command
 // [2] = segment count
 
-constexpr size_t MOTION_SEGMNET_SIZE = 6;
+constexpr size_t MOTION_SEGMENT_SIZE = 6;
 // int16 dx
 // int16 dy
 // uint16 duration_ms
 
 constexpr size_t MAX_SEGMENTS_PER_PACKET =
-    (MAX_BLE_PACKET_SIZE - MOTION_PACKET_HEADER_SIZE) / MOTION_SEGMNET_SIZE;
+    (MAX_BLE_PACKET_SIZE - MOTION_PACKET_HEADER_SIZE) / MOTION_SEGMENT_SIZE;
+
+static_assert(MAX_SEGMENTS_PER_PACKET == 4,
+	"MAX_SEGMENTS_PER_PACKET must match hub-side parser");
+
+static_assert(
+	MOTION_PACKET_HEADER_SIZE + MAX_SEGMENTS_PER_PACKET * MOTION_SEGMENT_SIZE
+	<= MAX_BLE_PACKET_SIZE,
+	"packet layout must fit into MAX_BLE_PACKET_SIZE");
 
 struct PreparedMotionPacket {
 	std::array<uint8_t, MAX_BLE_PACKET_SIZE> data{};

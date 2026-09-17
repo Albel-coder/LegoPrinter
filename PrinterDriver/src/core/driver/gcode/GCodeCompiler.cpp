@@ -273,8 +273,15 @@ bool GCodeCompiler::addXYSegment(int32_t dx, int32_t dy, uint16_t durationMs, Mo
 	return true;
 }
 
-bool GCodeCompiler::appendSegmentToPacket(int16_t dx, int16_t dy, uint16_t durationMs, MotionProgram& program) {
-	if (program.packets.empty() || program.packets.back().segmentsCount >= MAX_BLE_PACKET_SIZE) {
+bool GCodeCompiler::appendSegmentToPacket(
+	int16_t dx, int16_t dy, uint16_t durationMs,
+	MotionProgram& program)
+{
+	// ѕравильный критерий: количество сегментов,
+	// а не размер пакета в байтах.
+	if (program.packets.empty() ||
+		program.packets.back().segmentsCount >= MAX_SEGMENTS_PER_PACKET) {
+
 		PreparedMotionPacket packet;
 		packet.data[0] = MOTION_TRANSPORT_PREFIX;
 		packet.data[1] = CMD_MOTION_BLOCK;
@@ -285,14 +292,36 @@ bool GCodeCompiler::appendSegmentToPacket(int16_t dx, int16_t dy, uint16_t durat
 	}
 
 	PreparedMotionPacket& packet = program.packets.back();
-	const size_t offset = MOTION_PACKET_HEADER_SIZE + packet.segmentsCount * MOTION_SEGMNET_SIZE;
+
+	// «ащита от переполнени€ на вс€кий случай
+	if (packet.segmentsCount >= MAX_SEGMENTS_PER_PACKET) {
+		return false;
+	}
+
+	const size_t offset =
+		MOTION_PACKET_HEADER_SIZE +
+		static_cast<size_t>(packet.segmentsCount) * MOTION_SEGMENT_SIZE;
+
+	if (offset + MOTION_SEGMENT_SIZE > MAX_BLE_PACKET_SIZE) {
+		return false;
+	}
+
 	std::memcpy(packet.data.data() + offset, &dx, sizeof(dx));
 	std::memcpy(packet.data.data() + offset + 2, &dy, sizeof(dy));
 	std::memcpy(packet.data.data() + offset + 4, &durationMs, sizeof(durationMs));
 
 	packet.segmentsCount++;
 	packet.data[2] = packet.segmentsCount;
-	packet.size = static_cast<uint8_t>(MOTION_PACKET_HEADER_SIZE + packet.segmentsCount * MOTION_SEGMNET_SIZE);
+
+	const size_t computedSize =
+		MOTION_PACKET_HEADER_SIZE +
+		static_cast<size_t>(packet.segmentsCount) * MOTION_SEGMENT_SIZE;
+
+	if (computedSize > 255) {
+		return false;   // uint8_t overflow protection
+	}
+
+	packet.size = static_cast<uint8_t>(computedSize);
 	return true;
 }
 

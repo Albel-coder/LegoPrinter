@@ -54,9 +54,9 @@ motor_z = Motor(Port.C)
 motor_z.control.limits(speed=600, acceleration=2000)
 motor_z.reset_angle(0)
 
-Z_UP_ANGLE = 90
+Z_UP_ANGLE = 10
 Z_DOWN_ANGLE = 0
-Z_SPEED = 600
+Z_SPEED = 400
 
 Z_QUEUE_SIZE = 4
 z_angles = [0] * Z_QUEUE_SIZE
