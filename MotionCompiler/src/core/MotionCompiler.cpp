@@ -65,24 +65,20 @@ bool MotionCompiler::compileImageProfiles(
         simplifyConfig.deviationThreshold = 3.0;
     }
 
-    PathSimplifier simplifier(simplifyConfig);
+    //PathSimplifier simplifier(simplifyConfig);
 
-    ImageProfile simplified = simplifier.simplify(organized);
-
-    if (simplified.contours.empty()) {
-        return false;
-    }
+    //ImageProfile simplified = simplifier.simplify(organized);
 
     GCodeConfig config;
 
-    config.travelSpeedMmMin = 2000.0;
-    config.printSpeedMmMin = 500.0;
-    config.liftHeightMm = 5.0;
+    config.travelSpeedMmMin = 5000.0;
+    config.printSpeedMmMin = 5000.0;
+    config.liftHeightMm = 0.000001;
     config.pixelsPerMm = 5.0;
 
     GCodeWriter writer(config);
 
-    return writer.write(simplified, outputFilename);
+    return writer.write(organized, outputFilename);
 }
 
 bool MotionCompiler::compileCode(

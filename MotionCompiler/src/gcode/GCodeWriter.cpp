@@ -22,7 +22,7 @@ void GCodeWriter::writeHeader(std::ofstream& out) const {
 	out << "G21\n";
 	out << "G90\n";
 
-	out << std::fixed << std::setprecision(2);
+	out << std::fixed << std::setprecision(10);
 
 	out << "G0 Z" << config.liftHeightMm << " F" << config.travelSpeedMmMin << "\n";
 }
