@@ -70,9 +70,10 @@ set(CORE_SOURCE
 	src/core/driver/protocol/PrinterProtocol.cpp
 	src/core/driver/protocol/Constants.h
 	
-	src/core/driver/gcode/GCodeCompiler.h
-	src/core/driver/gcode/GCodeCompiler.cpp
-	src/core/driver/gcode/MotionProgram.h
+	src/core/driver/gcode/compiler/GCodeCompiler.h
+	src/core/driver/gcode/compiler/GCodeCompiler.cpp
+	src/core/driver/gcode/motion/MotionPlanner.cpp
+	src/core/driver/gcode/motion/MotionPlanner.h
 	
 	src/logging/LogManager.h
 	src/logging/LogManager.cpp
