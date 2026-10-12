@@ -1,8 +1,8 @@
 ﻿#pragma once
 
 #include "../core/driver/interfaces/ITransport.h"
-#include "gcode/MotionProgram.h"
-#include "gcode/GCodeCompiler.h"
+#include "gcode/motion/MotionPlanner.h"
+#include "gcode/compiler/GCodeCompiler.h"
 
 #include <cstdint>
 #include <string>

@@ -65,9 +65,9 @@ bool MotionCompiler::compileImageProfiles(
         simplifyConfig.deviationThreshold = 3.0;
     }
 
-    //PathSimplifier simplifier(simplifyConfig);
+    PathSimplifier simplifier(simplifyConfig);
 
-    //ImageProfile simplified = simplifier.simplify(organized);
+    ImageProfile simplified = simplifier.simplify(organized);
 
     GCodeConfig config;
 
@@ -78,7 +78,7 @@ bool MotionCompiler::compileImageProfiles(
 
     GCodeWriter writer(config);
 
-    return writer.write(organized, outputFilename);
+    return writer.write(simplified, outputFilename);
 }
 
 bool MotionCompiler::compileCode(

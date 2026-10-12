@@ -1616,20 +1616,31 @@ bool Controller::sendMotionProgram(const MotionProgram& program) {
 bool Controller::runGCodeTest(const std::string& filename) {
 	PrinterConfig config;
 
+	// Кинематика
 	config.stepsPerMmX = 5.0;
 	config.stepsPerMmY = 5.0;
 
+	// Подачи
 	config.maxFeedrate = 2000.0;
 	config.defaultFeedrate = 1000.0;
 
+	// Z
 	config.zUpAngle = 90;
 	config.zDownAngle = 0;
 
+	// BLE
 	config.maxStartThreshold = 900;
 	config.startThresholdSafetyMargin = 5;
 
-	GCodeCompiler compiler(config);
+	// ============================================
+	// НОВОЕ: параметры планировщика
+	// ============================================
+	config.maxAccel = 8000.0;
+	config.junctionDeviation = 4.0;
+	config.maxVelocitySteps = 2200.0;
+	config.junctionMinFactor = 0.0;
 
+	GCodeCompiler compiler(config);
 	MotionProgram program;
 
 	if (!compiler.compile(filename, program)) {
@@ -1637,9 +1648,11 @@ bool Controller::runGCodeTest(const std::string& filename) {
 		return false;
 	}
 
-	LOG_INFO("MotionProgram compiled: segments = %zu packets = %zu commands = %zu threshold = %zu estimated = %.3f seconds",
-		program.xySegmentCount, program.packets.size(), program.commands.size(), program.startThreshold, program.estimatedDurationSec);
-
+	LOG_INFO("MotionProgram compiled: segments=%zu packets=%zu "
+		"commands=%zu threshold=%zu estimated=%.3f s",
+		program.xySegmentCount, program.packets.size(),
+		program.commands.size(), program.startThreshold,
+		program.estimatedDurationSec);
 	// Детальная диагностика последовательности
 	// Очень полезно на первом запуске
 
