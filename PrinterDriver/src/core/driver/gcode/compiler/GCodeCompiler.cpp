@@ -41,6 +41,8 @@ void GCodeCompiler::resetState() {
     currentStepsY = 0;
     feedrate = config.defaultFeedrate;
     compiledCommandPacketCount = 0;
+    feedrateG0 = config.maxFeedrate;
+    feedrateG1 = config.defaultFeedrate;
 }
 
 std::string GCodeCompiler::trim(const std::string& value) {
@@ -89,13 +91,12 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
             double targetX = absolute ? currentX : 0.0;
             double targetY = absolute ? currentY : 0.0;
             double targetZ = absolute ? currentZ : 0.0;
-            double newFeedrate = feedrate;
+
+            double newFeedrate = -1.0;
 
             std::string token;
             while (stream >> token) {
-                if (token.size() < 2) return false;
-                char axis = static_cast<char>(std::toupper(
-                    static_cast<unsigned char>(token[0])));
+                char axis = token[0];
                 double value = std::stod(token.substr(1));
                 switch (axis) {
                 case 'X': targetX = absolute ? value : currentX + value; break;
@@ -104,7 +105,11 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
                 case 'F': newFeedrate = value; break;
                 }
             }
-            feedrate = newFeedrate;
+
+            if (newFeedrate > 0.0) {
+                if (command == "G0") feedrateG0 = newFeedrate;
+                else                 feedrateG1 = newFeedrate;
+            }
 
             // --- Z-переход ---
             if (!nearlyEqual(targetZ, currentZ)) {
@@ -127,8 +132,8 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
 
                 const double stepsPerMm =
                     std::max(config.stepsPerMmX, config.stepsPerMmY);
-                const double moveFeedrate =
-                    (command == "G0") ? config.maxFeedrate : feedrate;
+                const double moveFeedrate = std::min(
+                    (command == "G0") ? feedrateG0 : feedrateG1, config.maxFeedrate);
                 const double velocityStepsSec =
                     (moveFeedrate / 60.0) * stepsPerMm;
 

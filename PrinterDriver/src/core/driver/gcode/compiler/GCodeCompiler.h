@@ -125,6 +125,9 @@ private:
 	int32_t currentStepsY = 0;
 	double feedrate = 0.0;
 
+	double feedrateG0 = 24000.0;   // rapid (модальный для G0)
+	double feedrateG1 = 1000.0;    // draw (модальный для G1)
+
 	// Счётчик для сборки команд
 	size_t compiledCommandPacketCount = 0;
 
