@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include <deque>
 #include <array>
 
 #pragma pack(push, 1)
@@ -59,6 +60,7 @@ private:
 	std::atomic<bool> subscribed{ false };
 
 	std::atomic<bool> remoteBufferFull{ false };
+	std::atomic<bool> zRemoteFull{ false };
 
 	bool discover();
 	void onData(const uint8_t* data, size_t length);
