@@ -13,7 +13,16 @@ kbd_intr(-1)
 hub = TechnicHub()
 hub.light.on(Color.GREEN)
 
-# --- БЕЗОПАСНЫЙ ZERO-ALLOCATION БУФЕР НА ОБЫЧНЫХ СПИСКАХ ---
+# ============================================================
+# VERSION
+# ============================================================
+# Меняется при каждой значимой правке протокола/логики.
+# Полезно видеть в логе при запуске
+FIRMWARE_VERSION = "fw-2026-10-15-zwatermark"
+
+# ============================================================
+# XY RING BUFFER
+# ============================================================
 BUFFER_SIZE = 1024
 buf_x = [0] * BUFFER_SIZE
 buf_y = [0] * BUFFER_SIZE
@@ -34,6 +43,7 @@ def buffer_put(dx, dy, duration):
     return True
 
 def buffer_get_count():
+    # Возвращает индекс следующего элемента и сдвигает tail, или -1 если пусто.
     global tail
     if tail == head:
         return -1
@@ -42,10 +52,74 @@ def buffer_get_count():
     return t
 
 def buffer_count():
+    # Текущее количество элементов в буфере.
     if head >= tail:
         return head - tail
     else:
         return BUFFER_SIZE - (tail - head)
+
+# ============================================================
+# Z-ОЧЕРЕДЬ С BACKPRESSURE
+# ============================================================
+# Z_QUEUE_SIZE: сколько Z-команд хаб может держать в памяти.
+# Z_HIGH_WATERMARK: при достижении - шлет Z_STOP, host копит Z у себя
+# Z_LOW_WATERMARK: при падении - шлет Z_RESUME, host снова шлет Z.
+#
+# Гистерезис (48 -> 16) не дает "дребезга" STOP/RESUME когда
+# z_count колеблится около порога.
+
+Z_QUEUE_SIZE = 64
+Z_HIGH_WATERMARK = 48
+Z_LOW_WATERMARK = 16
+
+z_angles = [0] * Z_QUEUE_SIZE
+z_after_xy = [0] * Z_QUEUE_SIZE
+z_head = 0
+z_tail = 0
+z_count = 0
+
+# Флаг состояния backpressure:
+# False = RESUMED (host шлет Z свободно)
+# True = STOPPED (host держит Z локально)
+z_stop_sent = False
+
+def z_put(angle, after_xy):
+    # Кладет Z-команду в очередь. Возвращает False при переполнении
+    global z_head, z_count
+    if z_count >= Z_QUEUE_SIZE:
+        return False
+    z_angles[z_head] = angle
+    z_after_xy[z_head] = after_xy
+    z_head = (z_head + 1) % Z_QUEUE_SIZE
+    z_count += 1
+    return True
+
+def z_get():
+    # Забирает Z-команду из очереди. Возвращает (angle, after_xy) или (None, None).
+    global z_tail, z_count
+    if z_count == 0:
+        return None, None
+    angle = z_angles[z_tail]
+    after_xy = z_after_xy[z_tail]
+    z_tail = (z_tail + 1) % Z_QUEUE_SIZE
+    z_count -= 1
+    return angle, after_xy
+
+def z_check_high():
+    # Проверка на переход RESUMED -> STOPPED. Вызывать после успешного z_put.
+    global z_stop_sent
+    if (not z_stop_sent) and z_count >= Z_HIGH_WATERMARK:
+        usys.stdout.buffer.write(b"Z_STOP\n")
+        usys.stdout.flush()
+        z_stop_sent = True
+
+def z_check_low():
+    # Проверка на переход STOPPED -> RESUMED. Вызывать после z_get.
+    global z_stop_sent
+    if z_stop_sent and z_count <= Z_LOW_WATERMARK:
+        usys.stdout.buffer.write(b"Z_RESUME\n")
+        usys.stdout.flush()
+        z_stop_sent = False
 
 # -----------------------------------------------------------
 # Z-ось и её очередь
@@ -58,33 +132,6 @@ Z_UP_ANGLE = 10
 Z_DOWN_ANGLE = 0
 Z_SPEED = 400
 
-Z_QUEUE_SIZE = 4
-z_angles = [0] * Z_QUEUE_SIZE
-z_after_xy = [0] * Z_QUEUE_SIZE
-z_head = 0
-z_tail = 0
-z_count = 0
-
-def z_put(angle, after_xy):
-    global z_head, z_count
-    if z_count >= Z_QUEUE_SIZE:
-        return False
-    z_angles[z_head] = angle
-    z_after_xy[z_head] = after_xy
-    z_head = (z_head + 1) % Z_QUEUE_SIZE
-    z_count += 1
-    return True
-
-def z_get():
-    global z_tail, z_count
-    if z_count == 0:
-        return None, None
-    angle = z_angles[z_tail]
-    after_xy = z_after_xy[z_tail]
-    z_tail = (z_tail + 1) % Z_QUEUE_SIZE
-    z_count -= 1
-    return angle, after_xy
-
 # -----------------------------------------------------------
 # Глобальное состояние задания
 # -----------------------------------------------------------
@@ -93,18 +140,25 @@ executed_xy = 0
 start_threshold = 35
 start_gate_open = False
 
+last_x = 0
+last_y = 0
+
 def reset_job_state():
+    # Полный сброс перед новым заданием (по CMD_SET_START_THRESHOLD).
     global total_received_xy, executed_xy, start_gate_open
-    global z_head, z_tail, z_count
+    global z_head, z_tail, z_count, z_stop_sent
     global last_x, last_y
     global head, tail
 
     total_received_xy = 0
     executed_xy = 0
     start_gate_open = False
+
     z_head = 0
     z_tail = 0
     z_count = 0
+    z_stop_sent = False
+
     last_x = 0
     last_y = 0
     head = 0
@@ -113,10 +167,10 @@ def reset_job_state():
 # -----------------------------------------------------------
 # Протокол (stdin, после удаления Pybricks 0x06)
 # -----------------------------------------------------------
-CMD_LINE = 0x01
-CMD_MOTION_BLOCK = 0x02
-CMD_Z = 0x05
-CMD_SET_START_THRESHOLD = 0x06
+CMD_LINE = 0x01 # Одиночный XY
+CMD_MOTION_BLOCK = 0x02 # Пакет XY
+CMD_Z = 0x05 # Z-команда
+CMD_SET_START_THRESHOLD = 0x06 # старт нового job
 
 WAIT_SYNC = 0
 IN_PACKET = 1
@@ -125,9 +179,6 @@ state = WAIT_SYNC
 packet_buf = bytearray(256)
 packet_idx = 0
 expected_len = 0
-
-last_x = 0
-last_y = 0
 
 poll = uselect.poll()
 poll.register(usys.stdin, uselect.POLLIN)
@@ -139,11 +190,14 @@ motor_y.control.limits(speed=2000, acceleration=6000)
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
 
+# ============================================================
+# RECEIVER
+# ============================================================
 async def receiver():
     global state, packet_idx, expected_len, packet_buf
     global last_x, last_y, total_received_xy, start_threshold
 
-    usys.stdout.buffer.write(b"receiver ready\n")
+    usys.stdout.buffer.write(b"receiver ready, version=%s\n" % FIRMWARE_VERSION)
     usys.stdout.flush()
 
     while True:
@@ -255,6 +309,9 @@ async def receiver():
 
         await wait(1)
 
+# ============================================================
+# EXECUTOR
+# ============================================================
 async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
     usys.stdout.flush()
@@ -267,12 +324,13 @@ async def smooth_executor():
     global executed_xy, start_gate_open
 
     while True:
-        # 1. Z-команды
+        # --- 1. Z-команды (с проверкой после каждого z_get) ---
         if z_count > 0:
             angle = z_angles[z_tail]
             after_xy = z_after_xy[z_tail]
             if executed_xy >= after_xy:
                 z_get()
+                z_check_low() # можем отправлять Z_RESUME, если ниже watermark
                 motor_z.run_target(Z_SPEED, angle, then=Stop.HOLD, wait=False)
                 while not motor_z.done():
                     await wait(2)
@@ -280,7 +338,7 @@ async def smooth_executor():
                 usys.stdout.flush()
                 continue
 
-        # 2. Стартовый порог
+        # --- 2. Стартовый порог ---
         if not start_gate_open:
             if buffer_count() >= start_threshold:
                 start_gate_open = True
@@ -290,7 +348,7 @@ async def smooth_executor():
                 await wait(10)
                 continue
 
-        # 3. Flow control
+        # --- 3. Flow control ---
         count = buffer_count()
         if not flow_stopped and count > 900:
             usys.stdout.buffer.write(b"FLOW_STOP\n")
@@ -301,7 +359,7 @@ async def smooth_executor():
             usys.stdout.flush()
             flow_stopped = False
 
-        # 4. Получаем XY
+        # --- 4. Получаем XY ---
         idx = buffer_get_count()
         if idx == -1:
             await wait(1)
@@ -343,6 +401,9 @@ async def smooth_executor():
             usys.stdout.write("\n")
             usys.stdout.flush()
 
+# ============================================================
+# MAIN
+# ============================================================
 async def main():
     try:
         await multitask(receiver(), smooth_executor())
