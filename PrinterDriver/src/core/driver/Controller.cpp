@@ -203,6 +203,23 @@ void Controller::onData(const uint8_t* data, size_t length) {
 		std::string text(reinterpret_cast<const char*>(payload), payloadLength);
 		LOG_INFO("Hub stdout: %s", text.c_str());
 
+		// --- Motor config telemetry ---
+		if (text.find("LOG_PID ") != std::string::npos) {
+			LOG_INFO("[CONFIG] PID %s", text.c_str() + 8);  // срезаем "LOG_PID "
+			return;
+		}
+		if (text.find("LOG_LIMITS ") != std::string::npos) {
+			LOG_INFO("[CONFIG] LIMITS %s", text.c_str() + 11);
+			return;
+		}
+		if (text.find("LOG_TOL ") != std::string::npos) {
+			LOG_INFO("[CONFIG] TOL %s", text.c_str() + 8);
+			return;
+		}
+		if (text.find("LOG_CONFIG_END") != std::string::npos) {
+			LOG_INFO("[CONFIG] end of motor config block");
+			return;
+		}
 		// Перехватываем управление потоком
 		if (text.find("FLOW_STOP") != std::string::npos) {
 			remoteBufferFull.store(true);
@@ -848,6 +865,66 @@ std::vector<PreparedMotionPacket> prepareMotionPackets(
 bool Controller::sendPreparedMotionPackets(
 	const std::vector<PreparedMotionPacket>& packets)
 {
+	if (packets.empty()) return true;
+
+	const size_t maxWrite = transport.getMaxWriteSize();
+	if (maxWrite < 32) {
+		LOG_ERROR("BLE MTU too small: %zu", maxWrite);
+		return false;
+	}
+
+	size_t sent = 0;
+	const auto startTime = std::chrono::steady_clock::now();
+	size_t totalBytes = 0;
+
+	while (sent < packets.size()) {
+		// Ждём, пока хаб готов
+		while (remoteBufferFull.load(std::memory_order_acquire)) {
+			if (!connected.load() || !transport.isConnected()) {
+				LOG_ERROR("Motion TX aborted: connection lost "
+					"(%zu packets remaining)", packets.size() - sent);
+				return false;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+
+		// Склеиваем несколько пакетов подряд
+		std::vector<uint8_t> combined;
+		combined.reserve(maxWrite);
+
+		while (sent < packets.size() &&
+			combined.size() + packets[sent].size <= maxWrite) {
+			combined.insert(combined.end(),
+				packets[sent].data.begin(),
+				packets[sent].data.begin() + packets[sent].size);
+			sent++;
+		}
+
+		if (!transport.write(pybricksCommandEvent,
+			combined.data(),
+			combined.size(),
+			true)) {
+			LOG_ERROR("Batch write failed at packet %zu", sent);
+			return false;
+		}
+		totalBytes += combined.size();
+
+		if (sent % 50 == 0 || sent == packets.size()) {
+			const auto now = std::chrono::steady_clock::now();
+			const double sec = std::chrono::duration<double>(now - startTime).count();
+			LOG_INFO("TX: %zu/%zu packets (%zu bytes, %.2f sec, %.1f pkt/s)",
+				sent, packets.size(), totalBytes, sec,
+				sent / sec);
+		}
+	}
+	return true;
+}
+
+/*
+
+bool Controller::sendPreparedMotionPackets(
+	const std::vector<PreparedMotionPacket>& packets)
+{
 	if (packets.empty()) {
 		return true;
 	}
@@ -962,6 +1039,8 @@ bool Controller::sendPreparedMotionPackets(
 
 	return true;
 }
+
+*/
 
 bool Controller::runMotionTest() {
 
@@ -1660,8 +1739,11 @@ bool Controller::sendMotionProgram(const MotionProgram& program) {
 		}
 	}
 
-	// Финальный слив: все XY уже отправлены, хаб печатает.
+	// Финальный слив Z: даём 15 секунд, потом не блокируемся.
+	// Оставшиеся Z хаб сам дочитает из своего буфера.
 	auto lastWaitLog = std::chrono::steady_clock::now();
+	auto drainStart = std::chrono::steady_clock::now();
+
 	while (!pendingZ.empty()) {
 		if (!connected.load() || !transport.isConnected()) {
 			LOG_ERROR("Motion TX aborted: connection lost (%zu Z pending)",
@@ -1671,13 +1753,22 @@ bool Controller::sendMotionProgram(const MotionProgram& program) {
 		if (!flushZ()) return false;
 		if (pendingZ.empty()) break;
 
+		const auto now = std::chrono::steady_clock::now();
+		const double drainSec = std::chrono::duration<double>(now - drainStart).count();
+
+		if (drainSec > 15.0) {
+			LOG_WARNING("Z drain timeout: %zu Z still pending, "
+				"trusting hub to finish from its queue",
+				pendingZ.size());
+			return true;   // ← не ошибка, хаб сам доработает
+		}
+
 		std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		zBlockedMs += 2;
 
-		const auto now = std::chrono::steady_clock::now();
 		if (std::chrono::duration<double>(now - lastWaitLog).count() > 2.0) {
-			LOG_WARNING("Final Z drain: %zu Z pending, blocked %zu ms",
-				pendingZ.size(), zBlockedMs);
+			LOG_WARNING("Final Z drain: %zu Z pending, blocked %zu ms, %.1f sec elapsed",
+				pendingZ.size(), zBlockedMs, drainSec);
 			lastWaitLog = now;
 		}
 	}
@@ -1715,10 +1806,10 @@ bool Controller::runGCodeTest(const std::string& filename) {
 	// ============================================
 	// НОВОЕ: параметры планировщика
 	// ============================================
-	config.maxAccel = 8000.0;
-	config.junctionDeviation = 4.0;
-	config.maxVelocitySteps = 2200.0;
-	config.junctionMinFactor = 0.0;
+	config.maxAccel = 4000.0; // was 8000
+	config.junctionDeviation = 8.0; // was 4.0
+	config.maxVelocitySteps = 2500.0; // was 2200
+	config.junctionMinFactor = 0.7; // Не тормозим ниже 70% на углах
 
 	GCodeCompiler compiler(config);
 	MotionProgram program;
