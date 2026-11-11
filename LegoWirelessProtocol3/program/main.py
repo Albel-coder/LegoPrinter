@@ -1,7 +1,7 @@
 from pybricks.hubs import TechnicHub
 from pybricks.pupdevices import Motor
 from pybricks.parameters import Port, Stop, Color
-from pybricks.tools import multitask, run_task, wait
+from pybricks.tools import multitask, run_task, wait, StopWatch
 import usys
 import uselect
 import ustruct as struct
@@ -13,11 +13,12 @@ kbd_intr(-1)
 hub = TechnicHub()
 hub.light.on(Color.GREEN)
 
+# Глобальные часы - точная привязка ко времени
+clock = StopWatch()
+
 # ============================================================
 # VERSION
 # ============================================================
-# Меняется при каждой значимой правке протокола/логики.
-# Полезно видеть в логе при запуске
 FIRMWARE_VERSION = "fw-2026-10-15-zwatermark"
 
 # ============================================================
@@ -43,7 +44,6 @@ def buffer_put(dx, dy, duration):
     return True
 
 def buffer_get_count():
-    # Возвращает индекс следующего элемента и сдвигает tail, или -1 если пусто.
     global tail
     if tail == head:
         return -1
@@ -52,7 +52,6 @@ def buffer_get_count():
     return t
 
 def buffer_count():
-    # Текущее количество элементов в буфере.
     if head >= tail:
         return head - tail
     else:
@@ -61,16 +60,9 @@ def buffer_count():
 # ============================================================
 # Z-ОЧЕРЕДЬ С BACKPRESSURE
 # ============================================================
-# Z_QUEUE_SIZE: сколько Z-команд хаб может держать в памяти.
-# Z_HIGH_WATERMARK: при достижении - шлет Z_STOP, host копит Z у себя
-# Z_LOW_WATERMARK: при падении - шлет Z_RESUME, host снова шлет Z.
-#
-# Гистерезис (48 -> 16) не дает "дребезга" STOP/RESUME когда
-# z_count колеблится около порога.
-
 Z_QUEUE_SIZE = 64
-Z_HIGH_WATERMARK = 48
-Z_LOW_WATERMARK = 16
+Z_HIGH_WATERMARK = 20
+Z_LOW_WATERMARK = 4
 
 z_angles = [0] * Z_QUEUE_SIZE
 z_after_xy = [0] * Z_QUEUE_SIZE
@@ -78,12 +70,9 @@ z_head = 0
 z_tail = 0
 z_count = 0
 
-# Флаг состояния backpressure:
-# False = RESUMED (host шлет Z свободно)
-# True = STOPPED (host держит Z локально)
 z_stop_sent = False
-z_stop_pending = False      # <--- НОВОЕ
-z_resume_pending = False    # <--- НОВОЕ
+z_stop_pending = False
+z_resume_pending = False
 
 def z_put(angle, after_xy):
     global z_head, z_count, z_stop_pending
@@ -93,11 +82,8 @@ def z_put(angle, after_xy):
     z_after_xy[z_head] = after_xy
     z_head = (z_head + 1) % Z_QUEUE_SIZE
     z_count += 1
-    
-    # Только ставим флаг, НИКАКОГО flush() здесь!
     if (not z_stop_sent) and z_count >= Z_HIGH_WATERMARK:
         z_stop_pending = True
-        
     return True
 
 def z_get():
@@ -108,31 +94,12 @@ def z_get():
     after_xy = z_after_xy[z_tail]
     z_tail = (z_tail + 1) % Z_QUEUE_SIZE
     z_count -= 1
-    
-    # Только ставим флаг
     if z_stop_sent and z_count <= Z_LOW_WATERMARK:
         z_resume_pending = True
-        
     return angle, after_xy
 
-def z_check_high():
-    # Проверка на переход RESUMED -> STOPPED. Вызывать после успешного z_put.
-    global z_stop_sent
-    if (not z_stop_sent) and z_count >= Z_HIGH_WATERMARK:
-        usys.stdout.buffer.write(b"Z_STOP\n")
-        usys.stdout.flush()
-        z_stop_sent = True
-
-def z_check_low():
-    # Проверка на переход STOPPED -> RESUMED. Вызывать после z_get.
-    global z_stop_sent
-    if z_stop_sent and z_count <= Z_LOW_WATERMARK:
-        usys.stdout.buffer.write(b"Z_RESUME\n")
-        usys.stdout.flush()
-        z_stop_sent = False
-
 # -----------------------------------------------------------
-# Z-ось и её очередь
+# Z-ось
 # -----------------------------------------------------------
 motor_z = Motor(Port.C)
 motor_z.control.limits(speed=600, acceleration=2000)
@@ -156,7 +123,7 @@ last_y = 0
 def reset_job_state():
     global total_received_xy, executed_xy, start_gate_open
     global z_head, z_tail, z_count, z_stop_sent
-    global z_stop_pending, z_resume_pending   # <--- ДОБАВИТЬ
+    global z_stop_pending, z_resume_pending
     global last_x, last_y
     global head, tail
 
@@ -168,8 +135,8 @@ def reset_job_state():
     z_tail = 0
     z_count = 0
     z_stop_sent = False
-    z_stop_pending = False      # <--- ДОБАВИТЬ
-    z_resume_pending = False    # <--- ДОБАВИТЬ
+    z_stop_pending = False
+    z_resume_pending = False
 
     last_x = 0
     last_y = 0
@@ -177,12 +144,12 @@ def reset_job_state():
     tail = 0
 
 # -----------------------------------------------------------
-# Протокол (stdin, после удаления Pybricks 0x06)
+# Протокол
 # -----------------------------------------------------------
-CMD_LINE = 0x01 # Одиночный XY
-CMD_MOTION_BLOCK = 0x02 # Пакет XY
-CMD_Z = 0x05 # Z-команда
-CMD_SET_START_THRESHOLD = 0x06 # старт нового job
+CMD_LINE = 0x01
+CMD_MOTION_BLOCK = 0x02
+CMD_Z = 0x05
+CMD_SET_START_THRESHOLD = 0x06
 
 WAIT_SYNC = 0
 IN_PACKET = 1
@@ -203,6 +170,82 @@ motor_x.reset_angle(0)
 motor_y.reset_angle(0)
 
 # ============================================================
+# TELEMETRY (PID, limits, tolerances)
+# ============================================================
+# МикроПитон-ограничения:
+#   * нет str.encode()  -> используем usys.stdout.write(str)
+#   * motor.control.pid() может вернуть 3..6 значений  -> zip, не распаковка
+#   * motor.control.limits() -> 3 значения
+#   * motor.control.target_tolerances() в разных версиях называется по-разному
+
+def _fmt_pid(motor, tag):
+    try:
+        vals = motor.control.pid()
+        names = ("kp", "ki", "kd", "idead", "irange", "imax")
+        parts = []
+        for name, v in zip(names, vals):
+            try:
+                parts.append("%s=%.5f" % (name, float(v)))
+            except Exception:
+                parts.append("%s=%s" % (name, v))
+        if not parts:
+            parts = ["<empty>"]
+        return "LOG_PID %s %s" % (tag, " ".join(parts))
+    except Exception as e:
+        return "LOG_PID %s error=%s" % (tag, e)
+
+
+def _fmt_limits(motor, tag):
+    try:
+        vals = motor.control.limits()
+        names = ("speed", "accel", "torque")
+        parts = ["%s=%s" % (n, v) for n, v in zip(names, vals)]
+        return "LOG_LIMITS %s %s" % (tag, " ".join(parts))
+    except Exception as e:
+        return "LOG_LIMITS %s error=%s" % (tag, e)
+
+
+def _fmt_tolerances(motor, tag):
+    for name in ("target_tolerances", "target_tolerance"):
+        try:
+            vals = getattr(motor.control, name)()
+            names = ("speed", "position")
+            parts = ["%s=%s" % (n, v) for n, v in zip(names, vals)]
+            return "LOG_TOL %s %s" % (tag, " ".join(parts))
+        except Exception:
+            continue
+    return "LOG_TOL %s error=unavailable" % tag
+
+
+def log_motor_config(reason="init"):
+    """
+    Синхронный. Один write+flush, чтобы BLE не рвать лишними пакетами.
+    Вызывать ТОЛЬКО после того, как хост уже подключил RuntimeSession -
+    иначе хост выбросит все 0x01-события как 'Ignored while waiting for 0x00'.
+    Единственная гарантированная точка - реакция на CMD_SET_START_THRESHOLD.
+    """
+    lines = [
+        "LOG_CONFIG_BEGIN reason=%s" % reason,
+        _fmt_pid(motor_x, "X"),
+        _fmt_pid(motor_y, "Y"),
+        _fmt_pid(motor_z, "Z"),
+        _fmt_limits(motor_x, "X"),
+        _fmt_limits(motor_y, "Y"),
+        _fmt_limits(motor_z, "Z"),
+        _fmt_tolerances(motor_x, "X"),
+        _fmt_tolerances(motor_y, "Y"),
+        _fmt_tolerances(motor_z, "Z"),
+        "LOG_CONFIG_END",
+    ]
+    blob = "\n".join(lines) + "\n"
+    try:
+        usys.stdout.write(blob)
+        usys.stdout.flush()
+    except Exception:
+        pass
+
+
+# ============================================================
 # RECEIVER
 # ============================================================
 async def receiver():
@@ -211,6 +254,11 @@ async def receiver():
 
     usys.stdout.buffer.write(b"receiver ready, version=%s\n" % FIRMWARE_VERSION)
     usys.stdout.flush()
+
+    # ВНИМАНИЕ: здесь НЕ логируем конфиг моторов - хост ещё в upload-фазе
+    # и выбросит все 0x01. Лог уйдёт из обработчика CMD_SET_START_THRESHOLD.
+
+    rx_byte_count = 0
 
     while True:
         events = poll.poll(0)
@@ -224,26 +272,32 @@ async def receiver():
             continue
 
         b = data[0]
+        rx_byte_count += 1
 
         if state == WAIT_SYNC:
-            # Принимаем только известные команды (0x06 уже удалён Pybricks)
-            if b == CMD_LINE or b == CMD_MOTION_BLOCK or b == CMD_Z or b == CMD_SET_START_THRESHOLD:
+            if b == CMD_LINE or b == CMD_MOTION_BLOCK or b == CMD_Z \
+                    or b == CMD_SET_START_THRESHOLD:
                 packet_buf[0] = b
                 packet_idx = 1
                 expected_len = 0
                 state = IN_PACKET
+            if rx_byte_count >= 16:
+                await wait(1)
+                rx_byte_count = 0
             continue
 
         if packet_idx >= len(packet_buf):
             state = WAIT_SYNC
             packet_idx = 0
             expected_len = 0
+            if rx_byte_count >= 16:
+                await wait(1)
+                rx_byte_count = 0
             continue
 
         packet_buf[packet_idx] = b
         packet_idx += 1
 
-        # Определение длины пакета после получения второго байта
         if packet_idx == 2:
             cmd = packet_buf[0]
             if cmd == CMD_LINE:
@@ -271,7 +325,6 @@ async def receiver():
                 expected_len = 0
                 continue
 
-        # Проверка полного пакета
         if expected_len > 0 and packet_idx == expected_len:
             cmd = packet_buf[0]
 
@@ -314,12 +367,19 @@ async def receiver():
                 start_threshold = new_threshold
                 usys.stdout.write("START_THRESHOLD_SET %d\n" % start_threshold)
                 usys.stdout.flush()
+                # --- ГЛАВНЫЙ "костыль" ---
+                # Хост гарантированно подключён (он только что прислал команду),
+                # значит, эти строки долетят до onData и попадут в лог.
+                log_motor_config(reason="job_start")
 
             state = WAIT_SYNC
             packet_idx = 0
             expected_len = 0
 
-        await wait(1)
+        if rx_byte_count >= 16:
+            await wait(1)
+            rx_byte_count = 0
+
 
 # ============================================================
 # EXECUTOR
@@ -328,42 +388,56 @@ async def smooth_executor():
     usys.stdout.buffer.write(b"executor ready\n")
     usys.stdout.flush()
 
-    current_x = 0
-    current_y = 0
+    current_x = 0.0
+    current_y = 0.0
     segment_count = 0
-    UPDATE_MS = 4
+    UPDATE_MS = 8
     flow_stopped = False
     global executed_xy, start_gate_open
-    global z_stop_sent, z_stop_pending, z_resume_pending  # <--- ДОБАВИТЬ
+    global z_stop_sent, z_stop_pending, z_resume_pending
+
+    max_lag_x = 0.0
+    max_lag_y = 0.0
+    diag_counter = 0
 
     while True:
-        # --- 0. Отправка Z_STOP / Z_RESUME (вынесено из receiver) ---
+        # --- Z_STOP / Z_RESUME ---
         if z_stop_pending:
             usys.stdout.buffer.write(b"Z_STOP\n")
             usys.stdout.flush()
             z_stop_sent = True
             z_stop_pending = False
-            
         if z_resume_pending:
             usys.stdout.buffer.write(b"Z_RESUME\n")
             usys.stdout.flush()
             z_stop_sent = False
             z_resume_pending = False
 
-        # --- 1. Z-команды ---
+        # --- Z-команды ---
         if z_count > 0:
             angle = z_angles[z_tail]
             after_xy = z_after_xy[z_tail]
             if executed_xy >= after_xy:
-                z_get() # <--- z_check_low() удален, флаг ставится внутри z_get
+                catchup_start = clock.time()
+                while clock.time() - catchup_start < 200:
+                    err_x = current_x - motor_x.angle()
+                    err_y = current_y - motor_y.angle()
+                    if abs(err_x) < 0.5 and abs(err_y) < 0.5:
+                        break
+                    await wait(2)
+
+                z_get()
                 motor_z.run_target(Z_SPEED, angle, then=Stop.HOLD, wait=False)
                 while not motor_z.done():
                     await wait(2)
-                usys.stdout.write("Z_EXEC angle=%d after=%d executed=%d\n" % (angle, after_xy, executed_xy))
+
+                usys.stdout.write("Z_EXEC angle=%d after=%d executed=%d plan=%.1f,%.1f act=%d,%d\n" %
+                                    (angle, after_xy, executed_xy, current_x, current_y,
+                                    motor_x.angle(), motor_y.angle()))
                 usys.stdout.flush()
                 continue
 
-        # --- 2. Стартовый порог ---
+        # --- Стартовый порог ---
         if not start_gate_open:
             if buffer_count() >= start_threshold:
                 start_gate_open = True
@@ -373,7 +447,7 @@ async def smooth_executor():
                 await wait(10)
                 continue
 
-        # --- 3. Flow control ---
+        # --- Flow control ---
         count = buffer_count()
         if not flow_stopped and count > 900:
             usys.stdout.buffer.write(b"FLOW_STOP\n")
@@ -384,7 +458,7 @@ async def smooth_executor():
             usys.stdout.flush()
             flow_stopped = False
 
-        # --- 4. Получаем XY ---
+        # --- Получаем XY ---
         idx = buffer_get_count()
         if idx == -1:
             await wait(1)
@@ -394,37 +468,46 @@ async def smooth_executor():
         target_y = buf_y[idx]
         duration_ms = buf_dur[idx]
 
-        if duration_ms <= UPDATE_MS:
-            motor_x.track_target(target_x)
-            motor_y.track_target(target_y)
-            current_x = target_x
-            current_y = target_y
-        else:
-            steps = max(1, duration_ms // UPDATE_MS)
-            dx = target_x - current_x
-            dy = target_y - current_y
-            for i in range(1, steps + 1):
-                x = current_x + (dx * i) // steps
-                y = current_y + (dy * i) // steps
-                motor_x.track_target(x)
-                motor_y.track_target(y)
-                await wait(UPDATE_MS)
-            motor_x.track_target(target_x)
-            motor_y.track_target(target_y)
-            current_x = target_x
-            current_y = target_y
+        steps = max(1, int(round(duration_ms / UPDATE_MS)))
+        step_time_ms = duration_ms / steps
+        dx = target_x - current_x
+        dy = target_y - current_y
 
+        seg_start = clock.time()
+        for i in range(1, steps + 1):
+            x = current_x + dx * i / steps
+            y = current_y + dy * i / steps
+            motor_x.track_target(x)
+            motor_y.track_target(y)
+
+            target_tick = seg_start + int(round(i * step_time_ms))
+            now = clock.time()
+            delta = target_tick - now
+            if delta > 0:
+                await wait(delta)
+
+        current_x = target_x
+        current_y = target_y
         executed_xy += 1
         segment_count += 1
-        if segment_count % 20 == 0:
-            usys.stdout.write("SEG ")
-            usys.stdout.write(str(segment_count))
-            usys.stdout.write(": X=")
-            usys.stdout.write(str(motor_x.angle()))
-            usys.stdout.write(" Y=")
-            usys.stdout.write(str(motor_y.angle()))
-            usys.stdout.write("\n")
+
+        lag_x = current_x - motor_x.angle()
+        lag_y = current_y - motor_y.angle()
+        if abs(lag_x) > abs(max_lag_x):
+            max_lag_x = lag_x
+        if abs(lag_y) > abs(max_lag_y):
+            max_lag_y = lag_y
+
+        diag_counter += 1
+        if diag_counter >= 200:
+            usys.stdout.write("SEG %d maxlag=(%.1f,%.1f) buf=%d\n" %
+                              (segment_count, max_lag_x, max_lag_y,
+                               buffer_count()))
             usys.stdout.flush()
+            diag_counter = 0
+            max_lag_x = 0.0
+            max_lag_y = 0.0
+
 
 # ============================================================
 # MAIN
