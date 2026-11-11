@@ -11,7 +11,7 @@
 
 namespace {
     constexpr double EPSILON = 1e-9;
-    constexpr double MIN_SEGMENT_DURATION_MS = 4.0;
+    constexpr double MIN_SEGMENT_DURATION_MS = 8.0;
 
     bool nearlyEqual(double a, double b) {
         return std::abs(a - b) < EPSILON;
@@ -149,6 +149,137 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
                 currentX = targetX;
                 currentY = targetY;
             }
+        }
+
+        // ============================================================
+        // G2 (CW) / G3 (CCW) - дуги, аппроксимируем отрезками
+        // ============================================================
+        if (command == "G2" || command == "G3") {
+            constexpr double PI = 3.14159265358979323846;
+            const bool clockwise = (command == "G2");
+
+            double targetX = absolute ? currentX : 0.0;
+            double targetY = absolute ? currentY : 0.0;
+            double iOff = 0.0; double jOff = 0.0;
+            double radiusR = 0.0;
+            bool hasX = false; bool hasY = false;
+            bool hasI = false; bool hasJ = false; bool hasR = false;
+            double newFeedrate = -1.0;
+
+            std::string token;
+            while (stream >> token) {
+                char axis = token[0];
+                double value = std::stod(token.substr(1));
+                switch (axis) {
+                case 'X': targetX = absolute ? value : currentX + value; hasX = true; break;
+                case 'Y': targetY = absolute ? value : currentY + value; hasY = true; break;
+                case 'I': iOff = value; hasI = true; break;
+                case 'J': jOff = value; hasJ = true; break;
+                case 'R': radiusR = value; hasR = true; break;
+                case 'F': newFeedrate = value; break;
+                }
+            }
+
+            if (newFeedrate > 0.0) feedrateG1 = newFeedrate;
+
+            const bool fullCircle = (!hasX && !hasY);
+            if (fullCircle) {
+                targetX = currentX;
+                targetY = currentY;
+            }
+
+            // --- Центр дуги ---
+            double cx; double cy;
+            if (hasI || hasJ) {
+                cx = currentX + iOff;
+                cy = currentY + jOff;
+            } else if (hasR) {
+                const double chord = std::hypot(targetX - currentX, targetY - currentY);
+                if (chord < 1e-9) {
+                    LOG_ERROR("G2/G3 with R: start==end (use I/J for full circle)");
+                    return false;
+                }
+                if (chord > 2.0 * std::abs(radiusR) + 1e-6) {
+                    LOG_ERROR("G2/G3 with R: radius too small (chord=%.3f R=%.3f)",
+                        chord, radiusR);
+                    return false;
+                }
+                const double h = std::sqrt(std::max(0.0,
+                    radiusR * radiusR - chord * chord / 4.0));
+                const double mx = (currentX + targetX) / 2.0;
+                const double my = (currentY + targetY) / 2.0;
+                const double ux = (targetY - currentY) / chord;
+                const double uy = -(targetX - currentX) / chord;
+                const double sign = (clockwise == (radiusR > 0)) ? -1.0 : 1.0;
+                cx = mx + sign * h * ux;
+                cy = my + sign * h * uy;
+            } else {
+                LOG_ERROR("G2/G3: neither I/J not R given");
+                return false;
+            }
+
+            const double rStart = std::hypot(currentX - cx, currentY - cy);
+            const double rEnd = std::hypot(targetX - cx, targetY - cy);
+            const double r = (rStart + rEnd) / 2.0;
+            if (r < 1e-6) {
+                LOG_ERROR("G2/G3: zero radius");
+                return false;
+            }
+
+            const double startAngle = std::atan2(currentY - cy, currentX - cx);
+            const double endAngle = std::atan2(targetY - cy, targetX - cx);
+
+            double sweep;
+            if (clockwise) {
+                sweep = endAngle - startAngle;
+                while (sweep >= 0.0) sweep -= 2.0 * PI;
+                if (fullCircle) sweep = -2.0 * PI;
+            } else {
+                sweep = endAngle - startAngle;
+                while (sweep <= 0.0) sweep += 2.0 * PI;
+                if (fullCircle) sweep = 2.0 * PI;
+            }
+
+            // --- Аппроксимация ---
+            const double ARC_SEGMENT_MM = 0.4;
+            int N = static_cast<int>(std::ceil(std::abs(sweep) * r / ARC_SEGMENT_MM));
+            N = std::max(N, 4);
+            N = std::min(N, 512);
+
+            const double stepsPerMm =
+                std::max(config.stepsPerMmX, config.stepsPerMmY);
+            const double moveFeedrate =
+                std::min(feedrateG1, config.maxFeedrate);
+            const double velocityStepsSec = (moveFeedrate / 60.0) * stepsPerMm;
+
+            LOG_INFO("G%s: r=%.2f sweep=%.1f segments=%d feed=%.0f mm/min",
+                clockwise ? "2" : "3", r,
+                std::abs(sweep) * 180.0 / PI, N, moveFeedrate);
+
+            for (int i = 1; i <= N; i++) {
+                const double t = static_cast<double>(i) / N;
+                const double a = startAngle + sweep * t;
+                const double x = cx + r * std::cos(a);
+                const double y = cy + r * std::sin(a);
+
+                const int32_t targetStepsX = static_cast<int32_t>(
+                    std::lround(x * config.stepsPerMmX));
+                const int32_t targetStepsY = static_cast<int32_t>(
+                    std::lround(y * config.stepsPerMmY));
+
+                RawParsedSegment arcSeg;
+                arcSeg.startPoint = { currentStepsX, currentStepsY };
+                arcSeg.endPoint = { targetStepsX, targetStepsY };
+                arcSeg.requestedVelocity = velocityStepsSec;
+                arcSeg.isZMove = false;
+                rawSegments.push_back(arcSeg);
+
+                currentStepsX = targetStepsX;
+                currentStepsY = targetStepsY;
+            }
+
+            currentX = targetX;
+            currentY = targetY;
         }
     }
 
@@ -425,5 +556,18 @@ void GCodeCompiler::logPlannerDiagnostics(
             planned[i].vEntry, planned[i].vExit, planned[i].vPeak,
             planned[i].durationSec * 1000.0,
             moves[i].requestedVelocity);
+    }
+
+    // Проверка: план не превышает моторные лимиты
+    const double motorMaxAccel = 6000.0;    // из main.py: Motor.control.limits
+    const double motorMaxVel = 2000.0;
+
+    if (config.maxAccel > motorMaxAccel) {
+        LOG_ERROR("!!! CONFIG ERROR: maxAccel=%.0f > motor limit=%.0f",
+            config.maxAccel, motorMaxAccel);
+    }
+    if (config.maxVelocitySteps > motorMaxVel) {
+        LOG_ERROR("!!! CONFIG ERROR: maxVelocity=%.0f > motor limit=%.0f",
+            config.maxVelocitySteps, motorMaxVel);
     }
 }
