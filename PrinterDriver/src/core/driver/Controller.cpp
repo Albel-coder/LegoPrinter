@@ -18,6 +18,13 @@ Controller::Controller(ITransport& transportPointer)
 	: transport(transportPointer) {
 }
 
+namespace {
+	int64_t nowMs() {
+		return std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+	}
+}
+
 template<typename T>
 bool Controller::sendCommand(uint8_t axis, uint8_t cmd, const T& payload) {
 	constexpr size_t payload_size = sizeof(T);
@@ -189,6 +196,9 @@ void Controller::onData(const uint8_t* data, size_t length) {
 		return;
 	}
 
+	// Отмечаем «хаб жив» до фильтрации type=0x00 — нам важен сам факт RX
+	lastHubRxMs.store(nowMs(), std::memory_order_release);
+
 	uint8_t type = data[0];
 	const uint8_t* payload = data + 1;
 	size_t payloadLength = length - 1;
@@ -205,7 +215,7 @@ void Controller::onData(const uint8_t* data, size_t length) {
 
 		// --- Motor config telemetry ---
 		if (text.find("LOG_PID ") != std::string::npos) {
-			LOG_INFO("[CONFIG] PID %s", text.c_str() + 8);  // срезаем "LOG_PID "
+			LOG_INFO("[CONFIG] PID %s", text.c_str() + 8);
 			return;
 		}
 		if (text.find("LOG_LIMITS ") != std::string::npos) {
@@ -220,22 +230,27 @@ void Controller::onData(const uint8_t* data, size_t length) {
 			LOG_INFO("[CONFIG] end of motor config block");
 			return;
 		}
-		// Перехватываем управление потоком
-		if (text.find("FLOW_STOP") != std::string::npos) {
-			remoteBufferFull.store(true);
-			LOG_WARNING("Host paused: robot buffer is nearly full");
+
+		// ============================================================
+		// XY FLOW CONTROL
+		// BUFFER_FULL — новый токен от хаба, работает наравне с FLOW_STOP.
+		// Ставим lastFlowBlockMs, чтобы watchdog в TX-цикле знал,
+		// с какого момента мы заблокированы.
+		// ============================================================
+		if (text.find("FLOW_STOP") != std::string::npos ||
+			text.find("BUFFER_FULL") != std::string::npos ||
+			text.find("COMMAND_PAUSE") != std::string::npos) {
+			if (!remoteBufferFull.exchange(true, std::memory_order_acq_rel)) {
+				lastFlowBlockMs.store(nowMs(), std::memory_order_release);
+				LOG_WARNING("Host paused: hub XY buffer full");
+			}
 		}
-		else if (text.find("FLOW_RESUME") != std::string::npos) {
-			remoteBufferFull.store(false);
-			LOG_INFO("Host resumed: robot buffer has free space");
-		}
-		else if (text.find("COMMAND_PAUSE") != std::string::npos) {
-			remoteBufferFull.store(true);
-			LOG_WARNING("Host paused: Robot buffer is nearly full");
-		}
-		else if (text.find("COMMAND_RESUME") != std::string::npos) {
-			remoteBufferFull.store(false);
-			LOG_INFO("Host resumed: Robot buffer has free space");
+		else if (text.find("FLOW_RESUME") != std::string::npos ||
+			text.find("BUFFER_RESUME") != std::string::npos ||
+			text.find("COMMAND_RESUME") != std::string::npos) {
+			if (remoteBufferFull.exchange(false, std::memory_order_acq_rel)) {
+				LOG_INFO("Host resumed: hub XY buffer has space");
+			}
 		}
 		// --- Z backpressure ---
 		else if (text.find("Z_STOP") != std::string::npos) {
@@ -247,17 +262,17 @@ void Controller::onData(const uint8_t* data, size_t length) {
 			LOG_INFO("Z backpressure: robot Z queue drained, resuming");
 		}
 		else if (text.find("Z_QUEUE_FULL") != std::string::npos) {
-			// Принудительно включаем backpressure, если хаб переполнен
 			zRemoteFull.store(true, std::memory_order_release);
 			LOG_ERROR("Z_QUEUE_FULL from hub — forcing Z backpressure");
 		}
 		// --- Сброс при старте нового job ---
 		else if (text.find("START_THRESHOLD_SET") != std::string::npos) {
 			zRemoteFull.store(false, std::memory_order_release);
+			remoteBufferFull.store(false, std::memory_order_release);
 		}
 	}
 	else if (type == REPLY_STATUS) {
-
+		// no-op
 	}
 	else if (type == REPLY_PONG) {
 		LOG_INFO("Pong received");
@@ -878,17 +893,40 @@ bool Controller::sendPreparedMotionPackets(
 	size_t totalBytes = 0;
 
 	while (sent < packets.size()) {
-		// Ждём, пока хаб готов
+
+		// ---- Ждём, пока хаб готов, С watchdog'ом ----
+		const auto blockStart = std::chrono::steady_clock::now();
 		while (remoteBufferFull.load(std::memory_order_acquire)) {
 			if (!connected.load() || !transport.isConnected()) {
 				LOG_ERROR("Motion TX aborted: connection lost "
 					"(%zu packets remaining)", packets.size() - sent);
 				return false;
 			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		}
 
-		// Склеиваем несколько пакетов подряд
+			const int64_t now = nowMs();
+			const int64_t hubIdleMs = now - lastHubRxMs.load(std::memory_order_acquire);
+
+			// Хаб молчит > 2 сек, пока мы заблокированы → он умер
+			if (hubIdleMs > 2000) {
+				LOG_ERROR("Motion TX aborted: hub silent %lld ms while buffer full",
+					(long long)hubIdleMs);
+				return false;
+			}
+
+			// Страховка: буфер «полон» > 5 сек и нет RESUME → снимаем флаг
+			const int64_t blockedMs = now - lastFlowBlockMs.load(std::memory_order_acquire);
+			if (blockedMs > 5000) {
+				LOG_WARNING("Forcing resume after %lld ms of BUFFER_FULL (stale flag)",
+					(long long)blockedMs);
+				remoteBufferFull.store(false, std::memory_order_release);
+				break;
+			}
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
+		(void)blockStart;
+
+		// ---- Склеиваем несколько пакетов подряд ----
 		std::vector<uint8_t> combined;
 		combined.reserve(maxWrite);
 
@@ -1662,6 +1700,9 @@ bool Controller::sendMotionProgram(const MotionProgram& program) {
 	}
 
 	zRemoteFull.store(false, std::memory_order_release);
+	remoteBufferFull.store(false, std::memory_order_release);
+	lastHubRxMs.store(nowMs(), std::memory_order_release);
+	lastFlowBlockMs.store(nowMs(), std::memory_order_release);
 
 	if (!sendStartThreshold(static_cast<uint16_t>(program.startThreshold))) {
 		LOG_ERROR("Failed to send start threshold");
@@ -1671,23 +1712,34 @@ bool Controller::sendMotionProgram(const MotionProgram& program) {
 
 	const auto start = std::chrono::steady_clock::now();
 
-	// Z, которые хаб пока не может принять — накапливаем здесь.
+	// ============================================================
+	// БЕЗ ограничения размера pendingZ.
+	// 98 Z × ~16 байт = 1.5 KB — память бесплатна.
+	// Если hub 4 минуты печатает XY и его Z-очередь стоит на
+	// HIGH_WATERMARK, host НЕ сдаётся: он копит Z и продолжает
+	// слать XY. XY продвигает executed_xy, что разблокирует Z
+	// на хабе → hub шлёт Z_RESUME → pendingZ сливается.
+	// Deadlock невозможен по конструкции.
+	// ============================================================
 	std::deque<MotionCommand> pendingZ;
 
+	size_t progIdx = 0;
 	size_t sentPackets = 0;
 	size_t sentZ = 0;
 	size_t xyBlockedMs = 0;
 	size_t zBlockedMs = 0;
 	size_t maxPendingZ = 0;
 
-	// Пытается слить pendingZ пока хаб готов. Non-blocking.
+	constexpr int64_t PROGRESS_LOG_INTERVAL_MS = 10000;
+	constexpr int64_t HUB_SILENT_ABORT_MS = 120000;
+
+	int64_t lastProgressLogMs = nowMs();
+
+	// Сливает Z в hub пока zRemoteFull = false.
 	auto flushZ = [&]() -> bool {
 		while (!pendingZ.empty() && !zRemoteFull.load(std::memory_order_acquire)) {
 			const auto& z = pendingZ.front();
-
-			// Даем RX-потоку хоста время прочитать BLE-нотификации
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-
 			if (!sendZCommand(z.zAngle, z.afterXY)) {
 				LOG_ERROR("Failed to send Z (angle=%d afterXY=%u)",
 					z.zAngle, z.afterXY);
@@ -1700,76 +1752,85 @@ bool Controller::sendMotionProgram(const MotionProgram& program) {
 		return true;
 		};
 
-	// Даёт RX-потоку транспорта время прокачать BLE-нотификации
-	auto yieldForRx = [&]() {
+	auto yieldForRx = []() {
 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		};
 
-	for (const auto& cmd : program.commands) {
-		if (cmd.type == MotionCommandType::XY_PACKET) {
-			// XY: ждём только когда переполнен XY-буфер хаба.
-			while (remoteBufferFull.load(std::memory_order_acquire)) {
-				if (!flushZ()) return false;
-				if (!connected.load() || !transport.isConnected()) {
-					LOG_ERROR("Motion TX aborted: connection lost");
-					return false;
-				}
-				std::this_thread::sleep_for(std::chrono::milliseconds(2));
-				xyBlockedMs += 2;
-			}
+	while (progIdx < program.commands.size() || !pendingZ.empty()) {
+		bool did_work = false;
 
-			if (cmd.packetIndex >= program.packets.size()) {
-				LOG_ERROR("Invalid XY packet index: %u", cmd.packetIndex);
-				return false;
-			}
-			const auto& packet = program.packets[cmd.packetIndex];
-			if (!transport.write(pybricksCommandEvent,
-				packet.data.data(), packet.size, true)) {
-				LOG_ERROR("Failed to send XY packet %u", cmd.packetIndex);
-				return false;
-			}
-			sentPackets++;
-			yieldForRx();
-		}
-		else {
-			// Z: НЕ блокируем цикл. Кладём в pendingZ и идём дальше.
-			pendingZ.push_back(cmd);
+		// (1) Пытаемся слить pendingZ, если hub не против
+		if (!pendingZ.empty() && !zRemoteFull.load(std::memory_order_acquire)) {
+			const size_t before = pendingZ.size();
 			if (!flushZ()) return false;
-			yieldForRx();
-		}
-	}
-
-	// Финальный слив Z: даём 15 секунд, потом не блокируемся.
-	// Оставшиеся Z хаб сам дочитает из своего буфера.
-	auto lastWaitLog = std::chrono::steady_clock::now();
-	auto drainStart = std::chrono::steady_clock::now();
-
-	while (!pendingZ.empty()) {
-		if (!connected.load() || !transport.isConnected()) {
-			LOG_ERROR("Motion TX aborted: connection lost (%zu Z pending)",
-				pendingZ.size());
-			return false;
-		}
-		if (!flushZ()) return false;
-		if (pendingZ.empty()) break;
-
-		const auto now = std::chrono::steady_clock::now();
-		const double drainSec = std::chrono::duration<double>(now - drainStart).count();
-
-		if (drainSec > 15.0) {
-			LOG_WARNING("Z drain timeout: %zu Z still pending, "
-				"trusting hub to finish from its queue",
-				pendingZ.size());
-			return true;   // ← не ошибка, хаб сам доработает
+			if (pendingZ.size() < before) did_work = true;
 		}
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(2));
-		zBlockedMs += 2;
+		// (2) Обрабатываем следующую команду программы
+		if (progIdx < program.commands.size()) {
+			const auto& cmd = program.commands[progIdx];
 
-		if (std::chrono::duration<double>(now - lastWaitLog).count() > 2.0) {
-			LOG_WARNING("Final Z drain: %zu Z pending, blocked %zu ms, %.1f sec elapsed",
-				pendingZ.size(), zBlockedMs, drainSec);
-			lastWaitLog = now;
+			if (cmd.type == MotionCommandType::XY_PACKET) {
+				// XY: шлём только когда нет backpressure
+				if (!remoteBufferFull.load(std::memory_order_acquire)) {
+					if (cmd.packetIndex >= program.packets.size()) {
+						LOG_ERROR("Invalid XY packet index: %u", cmd.packetIndex);
+						return false;
+					}
+					const auto& packet = program.packets[cmd.packetIndex];
+					if (!transport.write(pybricksCommandEvent,
+						packet.data.data(), packet.size, true)) {
+						LOG_ERROR("Failed to send XY packet %u", cmd.packetIndex);
+						return false;
+					}
+					sentPackets++;
+					progIdx++;
+					did_work = true;
+					yieldForRx();
+				}
+			}
+			else {
+				// Z: кладём в pendingZ (без ограничения) и пробуем слить
+				pendingZ.push_back(cmd);
+				progIdx++;
+				did_work = true;
+
+				if (!pendingZ.empty() && !zRemoteFull.load(std::memory_order_acquire)) {
+					if (!flushZ()) return false;
+				}
+				yieldForRx();
+			}
+		}
+
+		// (3) Заблокированы: ждём, проверяем liveness
+		if (!did_work) {
+			if (!connected.load() || !transport.isConnected()) {
+				LOG_ERROR("Motion TX aborted: connection lost "
+					"(%zu cmds remaining, %zu Z pending)",
+					program.commands.size() - progIdx, pendingZ.size());
+				return false;
+			}
+
+			const int64_t idleMs = nowMs() - lastHubRxMs.load(std::memory_order_acquire);
+			if (idleMs > HUB_SILENT_ABORT_MS) {
+				LOG_ERROR("Motion TX aborted: hub silent %lld ms",
+					(long long)idleMs);
+				return false;
+			}
+
+			if (remoteBufferFull.load(std::memory_order_acquire)) xyBlockedMs += 2;
+			if (zRemoteFull.load(std::memory_order_acquire))     zBlockedMs += 2;
+
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+
+			const int64_t now = nowMs();
+			if (now - lastProgressLogMs > PROGRESS_LOG_INTERVAL_MS) {
+				LOG_INFO("Progress: prog=%zu/%zu pendingZ=%zu "
+					"xyBlocked=%zu ms zBlocked=%zu ms hubIdle=%lld ms",
+					progIdx, program.commands.size(), pendingZ.size(),
+					xyBlockedMs, zBlockedMs, (long long)idleMs);
+				lastProgressLogMs = now;
+			}
 		}
 	}
 
@@ -1792,7 +1853,7 @@ bool Controller::runGCodeTest(const std::string& filename) {
 	config.stepsPerMmY = 5.0;
 
 	// Подачи
-	config.maxFeedrate = 24000.0;
+	config.maxFeedrate = 12000.0;       // было 24000
 	config.defaultFeedrate = 1000.0;
 
 	// Z
@@ -1803,13 +1864,11 @@ bool Controller::runGCodeTest(const std::string& filename) {
 	config.maxStartThreshold = 900;
 	config.startThresholdSafetyMargin = 5;
 
-	// ============================================
-	// НОВОЕ: параметры планировщика
-	// ============================================
-	config.maxAccel = 4000.0; // was 8000
-	config.junctionDeviation = 8.0; // was 4.0
-	config.maxVelocitySteps = 2500.0; // was 2200
-	config.junctionMinFactor = 0.7; // Не тормозим ниже 70% на углах
+	// Планировщик — согласован с реальными лимитами хаба (speed=2000, accel=6000 deg/s²)
+	config.maxAccel = 2500.0;           // было 4000
+	config.junctionDeviation = 12.0;    // было 8
+	config.maxVelocitySteps = 1400.0;   // было 2500 — теперь НИЖЕ потолка хаба
+	config.junctionMinFactor = 0.35;    // было 0.7 — на углах тормозим
 
 	GCodeCompiler compiler(config);
 	MotionProgram program;
