@@ -13,13 +13,12 @@ kbd_intr(-1)
 hub = TechnicHub()
 hub.light.on(Color.GREEN)
 
-# Глобальные часы - точная привязка ко времени
 clock = StopWatch()
 
 # ============================================================
 # VERSION
 # ============================================================
-FIRMWARE_VERSION = "fw-2026-10-15-zwatermark"
+FIRMWARE_VERSION = "fw-2026-10-15-nonblocking"
 
 # ============================================================
 # XY RING BUFFER
@@ -60,11 +59,11 @@ def buffer_count():
 # ============================================================
 # Z-ОЧЕРЕДЬ С BACKPRESSURE
 # ============================================================
-Z_QUEUE_SIZE = 64
-Z_HIGH_WATERMARK = 20
-Z_LOW_WATERMARK = 4
+Z_QUEUE_SIZE     = 128
+Z_HIGH_WATERMARK = 32
+Z_LOW_WATERMARK  = 8
 
-z_angles = [0] * Z_QUEUE_SIZE
+z_angles   = [0] * Z_QUEUE_SIZE
 z_after_xy = [0] * Z_QUEUE_SIZE
 z_head = 0
 z_tail = 0
@@ -73,6 +72,68 @@ z_count = 0
 z_stop_sent = False
 z_stop_pending = False
 z_resume_pending = False
+
+# ============================================================
+# START THRESHOLD CLAMP
+# ============================================================
+START_THRESHOLD_MAX_SAFE = 200
+
+# ============================================================
+# FLOW CONTROL
+# ============================================================
+FLOW_STOP_AT        = 900
+FLOW_RESUME_AT      = 400
+FLOW_REPORT_MIN_MS  = 100
+
+_buffer_full_state     = False
+_last_buffer_report_ms = 0
+
+
+def report_buffer_state():
+    """Внутренняя: шлёт FLOW_STOP / FLOW_RESUME по фронту.
+    Rate-limit 100 мс. Не вызывать напрямую — только через process_flow_state.
+    """
+    global _buffer_full_state, _last_buffer_report_ms
+    now = clock.time()
+    if now - _last_buffer_report_ms < FLOW_REPORT_MIN_MS:
+        return
+    count = buffer_count()
+    if not _buffer_full_state and count > FLOW_STOP_AT:
+        _buffer_full_state = True
+        _last_buffer_report_ms = now
+        usys.stdout.buffer.write(b"FLOW_STOP\n")
+        usys.stdout.flush()
+    elif _buffer_full_state and count < FLOW_RESUME_AT:
+        _buffer_full_state = False
+        _last_buffer_report_ms = now
+        usys.stdout.buffer.write(b"FLOW_RESUME\n")
+        usys.stdout.flush()
+
+
+def process_flow_state():
+    """ЕДИНАЯ точка flow control.
+    Вызывается:
+      - из receiver после каждого пакета (ловит рост буфера как можно раньше)
+      - из executor в начале каждой итерации
+      - из inner-loop интерполяции XY на каждом шаге (закрывает дыру длинных сегментов)
+    """
+    global z_stop_sent, z_stop_pending, z_resume_pending
+
+    # --- Z backpressure ---
+    if z_stop_pending:
+        usys.stdout.buffer.write(b"Z_STOP\n")
+        usys.stdout.flush()
+        z_stop_sent = True
+        z_stop_pending = False
+    if z_resume_pending:
+        usys.stdout.buffer.write(b"Z_RESUME\n")
+        usys.stdout.flush()
+        z_stop_sent = False
+        z_resume_pending = False
+
+    # --- XY flow ---
+    report_buffer_state()
+
 
 def z_put(angle, after_xy):
     global z_head, z_count, z_stop_pending
@@ -85,6 +146,7 @@ def z_put(angle, after_xy):
     if (not z_stop_sent) and z_count >= Z_HIGH_WATERMARK:
         z_stop_pending = True
     return True
+
 
 def z_get():
     global z_tail, z_count, z_resume_pending
@@ -105,9 +167,19 @@ motor_z = Motor(Port.C)
 motor_z.control.limits(speed=600, acceleration=2000)
 motor_z.reset_angle(0)
 
-Z_UP_ANGLE = 10
+Z_UP_ANGLE   = 10
 Z_DOWN_ANGLE = 0
-Z_SPEED = 400
+Z_SPEED      = 400
+
+# -----------------------------------------------------------
+# XY-оси
+# -----------------------------------------------------------
+motor_x = Motor(Port.A)
+motor_y = Motor(Port.B)
+motor_x.control.limits(speed=2000, acceleration=6000)
+motor_y.control.limits(speed=2000, acceleration=6000)
+motor_x.reset_angle(0)
+motor_y.reset_angle(0)
 
 # -----------------------------------------------------------
 # Глобальное состояние задания
@@ -120,12 +192,21 @@ start_gate_open = False
 last_x = 0
 last_y = 0
 
+_z_move_active       = False
+_z_move_started_ms   = 0
+_z_move_target_angle = 0
+_z_move_after_xy     = 0
+
+
 def reset_job_state():
     global total_received_xy, executed_xy, start_gate_open
     global z_head, z_tail, z_count, z_stop_sent
     global z_stop_pending, z_resume_pending
     global last_x, last_y
     global head, tail
+    global _buffer_full_state, _last_buffer_report_ms
+    global _z_move_active, _z_move_started_ms
+    global _z_move_target_angle, _z_move_after_xy
 
     total_received_xy = 0
     executed_xy = 0
@@ -143,13 +224,21 @@ def reset_job_state():
     head = 0
     tail = 0
 
+    _buffer_full_state = False
+    _last_buffer_report_ms = 0
+
+    _z_move_active = False
+    _z_move_started_ms = 0
+    _z_move_target_angle = 0
+    _z_move_after_xy = 0
+
 # -----------------------------------------------------------
 # Протокол
 # -----------------------------------------------------------
-CMD_LINE = 0x01
-CMD_MOTION_BLOCK = 0x02
-CMD_Z = 0x05
-CMD_SET_START_THRESHOLD = 0x06
+CMD_LINE                 = 0x01
+CMD_MOTION_BLOCK         = 0x02
+CMD_Z                    = 0x05
+CMD_SET_START_THRESHOLD  = 0x06
 
 WAIT_SYNC = 0
 IN_PACKET = 1
@@ -162,22 +251,9 @@ expected_len = 0
 poll = uselect.poll()
 poll.register(usys.stdin, uselect.POLLIN)
 
-motor_x = Motor(Port.A)
-motor_y = Motor(Port.B)
-motor_x.control.limits(speed=2000, acceleration=6000)
-motor_y.control.limits(speed=2000, acceleration=6000)
-motor_x.reset_angle(0)
-motor_y.reset_angle(0)
-
 # ============================================================
-# TELEMETRY (PID, limits, tolerances)
+# TELEMETRY
 # ============================================================
-# МикроПитон-ограничения:
-#   * нет str.encode()  -> используем usys.stdout.write(str)
-#   * motor.control.pid() может вернуть 3..6 значений  -> zip, не распаковка
-#   * motor.control.limits() -> 3 значения
-#   * motor.control.target_tolerances() в разных версиях называется по-разному
-
 def _fmt_pid(motor, tag):
     try:
         vals = motor.control.pid()
@@ -218,12 +294,6 @@ def _fmt_tolerances(motor, tag):
 
 
 def log_motor_config(reason="init"):
-    """
-    Синхронный. Один write+flush, чтобы BLE не рвать лишними пакетами.
-    Вызывать ТОЛЬКО после того, как хост уже подключил RuntimeSession -
-    иначе хост выбросит все 0x01-события как 'Ignored while waiting for 0x00'.
-    Единственная гарантированная точка - реакция на CMD_SET_START_THRESHOLD.
-    """
     lines = [
         "LOG_CONFIG_BEGIN reason=%s" % reason,
         _fmt_pid(motor_x, "X"),
@@ -244,7 +314,6 @@ def log_motor_config(reason="init"):
     except Exception:
         pass
 
-
 # ============================================================
 # RECEIVER
 # ============================================================
@@ -254,9 +323,6 @@ async def receiver():
 
     usys.stdout.buffer.write(b"receiver ready, version=%s\n" % FIRMWARE_VERSION)
     usys.stdout.flush()
-
-    # ВНИМАНИЕ: здесь НЕ логируем конфиг моторов - хост ещё в upload-фазе
-    # и выбросит все 0x01. Лог уйдёт из обработчика CMD_SET_START_THRESHOLD.
 
     rx_byte_count = 0
 
@@ -332,10 +398,7 @@ async def receiver():
                 tx = struct.unpack_from('<i', packet_buf, 1)[0]
                 ty = struct.unpack_from('<i', packet_buf, 5)[0]
                 dur = struct.unpack_from('<H', packet_buf, 9)[0]
-                if not buffer_put(tx, ty, dur):
-                    usys.stdout.buffer.write(b"BUFFER_FULL\n")
-                    usys.stdout.flush()
-                else:
+                if buffer_put(tx, ty, dur):
                     last_x = tx
                     last_y = ty
                     total_received_xy += 1
@@ -348,11 +411,8 @@ async def receiver():
                     offset += 6
                     last_x += dx
                     last_y += dy
-                    if not buffer_put(last_x, last_y, dur):
-                        usys.stdout.buffer.write(b"BUFFER_FULL\n")
-                        usys.stdout.flush()
-                        break
-                    total_received_xy += 1
+                    if buffer_put(last_x, last_y, dur):
+                        total_received_xy += 1
 
             elif cmd == CMD_Z:
                 angle = struct.unpack_from('<h', packet_buf, 1)[0]
@@ -364,13 +424,17 @@ async def receiver():
             elif cmd == CMD_SET_START_THRESHOLD:
                 new_threshold = struct.unpack_from('<H', packet_buf, 1)[0]
                 reset_job_state()
-                start_threshold = new_threshold
-                usys.stdout.write("START_THRESHOLD_SET %d\n" % start_threshold)
+                start_threshold = min(new_threshold, START_THRESHOLD_MAX_SAFE)
+                usys.stdout.write("START_THRESHOLD_SET %d (req=%d)\n" %
+                                  (start_threshold, new_threshold))
                 usys.stdout.flush()
-                # --- ГЛАВНЫЙ "костыль" ---
-                # Хост гарантированно подключён (он только что прислал команду),
-                # значит, эти строки долетят до onData и попадут в лог.
                 log_motor_config(reason="job_start")
+
+            # === КРИТИЧНО ===
+            # После каждого пакета проверяем flow state.
+            # Именно здесь счётчик растёт — значит FLOW_STOP уйдёт
+            # максимум через 100 мс (rate-limit) после пересечения порога.
+            process_flow_state()
 
             state = WAIT_SYNC
             packet_idx = 0
@@ -380,11 +444,14 @@ async def receiver():
             await wait(1)
             rx_byte_count = 0
 
-
 # ============================================================
 # EXECUTOR
 # ============================================================
 async def smooth_executor():
+    global executed_xy, start_gate_open
+    global _z_move_active, _z_move_started_ms
+    global _z_move_target_angle, _z_move_after_xy
+
     usys.stdout.buffer.write(b"executor ready\n")
     usys.stdout.flush()
 
@@ -392,29 +459,37 @@ async def smooth_executor():
     current_y = 0.0
     segment_count = 0
     UPDATE_MS = 8
-    flow_stopped = False
-    global executed_xy, start_gate_open
-    global z_stop_sent, z_stop_pending, z_resume_pending
 
     max_lag_x = 0.0
     max_lag_y = 0.0
     diag_counter = 0
 
-    while True:
-        # --- Z_STOP / Z_RESUME ---
-        if z_stop_pending:
-            usys.stdout.buffer.write(b"Z_STOP\n")
-            usys.stdout.flush()
-            z_stop_sent = True
-            z_stop_pending = False
-        if z_resume_pending:
-            usys.stdout.buffer.write(b"Z_RESUME\n")
-            usys.stdout.flush()
-            z_stop_sent = False
-            z_resume_pending = False
+    Z_MOVE_TIMEOUT_MS = 5000
 
-        # --- Z-команды ---
-        if z_count > 0:
+    while True:
+        # --- Flow control + Z backpressure (единая точка) ---
+        process_flow_state()
+
+        # --- Non-blocking Z ---
+        if _z_move_active:
+            if motor_z.done():
+                _z_move_active = False
+                usys.stdout.write(
+                    "Z_EXEC angle=%d after=%d executed=%d plan=%.1f,%.1f act=%d,%d\n" %
+                    (_z_move_target_angle, _z_move_after_xy, executed_xy,
+                     current_x, current_y,
+                     motor_x.angle(), motor_y.angle()))
+                usys.stdout.flush()
+            elif clock.time() - _z_move_started_ms > Z_MOVE_TIMEOUT_MS:
+                motor_z.stop()
+                _z_move_active = False
+                usys.stdout.write(
+                    "Z_TIMEOUT angle=%d after=%d executed=%d\n" %
+                    (_z_move_target_angle, _z_move_after_xy, executed_xy))
+                usys.stdout.flush()
+
+        # --- Запуск нового Z ---
+        if not _z_move_active and z_count > 0:
             angle = z_angles[z_tail]
             after_xy = z_after_xy[z_tail]
             if executed_xy >= after_xy:
@@ -428,14 +503,14 @@ async def smooth_executor():
 
                 z_get()
                 motor_z.run_target(Z_SPEED, angle, then=Stop.HOLD, wait=False)
-                while not motor_z.done():
-                    await wait(2)
+                _z_move_active = True
+                _z_move_started_ms = clock.time()
+                _z_move_target_angle = angle
+                _z_move_after_xy = after_xy
 
-                usys.stdout.write("Z_EXEC angle=%d after=%d executed=%d plan=%.1f,%.1f act=%d,%d\n" %
-                                    (angle, after_xy, executed_xy, current_x, current_y,
-                                    motor_x.angle(), motor_y.angle()))
-                usys.stdout.flush()
-                continue
+        if _z_move_active:
+            await wait(2)
+            continue
 
         # --- Стартовый порог ---
         if not start_gate_open:
@@ -447,28 +522,17 @@ async def smooth_executor():
                 await wait(10)
                 continue
 
-        # --- Flow control ---
-        count = buffer_count()
-        if not flow_stopped and count > 900:
-            usys.stdout.buffer.write(b"FLOW_STOP\n")
-            usys.stdout.flush()
-            flow_stopped = True
-        elif flow_stopped and count < 400:
-            usys.stdout.buffer.write(b"FLOW_RESUME\n")
-            usys.stdout.flush()
-            flow_stopped = False
-
-        # --- Получаем XY ---
+        # --- XY ---
         idx = buffer_get_count()
         if idx == -1:
             await wait(1)
             continue
 
-        target_x = buf_x[idx]
-        target_y = buf_y[idx]
+        target_x    = buf_x[idx]
+        target_y    = buf_y[idx]
         duration_ms = buf_dur[idx]
 
-        steps = max(1, int(round(duration_ms / UPDATE_MS)))
+        steps        = max(1, int(round(duration_ms / UPDATE_MS)))
         step_time_ms = duration_ms / steps
         dx = target_x - current_x
         dy = target_y - current_y
@@ -486,6 +550,13 @@ async def smooth_executor():
             if delta > 0:
                 await wait(delta)
 
+            # === КРИТИЧНО ===
+            # Закрываем дыру «executor занят длинным сегментом».
+            # На каждом шаге интерполяции проверяем flow state.
+            # Функция внутри rate-limited 100 мс — реальный stdout
+            # только при смене состояния.
+            process_flow_state()
+
         current_x = target_x
         current_y = target_y
         executed_xy += 1
@@ -500,14 +571,13 @@ async def smooth_executor():
 
         diag_counter += 1
         if diag_counter >= 200:
-            usys.stdout.write("SEG %d maxlag=(%.1f,%.1f) buf=%d\n" %
+            usys.stdout.write("SEG %d maxlag=(%.1f,%.1f) buf=%d zq=%d\n" %
                               (segment_count, max_lag_x, max_lag_y,
-                               buffer_count()))
+                               buffer_count(), z_count))
             usys.stdout.flush()
             diag_counter = 0
             max_lag_x = 0.0
             max_lag_y = 0.0
-
 
 # ============================================================
 # MAIN
