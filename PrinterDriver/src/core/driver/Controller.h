@@ -62,6 +62,9 @@ private:
 	std::atomic<bool> remoteBufferFull{ false };
 	std::atomic<bool> zRemoteFull{ false };
 
+	std::atomic<int64_t> lastHubRxMs{ 0 };
+	std::atomic<int64_t> lastFlowBlockMs{ 0 };
+
 	bool discover();
 	void onData(const uint8_t* data, size_t length);
 
