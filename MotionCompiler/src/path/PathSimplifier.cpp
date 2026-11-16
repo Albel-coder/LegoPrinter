@@ -1,258 +1,115 @@
 #include "PathSimplifier.h"
 
-#include <algorithm>
 #include <cmath>
 
-namespace {
+PathSimplifier::PathSimplifier(PathSimplificationConfig config) : config(config) {}
 
-    double pointToSegmentDistanceImpl(
-        const Point& p,
-        const Point& a,
-        const Point& b)
-    {
-        const double dx = static_cast<double>(b.x - a.x);
-        const double dy = static_cast<double>(b.y - a.y);
-        const double len2 = dx * dx + dy * dy;
+double PathSimplifier::pointLineDistance(const Point& p, const Point& a, const Point& b) {
+    const double vx = b.x - a.x;
+    const double vy = b.y - a.y;
+    const double len = std::sqrt(vx * vx + vy * vy);
 
-        if (len2 < 1e-12) {
-            const double ex = static_cast<double>(p.x - a.x);
-            const double ey = static_cast<double>(p.y - a.y);
-            return std::sqrt(ex * ex + ey * ey);
-        }
-
-        const double px = static_cast<double>(p.x - a.x);
-        const double py = static_cast<double>(p.y - a.y);
-
-        double t = (px * dx + py * dy) / len2;
-        t = std::max(0.0, std::min(1.0, t));
-
-        const double cx = a.x + t * dx;
-        const double cy = a.y + t * dy;
-
-        const double ex = static_cast<double>(p.x) - cx;
-        const double ey = static_cast<double>(p.y) - cy;
-
-        return std::sqrt(ex * ex + ey * ey);
+    if (len < 1e-12) {
+        const double dx = p.x - a.x;
+        const double dy = p.y - a.y;
+        return std::sqrt(dx * dx + dy * dy);
     }
 
-} // namespace
-
-PathSimplifier::PathSimplifier(SimplificationConfig config)
-    : config(config)
-{
+    const double wx = p.x - a.x;
+    const double wy = p.y - a.y;
+    const double cross = vx * wy - vy * wx;
+    return std::abs(cross) / len;
 }
 
-double PathSimplifier::pointToSegmentDistance(
-    const Point& p,
-    const Point& a,
-    const Point& b)
-{
-    return pointToSegmentDistanceImpl(p, a, b);
-}
-
-void PathSimplifier::rdp(
-    const std::vector<Point>& input,
+void PathSimplifier::rdp(const std::vector<Point>& input,
     double epsilon,
-    std::vector<Point>& output)
-{
-    if (input.size() < 2) {
+    std::vector<Point>& output) {
+    if (input.size() < 3) {
         output = input;
         return;
     }
 
-    double maxDistance = 0.0;
-    size_t maxIndex = 0;
+    const Point& start = input.front();
+    const Point& end = input.back();
 
-    const Point& first = input.front();
-    const Point& last = input.back();
-
+    double dmax = 0.0;
+    size_t index = 0;
     for (size_t i = 1; i + 1 < input.size(); ++i) {
-        const double d = pointToSegmentDistanceImpl(
-            input[i], first, last);
-
-        if (d > maxDistance) {
-            maxDistance = d;
-            maxIndex = i;
+        const double d = pointLineDistance(input[i], start, end);
+        if (d > dmax) {
+            dmax = d;
+            index = i;
         }
     }
 
-    if (maxDistance > epsilon) {
-
-        std::vector<Point> left(
-            input.begin(),
-            input.begin() + static_cast<std::ptrdiff_t>(maxIndex) + 1);
-
-        std::vector<Point> right(
-            input.begin() + static_cast<std::ptrdiff_t>(maxIndex),
+    if (dmax > epsilon) {
+        std::vector<Point> left(input.begin(),
+            input.begin() + static_cast<std::ptrdiff_t>(index) + 1);
+        std::vector<Point> right(input.begin() + static_cast<std::ptrdiff_t>(index),
             input.end());
 
-        std::vector<Point> leftResult;
-        std::vector<Point> rightResult;
-
+        std::vector<Point> leftResult, rightResult;
         rdp(left, epsilon, leftResult);
         rdp(right, epsilon, rightResult);
 
-        output = leftResult;
-        output.insert(
-            output.end(),
-            rightResult.begin() + 1,
-            rightResult.end());
+        output = std::move(leftResult);
+        output.insert(output.end(), rightResult.begin() + 1, rightResult.end());
     }
     else {
         output.clear();
-        output.push_back(first);
-        output.push_back(last);
+        output.push_back(start);
+        output.push_back(end);
     }
 }
 
-std::vector<Point> PathSimplifier::byDeviation(
-    const std::vector<Point>& input,
-    double maxDeviation)
-{
-    if (input.size() < 3) {
-        return input;
-    }
+std::vector<Point> PathSimplifier::simplifyClosed(const std::vector<Point>& P,
+    double epsilon) {
+    if (P.size() < 4) return P;
 
-    std::vector<Point> output;
-    output.reserve(input.size());
-
-    size_t anchor = 0;
-    output.push_back(input[anchor]);
-
-    while (anchor + 1 < input.size()) {
-        size_t best = anchor + 1;
-
-        for (size_t candidate = anchor + 2;
-            candidate < input.size();
-            ++candidate) {
-
-            bool valid = true;
-
-            for (size_t j = anchor + 1; j < candidate; ++j) {
-                const double deviation = pointToSegmentDistanceImpl(
-                    input[j], input[anchor], input[candidate]);
-
-                if (deviation > maxDeviation) {
-                    valid = false;
-                    break;
-                }
-            }
-
-            if (!valid) {
-                break;
-            }
-
-            best = candidate;
+    // Индекс точки, максимально удалённой от P[0]
+    size_t splitIdx = 0;
+    double maxDistSq = -1.0;
+    for (size_t i = 0; i < P.size(); ++i) {
+        const double dx = P[i].x - P[0].x;
+        const double dy = P[i].y - P[0].y;
+        const double d2 = dx * dx + dy * dy;
+        if (d2 > maxDistSq) {
+            maxDistSq = d2;
+            splitIdx = i;
         }
-
-        output.push_back(input[best]);
-        anchor = best;
     }
 
-    return output;
-}
+    std::vector<Point> half1(P.begin(),
+        P.begin() + static_cast<std::ptrdiff_t>(splitIdx) + 1);
+    std::vector<Point> half2(P.begin() + static_cast<std::ptrdiff_t>(splitIdx),
+        P.end());
+    half2.push_back(P[0]);
 
-std::vector<Point> PathSimplifier::smooth(
-    const std::vector<Point>& input,
-    int window,
-    int passes)
-{
-    if (input.size() < 3 || window <= 0 || passes <= 0) {
-        return input;
-    }
+    std::vector<Point> s1, s2;
+    rdp(half1, epsilon, s1);
+    rdp(half2, epsilon, s2);
 
-    std::vector<Point> current = input;
-
-    for (int pass = 0; pass < passes; ++pass) {
-
-        std::vector<Point> next = current;
-
-        for (size_t i = 1; i + 1 < current.size(); ++i) {
-
-            double sumX = 0.0;
-            double sumY = 0.0;
-            int count = 0;
-
-            for (int j = -window; j <= window; ++j) {
-
-                int idx = static_cast<int>(i) + j;
-
-                if (idx < 0) idx = 0;
-                if (idx >= static_cast<int>(current.size()))
-                    idx = static_cast<int>(current.size()) - 1;
-
-                sumX += current[idx].x;
-                sumY += current[idx].y;
-                ++count;
-            }
-
-            next[i].x = static_cast<int>(std::lround(sumX / count));
-            next[i].y = static_cast<int>(std::lround(sumY / count));
-        }
-
-        current = std::move(next);
-    }
-
-    return current;
-}
-
-Contour PathSimplifier::simplify(const Contour& contour) const
-{
-    if (!config.enabled || contour.points.size() < 3) {
-        return contour;
-    }
-
-    Contour result;
-
-    std::vector<Point> working = contour.points;
-
-    // 1. Smoothing (только если задано)
-    if (config.smoothingWindow > 0 && config.smoothingPasses > 0) {
-        working = smooth(
-            working,
-            config.smoothingWindow,
-            config.smoothingPasses);
-    }
-
-    // 2. RDP
-    std::vector<Point> afterRdp;
-
-    if (config.rdpEpsilon > 0.0) {
-        rdp(working, config.rdpEpsilon, afterRdp);
-    }
-    else {
-        afterRdp = working;
-    }
-
-    // 3. Deviation simplification
-    std::vector<Point> finalPoints;
-
-    if (config.deviationThreshold > 0.0) {
-        finalPoints = byDeviation(afterRdp, config.deviationThreshold);
-    }
-    else {
-        finalPoints = afterRdp;
-    }
-
-    result.points = std::move(finalPoints);
-    result.closed = contour.closed;
-
+    std::vector<Point> result;
+    result.reserve(s1.size() + s2.size());
+    result.insert(result.end(), s1.begin(), s1.end() - 1);
+    result.insert(result.end(), s2.begin(), s2.end() - 1);
     return result;
 }
 
-ImageProfile PathSimplifier::simplify(const ImageProfile& profile) const
-{
+Contour PathSimplifier::simplify(const Contour& contour) const {
+    Contour result = contour;
+    const auto& input = contour.sourcePoints.empty()
+        ? contour.points
+        : contour.sourcePoints;
+    result.points = simplifyClosed(input, config.rdpEpsilonMm);
+    return result;
+}
+
+ImageProfile PathSimplifier::simplify(const ImageProfile& profile) const {
     ImageProfile result;
-
-    if (!config.enabled) {
-        return profile;
-    }
-
     result.contours.reserve(profile.contours.size());
-
-    for (const auto& contour : profile.contours) {
-        result.contours.push_back(simplify(contour));
+    for (const auto& c : profile.contours) {
+        result.contours.push_back(simplify(c));
     }
-
     return result;
 }
