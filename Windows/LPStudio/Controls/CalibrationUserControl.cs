@@ -40,7 +40,7 @@ namespace LPStudio
 
         private void button1_Click(object sender, EventArgs e)
         {
-            motionCompilerController.GenerateGCode("testImage.png", "test.gcode", true);
+            motionCompilerController.GenerateGCode("RustIsTheBest.png", "test.gcode");
         }
     }
 }
