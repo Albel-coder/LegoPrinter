@@ -350,7 +350,7 @@ public sealed class MotionCompilerController : IDisposable
         }
     }
 
-    public bool GenerateGCode(string inputPath, string outputPath, bool useSkeleton = false)
+    public bool GenerateGCode(string inputPath, string outputPath)
     {
         ThrowIfDisposed();
 
@@ -364,7 +364,7 @@ public sealed class MotionCompilerController : IDisposable
             throw new ArgumentException("Output path cannot be empty.", nameof(outputPath));
         }
 
-        return CompileImageProfiles(compilerHandle, inputPath, outputPath, useSkeleton);
+        return CompileImageProfiles(compilerHandle, inputPath, outputPath);
     }
 
     private void ThrowIfDisposed()
@@ -380,7 +380,7 @@ public sealed class MotionCompilerController : IDisposable
 
     [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool CompileImageProfiles(IntPtr compiler, string inputFilename, string outputFilename, [MarshalAs(UnmanagedType.I1)] bool useSkeleton);
+    private static extern bool CompileImageProfiles(IntPtr compiler, string inputFilename, string outputFilename);
 
     [DllImport("MotionCompiler.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern void DestroyMotionCompiler(IntPtr compiler);
