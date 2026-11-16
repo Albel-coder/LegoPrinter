@@ -11,7 +11,7 @@
 
 namespace {
     constexpr double EPSILON = 1e-9;
-    constexpr double MIN_SEGMENT_DURATION_MS = 8.0;
+    constexpr double MIN_SEGMENT_DURATION_MS = 1.5;
 
     bool nearlyEqual(double a, double b) {
         return std::abs(a - b) < EPSILON;
