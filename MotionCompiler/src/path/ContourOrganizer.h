@@ -2,19 +2,26 @@
 
 #include "../model/ImageProfile.h"
 
+#include <vector>
+
 class ContourOrganizer {
 public:
-	ContourOrganizer() = default;
-	~ContourOrganizer() = default;
+    enum class OrderMode { Reading, Nearest };
 
-	ImageProfile organize(const ImageProfile& profile) const;
+    struct Config {
+        OrderMode order = OrderMode::Reading;
+    };
+
+    explicit ContourOrganizer(Config config = {});
+
+    // Возвращает новый профиль, где каждый контур — замкнутый "штрих"
+    // (первая точка продублирована в конце), повернутый так,
+    // чтобы начинаться в ближайшей к предыдущему концу точке.
+    // flipY должен совпадать с ImageProcessor::Config::flipY.
+    ImageProfile planStrokes(const ImageProfile& profile, bool flipY) const;
 
 private:
-	static double distance(const Point& a, const Point& b);
+    std::vector<size_t> readingOrder(const ImageProfile& profile, bool flipY) const;
 
-	static void reverseContour(Contour& contour);
-
-	static Point firstPoint(const Contour& contour);
-
-	static Point lastPoint(const Contour& contour);
+    Config config;
 };
