@@ -4,48 +4,29 @@
 
 #include <vector>
 
-struct SimplificationConfig {
-    bool enabled = true;
-
-    // RDP
-    double rdpEpsilon = 2.0;
-
-    // Дополнительное удаление точек,
-    // почти лежащих на прямой.
-    double deviationThreshold = 3.0;
-
-    // Сглаживание скользящим средним.
-    // 0 = отключено.
-    int smoothingWindow = 0;
-    int smoothingPasses = 0;
+struct PathSimplificationConfig {
+    double rdpEpsilonMm = 1.0;
 };
 
 class PathSimplifier {
 public:
-    explicit PathSimplifier(SimplificationConfig config = {});
+    explicit PathSimplifier(PathSimplificationConfig config = {});
 
     Contour simplify(const Contour& contour) const;
     ImageProfile simplify(const ImageProfile& profile) const;
 
+    // Public для тестов.
+    static double pointLineDistance(const Point& p, const Point& a, const Point& b);
+
 private:
-    SimplificationConfig config;
-
-    static double pointToSegmentDistance(
-        const Point& p,
-        const Point& a,
-        const Point& b);
-
-    static void rdp(
-        const std::vector<Point>& input,
+    // Классический RDP по открытой полилинии.
+    static void rdp(const std::vector<Point>& input,
         double epsilon,
         std::vector<Point>& output);
 
-    static std::vector<Point> byDeviation(
-        const std::vector<Point>& input,
-        double maxDeviation);
+    // RDP для замкнутого контура: расщепляем в самой удалённой от P[0] точке.
+    static std::vector<Point> simplifyClosed(const std::vector<Point>& points,
+        double epsilon);
 
-    static std::vector<Point> smooth(
-        const std::vector<Point>& input,
-        int window,
-        int passes);
+    PathSimplificationConfig config;
 };
