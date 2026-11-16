@@ -1080,6 +1080,9 @@ bool Controller::sendPreparedMotionPackets(
 
 */
 
+/*
+
+
 bool Controller::runMotionTest() {
 
 	// ============================================================
@@ -1235,7 +1238,7 @@ bool Controller::runMotionTest() {
 
 	if (durations_sec.size() + 1 !=	motionPath.size()) {
 
-		LOG_ERROR("Invalid duration count: durations=%zu points=%zu", 
+		LOG_ERROR("Invalid duration count: durations=%zu points=%zu",
 			durations_sec.size(),motionPath.size());
 
 		return false;
@@ -1665,6 +1668,8 @@ bool Controller::runMotionTest() {
 	return true;
 }
 
+*/
+
 bool Controller::sendStartThreshold(uint16_t threshold) {
 	uint8_t packet[4];
 
@@ -1865,10 +1870,10 @@ bool Controller::runGCodeTest(const std::string& filename) {
 	config.startThresholdSafetyMargin = 5;
 
 	// Планировщик — согласован с реальными лимитами хаба (speed=2000, accel=6000 deg/s²)
-	config.maxAccel = 2500.0;           // было 4000
-	config.junctionDeviation = 12.0;    // было 8
-	config.maxVelocitySteps = 1400.0;   // было 2500 — теперь НИЖЕ потолка хаба
-	config.junctionMinFactor = 0.35;    // было 0.7 — на углах тормозим
+	config.maxAccel = 1000.0;
+	config.junctionDeviation = 1.5;
+	config.maxVelocitySteps = 1200.0;
+	config.junctionMinFactor = 0.0;
 
 	GCodeCompiler compiler(config);
 	MotionProgram program;
