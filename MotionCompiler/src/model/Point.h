@@ -1,6 +1,7 @@
 #pragma once
 
+// Точка в координатах станка (мм). Все вычисления после ImageProcessor — в double.
 struct Point {
-	int x = 0;
-	int y = 0;
+    double x = 0.0;
+    double y = 0.0;
 };
