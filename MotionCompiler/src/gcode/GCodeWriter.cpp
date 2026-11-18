@@ -1,6 +1,5 @@
 #include "GCodeWriter.h"
 
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -23,7 +22,6 @@ namespace {
         return buf;
     }
 
-    // Число без лишних нулей: 8000 -> "8000", 2.0 -> "2", 1.5 -> "1.500".
     std::string fmtNum(double v) {
         if (std::abs(v - std::round(v)) < 1e-9) {
             char buf[64];
@@ -34,57 +32,6 @@ namespace {
         std::snprintf(buf, sizeof(buf), "%.3f", v);
         return buf;
     }
-
-    class BacklashCompensator {
-    public:
-        BacklashCompensator(double backlashX, double backlashY,
-            double initialX, double initialY) {
-            half_[0] = backlashX / 2.0;
-            half_[1] = backlashY / 2.0;
-            motor_[0] = initialX;
-            motor_[1] = initialY;
-            pen_[0] = initialX;
-            pen_[1] = initialY;
-            lastDir_[0] = 0;
-            lastDir_[1] = 0;
-        }
-
-        void moveTo(double x, double y, double& outX, double& outY) {
-            outX = compAxis(0, x);
-            outY = compAxis(1, y);
-        }
-
-        Point penPosition() const { return Point{ pen_[0], pen_[1] }; }
-
-    private:
-        double compAxis(int ax, double target) {
-            const double delta = target - pen_[ax];
-
-            if (std::abs(delta) < 0.3) {
-                motor_[ax] += delta;
-                pen_[ax] = target;
-                return motor_[ax];
-            }
-
-            if (std::abs(delta) < 1e-9) return motor_[ax];
-
-            const int d = delta > 0 ? 1 : -1;
-            double motorTarget;
-            if (d == lastDir_[ax]) {
-                motorTarget = motor_[ax] + delta;
-            }
-            else {
-                motorTarget = target + d * half_[ax];
-            }
-            motor_[ax] = motorTarget;
-            pen_[ax] = target;
-            lastDir_[ax] = d;
-            return motorTarget;
-        }
-
-        double half_[2], motor_[2], pen_[2];
-        int lastDir_[2];
-    };
 
     class Pen {
     public:
@@ -149,22 +96,13 @@ bool GCodeWriter::write(const ImageProfile& strokes, const std::string& filename
 
     out.push_back("; PNG -> " + fmtOne(config.widthMm) + "x" + fmtOne(config.heightMm)
         + " mm. RDP eps = " + fmtNum(config.rdpEpsilonMm) + " mm");
-    out.push_back("; Backlash: X=" + fmtNum(config.backlashXMm)
-        + " mm, Y=" + fmtNum(config.backlashYMm) + " mm");
     out.push_back("G21 ; mm");
     out.push_back("G90 ; absolute");
-
-    if (config.emitG92Start) {
-        out.push_back("G92 X" + fmtCoord(config.initialPosX)
-            + " Y" + fmtCoord(config.initialPosY)
-            + " ; force coord system to assumed start");
-    }
 
     Pen pen(out, config);
     pen.up();
 
-    BacklashCompensator comp(config.backlashXMm, config.backlashYMm,
-        config.initialPosX, config.initialPosY);
+    Point pos{ 0.0, 0.0 };
 
     for (size_t k = 0; k < strokes.contours.size(); ++k) {
         const auto& P = strokes.contours[k].points;
@@ -176,39 +114,30 @@ bool GCodeWriter::write(const ImageProfile& strokes, const std::string& filename
 
         const double sx = P.front().x;
         const double sy = P.front().y;
-        const Point ppos = comp.penPosition();
-        const double gap = std::hypot(sx - ppos.x, sy - ppos.y);
+        const double gap = std::hypot(sx - pos.x, sy - pos.y);
 
         if (pen.isDown() && gap <= config.minHopMm) {
             if (gap > 5e-4) {
-                double mx, my;
-                comp.moveTo(sx, sy, mx, my);
-                out.push_back("G1 X" + fmtCoord(mx) + " Y" + fmtCoord(my)
+                out.push_back("G1 X" + fmtCoord(sx) + " Y" + fmtCoord(sy)
                     + " F" + fmtNum(config.feedDraw));
             }
         }
         else {
             pen.up();
-            double mx, my;
-            comp.moveTo(sx, sy, mx, my);
-            out.push_back("G0 X" + fmtCoord(mx) + " Y" + fmtCoord(my)
+            out.push_back("G0 X" + fmtCoord(sx) + " Y" + fmtCoord(sy)
                 + " F" + fmtNum(config.feedTravel));
             pen.down();
         }
 
         for (size_t i = 1; i + 1 < P.size(); ++i) {
-            double mx, my;
-            comp.moveTo(P[i].x, P[i].y, mx, my);
-            out.push_back("G1 X" + fmtCoord(mx) + " Y" + fmtCoord(my)
+            out.push_back("G1 X" + fmtCoord(P[i].x) + " Y" + fmtCoord(P[i].y)
                 + " F" + fmtNum(config.feedDraw));
         }
 
-        {
-            double mx, my;
-            comp.moveTo(sx, sy, mx, my);
-            out.push_back("G1 X" + fmtCoord(mx) + " Y" + fmtCoord(my)
-                + " F" + fmtNum(config.feedDraw) + " ; close contour");
-        }
+        out.push_back("G1 X" + fmtCoord(sx) + " Y" + fmtCoord(sy)
+            + " F" + fmtNum(config.feedDraw) + " ; close contour");
+
+        pos = { sx, sy };
     }
 
     pen.up();

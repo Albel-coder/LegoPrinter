@@ -72,6 +72,7 @@ set(CORE_SOURCE
 	
 	src/core/driver/gcode/compiler/GCodeCompiler.h
 	src/core/driver/gcode/compiler/GCodeCompiler.cpp
+	src/core/driver/gcode/compiler/BacklashCompensator.h
 	src/core/driver/gcode/motion/MotionPlanner.cpp
 	src/core/driver/gcode/motion/MotionPlanner.h
 	

@@ -1,5 +1,6 @@
 #include "GCodeCompiler.h"
 #include "../logging/LogManager.h"
+#include "BacklashCompensator.h"
 
 #include <algorithm>
 #include <cctype>
@@ -337,6 +338,11 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
     // ============================================================
     // ЭТАП 5. УПАКОВКА С КОМПЕНСАЦИЕЙ ОКРУГЛЕНИЯ
     // ============================================================
+    BacklashCompensator backlash(
+        config.backlashXMm, config.backlashYMm,
+        config.stepsPerMmX, config.stepsPerMmY,
+        config.backlashMinMoveMm);
+
     size_t xyIndex = 0;
     double roundingErrorMs = 0.0;
 
@@ -346,46 +352,62 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
                 LOG_ERROR("Failed to add Z command");
                 return false;
             }
+            continue;
         }
-        else {
-            // Компенсация накопленного округления времени
-            double plannedMs = planned[xyIndex].durationSec * 1000.0
-                + roundingErrorMs;
-            double roundedMs = std::round(plannedMs);
-            roundingErrorMs = plannedMs - roundedMs;
 
+        int32_t origDx = seg.endPoint.x - seg.startPoint.x;
+        int32_t origDy = seg.endPoint.y - seg.startPoint.y;
+
+        int32_t motorDx = origDx;
+        int32_t motorDy = origDy;
+        backlash.apply(motorDx, motorDy);
+
+        // --- Проверка int16 ДО расчёта длительности ---
+        if (motorDx < INT16_MIN || motorDx > INT16_MAX ||
+            motorDy < INT16_MIN || motorDy > INT16_MAX) {
+            LOG_ERROR("Delta out of int16 after backlash: dx=%d dy=%d", motorDx, motorDy);
+            return false;
+        }
+
+        // --- Плановая длительность + компенсация округления ---
+        double plannedMs = planned[xyIndex].durationSec * 1000.0 + roundingErrorMs;
+        double roundedMs = std::round(plannedMs);
+        roundingErrorMs = plannedMs - roundedMs;
+
+        if (roundedMs < MIN_SEGMENT_DURATION_MS) {
+            roundingErrorMs += (MIN_SEGMENT_DURATION_MS - roundedMs);
+            roundedMs = MIN_SEGMENT_DURATION_MS;
+        }
+
+        // --- Stretch: если мотор едет дальше пера — растягиваем время,
+        //     чтобы скорость мотора не превысила плановую. ---
+        const double ratioX = (origDx != 0)
+            ? std::abs(static_cast<double>(motorDx) / origDx) : 1.0;
+        const double ratioY = (origDy != 0)
+            ? std::abs(static_cast<double>(motorDy) / origDy) : 1.0;
+        const double stretch = std::max({ 1.0, ratioX, ratioY });
+        if (stretch > 1.0) {
+            roundedMs = std::round(roundedMs * stretch);
             if (roundedMs < MIN_SEGMENT_DURATION_MS) {
-                roundingErrorMs += (MIN_SEGMENT_DURATION_MS - roundedMs);
                 roundedMs = MIN_SEGMENT_DURATION_MS;
             }
-            if (roundedMs > static_cast<double>(UINT16_MAX)) {
-                LOG_ERROR("Segment duration out of uint16: %.2f ms "
-                    "at index %zu", roundedMs, xyIndex);
-                return false;
-            }
-
-            uint16_t durMs = static_cast<uint16_t>(roundedMs);
-
-            int32_t dx = seg.endPoint.x - seg.startPoint.x;
-            int32_t dy = seg.endPoint.y - seg.startPoint.y;
-
-            if (dx < INT16_MIN || dx > INT16_MAX ||
-                dy < INT16_MIN || dy > INT16_MAX) {
-                LOG_ERROR("Delta out of int16: dx=%d dy=%d", dx, dy);
-                return false;
-            }
-
-            if (!addXYSegment(dx, dy, durMs, output)) {
-                LOG_ERROR("Failed to add XY segment %zu", xyIndex);
-                return false;
-            }
-            xyIndex++;
         }
+
+        if (roundedMs > static_cast<double>(UINT16_MAX)) {
+            LOG_ERROR("Duration out of uint16: %.2f ms at index %zu", roundedMs, xyIndex);
+            return false;
+        }
+
+        if (!addXYSegment(motorDx, motorDy,
+            static_cast<uint16_t>(roundedMs), output)) {
+            LOG_ERROR("Failed to add XY segment %zu", xyIndex);
+            return false;
+        }
+        ++xyIndex;
     }
 
     finalizeCommands(output);
     output.startThreshold = calculateStartThreshold(output.xySegmentCount);
-
     return true;
 }
 

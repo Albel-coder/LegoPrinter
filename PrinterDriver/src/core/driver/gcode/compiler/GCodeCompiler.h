@@ -93,6 +93,16 @@ struct PrinterConfig {
 	double junctionDeviation = 4.0;    // шагов
 	double maxVelocitySteps = 2200.0; // шагов/с
 	double junctionMinFactor = 0.0;    // 0 = не занижать
+
+	// ============================================
+	// Люфт (физическое свойство станка)
+	// ============================================
+	double backlashXMm = 4.0;
+	double backlashYMm = 4.0;
+
+	// Деадбенд: дельты меньше этого значения не меняют engagement
+	// (1:1). 0 = компенсировать всегда.
+	double backlashMinMoveMm = 0.0;
 };
 
 // ============================================================
