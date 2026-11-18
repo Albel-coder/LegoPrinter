@@ -7,6 +7,7 @@ import uselect
 import ustruct as struct
 import gc
 
+gc.collect()
 from micropython import kbd_intr
 kbd_intr(-1)
 
@@ -21,12 +22,14 @@ clock = StopWatch()
 FIRMWARE_VERSION = "fw-2026-10-15-nonblocking"
 
 # ============================================================
-# XY RING BUFFER
+# XY RING BUFFER (BYTEARRAY 6 BYTES/REC)
 # ============================================================
-BUFFER_SIZE = 1024
-buf_x = [0] * BUFFER_SIZE
-buf_y = [0] * BUFFER_SIZE
-buf_dur = [0] * BUFFER_SIZE
+# Формат записи: <hhH (x: int16, y: int16, duration: uint16) = 6 байт
+BUFFER_SIZE = 2048 # was 1024
+XY_RECORD_SIZE = 6
+
+gc.collect()
+xy_buf = bytearray(BUFFER_SIZE * XY_RECORD_SIZE)
 
 head = 0
 tail = 0
@@ -36,19 +39,18 @@ def buffer_put(dx, dy, duration):
     next_head = (head + 1) % BUFFER_SIZE
     if next_head == tail:
         return False
-    buf_x[head] = dx
-    buf_y[head] = dy
-    buf_dur[head] = duration
+    struct.pack_into('<hhH', xy_buf, head * XY_RECORD_SIZE, dx, dy, duration)
     head = next_head
     return True
 
-def buffer_get_count():
+def buffer_get():
+    """Возвращает кортеж (target_x, target_y, duration_ms) или (None, None, None)."""
     global tail
     if tail == head:
-        return -1
-    t = tail
+        return None, None, None
+    data = struct.unpack_from('<hhH', xy_buf, tail * XY_RECORD_SIZE)
     tail = (tail + 1) % BUFFER_SIZE
-    return t
+    return data
 
 def buffer_count():
     if head >= tail:
@@ -57,14 +59,16 @@ def buffer_count():
         return BUFFER_SIZE - (tail - head)
 
 # ============================================================
-# Z-ОЧЕРЕДЬ С BACKPRESSURE
+# Z-ОЧЕРЕДЬ С BACKPRESSURE (BYTEARRAY)
 # ============================================================
-Z_QUEUE_SIZE     = 128
-Z_HIGH_WATERMARK = 32
-Z_LOW_WATERMARK  = 8
+# Формат записи: <hI (angle: int16, after_xy: uint32) = 6 байт
+Z_QUEUE_SIZE     = 256 # was 128
+Z_RECORD_SIZE    = 6
+Z_HIGH_WATERMARK = 192 # was 32
+Z_LOW_WATERMARK  = 64 # was 8
 
-z_angles   = [0] * Z_QUEUE_SIZE
-z_after_xy = [0] * Z_QUEUE_SIZE
+z_buf = bytearray(Z_QUEUE_SIZE * Z_RECORD_SIZE)
+
 z_head = 0
 z_tail = 0
 z_count = 0
@@ -76,13 +80,13 @@ z_resume_pending = False
 # ============================================================
 # START THRESHOLD CLAMP
 # ============================================================
-START_THRESHOLD_MAX_SAFE = 200
+START_THRESHOLD_MAX_SAFE = 600 # was 200
 
 # ============================================================
 # FLOW CONTROL
 # ============================================================
-FLOW_STOP_AT        = 900
-FLOW_RESUME_AT      = 400
+FLOW_STOP_AT        = 1800 # was 900
+FLOW_RESUME_AT      = 800 # was 400
 FLOW_REPORT_MIN_MS  = 100
 
 _buffer_full_state     = False
@@ -139,21 +143,24 @@ def z_put(angle, after_xy):
     global z_head, z_count, z_stop_pending
     if z_count >= Z_QUEUE_SIZE:
         return False
-    z_angles[z_head] = angle
-    z_after_xy[z_head] = after_xy
+    struct.pack_into('<hI', z_buf, z_head * Z_RECORD_SIZE, angle, after_xy)
     z_head = (z_head + 1) % Z_QUEUE_SIZE
     z_count += 1
     if (not z_stop_sent) and z_count >= Z_HIGH_WATERMARK:
         z_stop_pending = True
     return True
 
+def z_peek():
+    if z_count == 0:
+        return None, None
+    return struct.unpack_from('<hI', z_buf, z_tail * Z_RECORD_SIZE)
+
 
 def z_get():
     global z_tail, z_count, z_resume_pending
     if z_count == 0:
         return None, None
-    angle = z_angles[z_tail]
-    after_xy = z_after_xy[z_tail]
+    angle, after_xy = struct.unpack_from('<hI', z_buf, z_tail * Z_RECORD_SIZE)
     z_tail = (z_tail + 1) % Z_QUEUE_SIZE
     z_count -= 1
     if z_stop_sent and z_count <= Z_LOW_WATERMARK:
@@ -490,8 +497,7 @@ async def smooth_executor():
 
         # --- Запуск нового Z ---
         if not _z_move_active and z_count > 0:
-            angle = z_angles[z_tail]
-            after_xy = z_after_xy[z_tail]
+            angle, after_xy = z_peek()
             if executed_xy >= after_xy:
                 catchup_start = clock.time()
                 while clock.time() - catchup_start < 200:
@@ -523,14 +529,10 @@ async def smooth_executor():
                 continue
 
         # --- XY ---
-        idx = buffer_get_count()
-        if idx == -1:
+        target_x, target_y, duration_ms = buffer_get()
+        if target_x is None:
             await wait(1)
             continue
-
-        target_x    = buf_x[idx]
-        target_y    = buf_y[idx]
-        duration_ms = buf_dur[idx]
 
         steps        = max(1, int(round(duration_ms / UPDATE_MS)))
         step_time_ms = duration_ms / steps
