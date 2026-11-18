@@ -65,7 +65,6 @@ public:
 
 	void disconnectRuntime();
 	bool connectRuntime(const std::string& address);
-	bool sendRuntime(const uint8_t* data, size_t length);
 
 	// logging
 	int getLogCount();
@@ -74,7 +73,7 @@ public:
 	void setLogCategories(uint32_t mask) noexcept;
 	uint32_t getLogCategories() const noexcept;
 	
-	bool runPrinterTest(const char* testName);
+	bool printerExecuteCode(const char* codePath);
 
 	ITransport* getTransport() { return transport.get(); }
 

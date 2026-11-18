@@ -209,7 +209,7 @@ public class PrinterController : IDisposable
 
     public void ClearLog() => SafeCall(() => { ClearLog(PrinterHandle); return true; }, false);
 
-    public bool RunPrinterTest(string TestType)
+    public bool PrinterExecuteCode(string codePath)
     {
         lock (SyncRoot)
         {
@@ -218,7 +218,7 @@ public class PrinterController : IDisposable
                 throw new ObjectDisposedException("PrinterController");                
             }
 
-            return SafeCall(() => RunPrinterTest(PrinterHandle, TestType), false);
+            return SafeCall(() => PrinterExecuteCode(PrinterHandle, codePath), false);
         }
     }   
 
@@ -300,7 +300,7 @@ public class PrinterController : IDisposable
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     [return: MarshalAs(UnmanagedType.I1)]
-    private static extern bool RunPrinterTest(IntPtr printer, string TestName);
+    private static extern bool PrinterExecuteCode(IntPtr printer, string codePath);
 
     [DllImport("LegoPrinterCore.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern int GetLogCount(IntPtr printer);

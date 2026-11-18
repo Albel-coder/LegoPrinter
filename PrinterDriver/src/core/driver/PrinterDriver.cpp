@@ -505,15 +505,6 @@ void PrinterDriver::disconnectRuntime() {
     runtime->disconnect();
 }
 
-bool PrinterDriver::sendRuntime(const uint8_t* data, size_t length) {
-    const bool result = runtime->send(data, length, false);
-    if (!result) {
-        LOG_ERROR("sendRuntime failed");
-    }
-
-    return result;
-}
-
 int PrinterDriver::getLogCount() {
     return gLog.getLogCount();
 }
@@ -526,13 +517,9 @@ const char* PrinterDriver::getLogEntry(int index) {
     return gLog.getLogEntry(index);
 }
 
-bool PrinterDriver::runPrinterTest(const char* testName) {
+bool PrinterDriver::printerExecuteCode(const char* codePath) {
 
-    LOG_INFO("printerTest: testing new firmware...");
-    
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    LOG_INFO("printerExecuteCode: start executing code");
 
-    //return runtime->runMotionTest();
-
-    return runtime->runGCodeTest("test.gcode");
+    return runtime->executeCode(codePath);
 }

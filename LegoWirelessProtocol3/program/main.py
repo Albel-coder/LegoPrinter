@@ -24,7 +24,7 @@ FIRMWARE_VERSION = "fw-2026-10-15-nonblocking"
 # ============================================================
 # XY RING BUFFER (BYTEARRAY 6 BYTES/REC)
 # ============================================================
-# Формат записи: <hhH (x: int16, y: int16, duration: uint16) = 6 байт
+# Output format: <hhH (x: int16, y: int16, duration: uint16) = 6 bytes
 BUFFER_SIZE = 2048 # was 1024
 XY_RECORD_SIZE = 6
 
@@ -44,7 +44,7 @@ def buffer_put(dx, dy, duration):
     return True
 
 def buffer_get():
-    """Возвращает кортеж (target_x, target_y, duration_ms) или (None, None, None)."""
+    # return (target_x, target_y, duration_ms) or (None, None, None)
     global tail
     if tail == head:
         return None, None, None
@@ -61,7 +61,7 @@ def buffer_count():
 # ============================================================
 # Z-ОЧЕРЕДЬ С BACKPRESSURE (BYTEARRAY)
 # ============================================================
-# Формат записи: <hI (angle: int16, after_xy: uint32) = 6 байт
+# Format: <hI (angle: int16, after_xy: uint32) = 6 bytes
 Z_QUEUE_SIZE     = 256 # was 128
 Z_RECORD_SIZE    = 6
 Z_HIGH_WATERMARK = 192 # was 32
@@ -94,9 +94,9 @@ _last_buffer_report_ms = 0
 
 
 def report_buffer_state():
-    """Внутренняя: шлёт FLOW_STOP / FLOW_RESUME по фронту.
-    Rate-limit 100 мс. Не вызывать напрямую — только через process_flow_state.
-    """
+    # Внутренняя: шлёт FLOW_STOP / FLOW_RESUME по фронту
+    # Rate-limit 100 мс. Не вызывать напрямую — только через process_flow_state
+
     global _buffer_full_state, _last_buffer_report_ms
     now = clock.time()
     if now - _last_buffer_report_ms < FLOW_REPORT_MIN_MS:
@@ -115,12 +115,12 @@ def report_buffer_state():
 
 
 def process_flow_state():
-    """ЕДИНАЯ точка flow control.
-    Вызывается:
-      - из receiver после каждого пакета (ловит рост буфера как можно раньше)
-      - из executor в начале каждой итерации
-      - из inner-loop интерполяции XY на каждом шаге (закрывает дыру длинных сегментов)
-    """
+    
+    # Вызывается:
+    #  - из receiver после каждого пакета (ловит рост буфера как можно раньше)
+    #  - из executor в начале каждой итерации
+    #  - из inner-loop интерполяции XY на каждом шаге (закрывает дыру длинных сегментов)
+    #
     global z_stop_sent, z_stop_pending, z_resume_pending
 
     # --- Z backpressure ---
@@ -168,7 +168,7 @@ def z_get():
     return angle, after_xy
 
 # -----------------------------------------------------------
-# Z-ось
+# Z Angle
 # -----------------------------------------------------------
 motor_z = Motor(Port.C)
 motor_z.control.limits(speed=600, acceleration=2000)
@@ -179,7 +179,7 @@ Z_DOWN_ANGLE = 0
 Z_SPEED      = 400
 
 # -----------------------------------------------------------
-# XY-оси
+# XY Angles
 # -----------------------------------------------------------
 motor_x = Motor(Port.A)
 motor_y = Motor(Port.B)
@@ -188,9 +188,6 @@ motor_y.control.limits(speed=2000, acceleration=6000)
 motor_x.reset_angle(0)
 motor_y.reset_angle(0)
 
-# -----------------------------------------------------------
-# Глобальное состояние задания
-# -----------------------------------------------------------
 total_received_xy = 0
 executed_xy = 0
 start_threshold = 35
@@ -203,7 +200,6 @@ _z_move_active       = False
 _z_move_started_ms   = 0
 _z_move_target_angle = 0
 _z_move_after_xy     = 0
-
 
 def reset_job_state():
     global total_received_xy, executed_xy, start_gate_open
@@ -240,7 +236,7 @@ def reset_job_state():
     _z_move_after_xy = 0
 
 # -----------------------------------------------------------
-# Протокол
+# Protocol
 # -----------------------------------------------------------
 CMD_LINE                 = 0x01
 CMD_MOTION_BLOCK         = 0x02
@@ -277,7 +273,6 @@ def _fmt_pid(motor, tag):
     except Exception as e:
         return "LOG_PID %s error=%s" % (tag, e)
 
-
 def _fmt_limits(motor, tag):
     try:
         vals = motor.control.limits()
@@ -286,7 +281,6 @@ def _fmt_limits(motor, tag):
         return "LOG_LIMITS %s %s" % (tag, " ".join(parts))
     except Exception as e:
         return "LOG_LIMITS %s error=%s" % (tag, e)
-
 
 def _fmt_tolerances(motor, tag):
     for name in ("target_tolerances", "target_tolerance"):
@@ -298,7 +292,6 @@ def _fmt_tolerances(motor, tag):
         except Exception:
             continue
     return "LOG_TOL %s error=unavailable" % tag
-
 
 def log_motor_config(reason="init"):
     lines = [

@@ -32,34 +32,6 @@
 #endif
 
 #pragma pack(push, 1)
-typedef struct
-{
-    unsigned char port;
-    signed char speed;
-    double revolutions;
-} MotorCommand;
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-typedef struct
-{
-    double distance; // Target position in revolutions
-    signed char speed; // Speed for current position (-100 to 100)
-    double tolerance; // Tolerance for position
-} SpeedProfilePoint;
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-typedef struct
-{
-    unsigned char port;
-    SpeedProfilePoint* points;
-    int count;
-    int timeoutMs; // Timeout for all profile
-} SpeedProfile;
-#pragma pack(pop)
-
-#pragma pack(push, 1)
 typedef struct PrinterDeviceInfoC{
     char address[64];
     char name[64];
@@ -105,7 +77,7 @@ extern "C" {
     PRINTER_DRIVER_API const char* GetLogEntry(DriverHandle printer, int index);
     PRINTER_DRIVER_API void ClearLog(DriverHandle printer);
 
-    PRINTER_DRIVER_API bool RunPrinterTest(DriverHandle printer, const char* testName);
+    PRINTER_DRIVER_API bool PrinterExecuteCode(DriverHandle printer, const char* codePath);
 
 #ifdef __cplusplus
 }

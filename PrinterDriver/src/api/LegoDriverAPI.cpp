@@ -201,15 +201,6 @@ extern "C" {
 		return true;
 	}
 
-	PRINTER_DRIVER_API bool PrinterSendRuntime(DriverHandle printer, const unsigned char* data, int length) {
-		if (!printer || !data || length <= 0) {
-			return false;
-		}
-
-		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->sendRuntime(data, static_cast<size_t>(length));
-	}
-
 	PRINTER_DRIVER_API int GetLogCount(DriverHandle printer) {
 		auto* driver = static_cast<PrinterDriver*>(printer);
 		return driver->getLogCount();
@@ -225,8 +216,8 @@ extern "C" {
 		driver->clearLog();
 	}
 
-	PRINTER_DRIVER_API bool RunPrinterTest(DriverHandle printer, const char* testName) {
+	PRINTER_DRIVER_API bool PrinterExecuteCode(DriverHandle printer, const char* codePath) {
 		auto* driver = static_cast<PrinterDriver*>(printer);
-		return driver->runPrinterTest(testName);
+		return driver->printerExecuteCode(codePath);
 	}
 }
