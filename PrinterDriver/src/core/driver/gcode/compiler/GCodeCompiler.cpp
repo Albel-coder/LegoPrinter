@@ -336,12 +336,16 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
     logPlannerDiagnostics(moves, planned);
 
     // ============================================================
-    // ЭТАП 5. УПАКОВКА С КОМПЕНСАЦИЕЙ ОКРУГЛЕНИЯ
+    // ЭТАП 5. УПАКОВКА С ЛЮФТОМ И РАСПРЕДЕЛЕНИЕМ ПО ПОД-СЕГМЕНТАМ
     // ============================================================
-    BacklashCompensator backlash(
-        config.backlashXMm, config.backlashYMm,
-        config.stepsPerMmX, config.stepsPerMmY,
-        config.backlashMinMoveMm);
+
+    BacklashAxis xAxis(config.backlashXMm, config.stepsPerMmX,
+        config.backlashMinFlipMm);
+    BacklashAxis yAxis(config.backlashYMm, config.stepsPerMmY,
+        config.backlashMinFlipMm);
+
+    const int32_t splitThr = std::max<int32_t>(1, config.backlashSplitThresholdSteps);
+    const int32_t maxN = static_cast<int32_t>(config.maxBacklashSubSegments);
 
     size_t xyIndex = 0;
     double roundingErrorMs = 0.0;
@@ -355,21 +359,16 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
             continue;
         }
 
-        int32_t origDx = seg.endPoint.x - seg.startPoint.x;
-        int32_t origDy = seg.endPoint.y - seg.startPoint.y;
+        const int32_t penDx = seg.endPoint.x - seg.startPoint.x;
+        const int32_t penDy = seg.endPoint.y - seg.startPoint.y;
 
-        int32_t motorDx = origDx;
-        int32_t motorDy = origDy;
-        backlash.apply(motorDx, motorDy);
+        // --- Люфт (гистерезис внутри) ---
+        const int32_t motorDx = xAxis.compensate(penDx);
+        const int32_t motorDy = yAxis.compensate(penDy);
+        const int32_t extraX = xAxis.extra();
+        const int32_t extraY = yAxis.extra();
 
-        // --- Проверка int16 ДО расчёта длительности ---
-        if (motorDx < INT16_MIN || motorDx > INT16_MAX ||
-            motorDy < INT16_MIN || motorDy > INT16_MAX) {
-            LOG_ERROR("Delta out of int16 after backlash: dx=%d dy=%d", motorDx, motorDy);
-            return false;
-        }
-
-        // --- Плановая длительность + компенсация округления ---
+        // --- Плановая длительность с компенсацией округления ---
         double plannedMs = planned[xyIndex].durationSec * 1000.0 + roundingErrorMs;
         double roundedMs = std::round(plannedMs);
         roundingErrorMs = plannedMs - roundedMs;
@@ -378,31 +377,70 @@ bool GCodeCompiler::compile(const std::string& filename, MotionProgram& output) 
             roundingErrorMs += (MIN_SEGMENT_DURATION_MS - roundedMs);
             roundedMs = MIN_SEGMENT_DURATION_MS;
         }
-
-        // --- Stretch: если мотор едет дальше пера — растягиваем время,
-        //     чтобы скорость мотора не превысила плановую. ---
-        const double ratioX = (origDx != 0)
-            ? std::abs(static_cast<double>(motorDx) / origDx) : 1.0;
-        const double ratioY = (origDy != 0)
-            ? std::abs(static_cast<double>(motorDy) / origDy) : 1.0;
-        const double stretch = std::max({ 1.0, ratioX, ratioY });
-        if (stretch > 1.0) {
-            roundedMs = std::round(roundedMs * stretch);
-            if (roundedMs < MIN_SEGMENT_DURATION_MS) {
-                roundedMs = MIN_SEGMENT_DURATION_MS;
-            }
-        }
-
         if (roundedMs > static_cast<double>(UINT16_MAX)) {
             LOG_ERROR("Duration out of uint16: %.2f ms at index %zu", roundedMs, xyIndex);
             return false;
         }
 
-        if (!addXYSegment(motorDx, motorDy,
-            static_cast<uint16_t>(roundedMs), output)) {
-            LOG_ERROR("Failed to add XY segment %zu", xyIndex);
-            return false;
+        // --- Определяем N под-сегментов ---
+        const int32_t maxExtra = std::max(std::abs(extraX), std::abs(extraY));
+        int32_t N = 1;
+        if (maxExtra > splitThr) {
+            N = std::min(maxExtra / splitThr + 1, maxN);
         }
+        // Ограничиваем N, чтобы каждый под-сегмент был не короче MIN_SEG_MS
+        const int32_t maxNbyDur = std::max<int32_t>(
+            1, static_cast<int32_t>(roundedMs / MIN_SEGMENT_DURATION_MS));
+        N = std::min(N, maxNbyDur);
+
+        // --- Отправляем 1 или N под-сегментов ---
+        if (N <= 1) {
+            if (!addXYSegment(motorDx, motorDy,
+                static_cast<uint16_t>(roundedMs), output)) {
+                LOG_ERROR("Failed to add XY segment %zu", xyIndex);
+                return false;
+            }
+        }
+        else {
+            int32_t prevMx = 0, prevMy = 0;
+            uint32_t allocatedMs = 0;
+
+            for (int32_t k = 1; k <= N; ++k) {
+                // Кумулятивное округление сохраняет точную сумму
+                const int32_t cumMx = static_cast<int32_t>(
+                    static_cast<int64_t>(motorDx) * k / N);
+                const int32_t cumMy = static_cast<int32_t>(
+                    static_cast<int64_t>(motorDy) * k / N);
+
+                const int32_t subDx = cumMx - prevMx;
+                const int32_t subDy = cumMy - prevMy;
+                prevMx = cumMx;
+                prevMy = cumMy;
+
+                const uint32_t cumMs = static_cast<uint32_t>(
+                    std::llround(roundedMs * k / N));
+                uint32_t subMs = cumMs - allocatedMs;
+                if (subMs < static_cast<uint32_t>(MIN_SEGMENT_DURATION_MS)) {
+                    subMs = static_cast<uint32_t>(MIN_SEGMENT_DURATION_MS);
+                }
+                allocatedMs += subMs;
+
+                if (subDx < INT16_MIN || subDx > INT16_MAX ||
+                    subDy < INT16_MIN || subDy > INT16_MAX) {
+                    LOG_ERROR("Sub-segment delta out of int16: "
+                        "dx=%d dy=%d at seg %zu k=%d",
+                        subDx, subDy, xyIndex, k);
+                    return false;
+                }
+
+                if (!addXYSegment(subDx, subDy,
+                    static_cast<uint16_t>(subMs), output)) {
+                    LOG_ERROR("Failed to add sub-segment %zu/%d", xyIndex, k);
+                    return false;
+                }
+            }
+        }
+
         ++xyIndex;
     }
 

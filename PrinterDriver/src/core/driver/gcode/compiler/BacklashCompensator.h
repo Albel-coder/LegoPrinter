@@ -6,73 +6,78 @@
 
 // Компенсатор люфта для одной оси. Работает в шагах.
 //
-// Модель:
-//   engagement ∈ [-half, +half] — насколько мотор "впереди" пера.
-//   +half = мотор полностью выбран в положительную сторону,
-//   -half = в отрицательную, 0 = по центру (люфт не выбран).
+// Ключевые улучшения относительно старой реализации:
+//   * Гистерезис направления: реальный флип только после |pendingAccum| >= flipThreshold.
+//     Устраняет дребезг ±1-2 шага на почти-прямых участках.
+//   * extra() возвращает люфтовую компоненту (motorDelta - penDelta),
+//     чтобы вызывающий код мог её распределить по под-сегментам.
 //
-// При команде "перо должно сдвинуться на pen_delta":
-//   target_eng = sign(pen_delta) * half
-//   motor_delta = pen_delta + (target_eng - engagement)
-//   engagement = target_eng
-//
-// Это гарантирует, что перо физически сдвинется на pen_delta, а мотор
-// при смене направления сначала выберет люфт (extra = |target_eng - eng|).
-//
-// Опции:
-//   min_move_steps — деадбенд: дельты меньше него не меняют engagement
-//                    (1:1), чтобы шум/дрожание не дёргали мотор.
-//                    По умолчанию 0 — компенсировать всегда.
-//
-// Начальный engagement = 0 (предполагаем, что стартуем "по центру").
+// Модель: eng ∈ [-H, +H], pen = motor - eng.
+//   При движении пера в +x: targetEng = +H, motorDelta = penDelta + (targetEng - eng).
 class BacklashAxis {
 public:
-    BacklashAxis(double backlashMm, double stepsPerMm, double minMoveMm = 0.0)
-        : half_(stepsToSteps(backlashMm, stepsPerMm) / 2)
-        , minMove_(stepsToSteps(minMoveMm, stepsPerMm))
-    {}
+    BacklashAxis(double backlashMm, double stepsPerMm, double minFlipMm)
+        : half_(mmToSteps(backlashMm, stepsPerMm))
+        , flipThreshold_(mmToSteps(minFlipMm, stepsPerMm))
+    {
+    }
 
-    // Возвращает моторную дельту; может быть больше penDelta по модулю.
+    // Возвращает моторную дельту. После вызова extra() содержит
+    // (motorDelta - penDelta) — люфтовую компоненту, которую нужно
+    // распределить по под-сегментам (если их будет несколько).
     int32_t compensate(int32_t penDelta) {
-        if (penDelta == 0 || half_ == 0) return penDelta;
+        extraOut_ = 0;
+        if (penDelta == 0) return 0;
 
-        if (minMove_ > 0 && std::abs(penDelta) < minMove_) {
+        const int32_t dir = (penDelta > 0) ? 1 : -1;
+
+        if (half_ == 0) {
+            committedDir_ = dir;
             return penDelta;
         }
 
-        const int32_t dir = (penDelta > 0) ? 1 : -1;
+        if (committedDir_ == 0) {
+            committedDir_ = dir;
+            return commitFlip(penDelta, dir);
+        }
+
+        if (dir == committedDir_) {
+            pendingAccum_ = 0;
+            return penDelta;
+        }
+
+        // Движение против зафиксированного направления
+        pendingAccum_ += penDelta;
+
+        if (flipThreshold_ > 0 && std::abs(pendingAccum_) < flipThreshold_) {
+            return penDelta;  // шум, не компенсируем
+        }
+
+        committedDir_ = dir;
+        pendingAccum_ = 0;
+        return commitFlip(penDelta, dir);
+    }
+
+    int32_t extra() const { return extraOut_; }
+
+private:
+    int32_t commitFlip(int32_t penDelta, int32_t dir) {
         const int32_t targetEng = dir * half_;
         const int32_t motorDelta = penDelta + (targetEng - eng_);
+        extraOut_ = motorDelta - penDelta;
         eng_ = targetEng;
         return motorDelta;
     }
 
-private:
-    static int32_t stepsToSteps(double mm, double stepsPerMm) {
+    static int32_t mmToSteps(double mm, double stepsPerMm) {
         if (mm <= 0.0 || stepsPerMm <= 0.0) return 0;
         return static_cast<int32_t>(std::llround(mm * stepsPerMm));
     }
 
     int32_t half_;
-    int32_t minMove_;
+    int32_t flipThreshold_;
     int32_t eng_ = 0;
-};
-
-// Пара компенсаторов по X и Y.
-class BacklashCompensator {
-public:
-    BacklashCompensator(double backlashXMm, double backlashYMm,
-                        double stepsPerMmX, double stepsPerMmY,
-                        double minMoveMm = 0.0)
-        : x_(backlashXMm, stepsPerMmX, minMoveMm)
-        , y_(backlashYMm, stepsPerMmY, minMoveMm)
-    {}
-
-    void apply(int32_t& dx, int32_t& dy) {
-        dx = x_.compensate(dx);
-        dy = y_.compensate(dy);
-    }
-
-private:
-    BacklashAxis x_, y_;
+    int32_t committedDir_ = 0;
+    int32_t pendingAccum_ = 0;
+    int32_t extraOut_ = 0;
 };

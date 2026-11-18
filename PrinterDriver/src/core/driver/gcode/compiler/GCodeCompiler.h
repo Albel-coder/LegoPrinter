@@ -83,7 +83,7 @@ struct PrinterConfig {
 	int zDownAngle = 0;
 
 	// Порог старта и BLE
-	size_t maxStartThreshold = 900;
+	size_t maxStartThreshold = 1800;
 	size_t startThresholdSafetyMargin = 5;
 
 	// ============================================
@@ -97,12 +97,20 @@ struct PrinterConfig {
 	// ============================================
 	// Люфт (физическое свойство станка)
 	// ============================================
-	double backlashXMm = 4.0;
-	double backlashYMm = 4.0;
+	double backlashXMm = 8.0;
+	double backlashYMm = 8.0;
 
-	// Деадбенд: дельты меньше этого значения не меняют engagement
-	// (1:1). 0 = компенсировать всегда.
-	double backlashMinMoveMm = 0.0;
+	// Гистерезис направления: минимальное чистое движение в обратную
+	// сторону (мм), после которого фиксируется реальный флип.
+	// 0 — без гистерезиса (как раньше). 0.6 мм при stepsPerMm=5 = 3 шага.
+	double backlashMinFlipMm = 0.6;
+
+	// Максимум "лишних" шагов мотора на один под-сегмент при сплите.
+	// 3 шага = ~0.6 мм при stepsPerMm=5 — перо почти не искажается.
+	int32_t backlashSplitThresholdSteps = 3;
+
+	// Верхняя граница числа под-сегментов при сплите.
+	size_t maxBacklashSubSegments = 16;
 };
 
 // ============================================================
