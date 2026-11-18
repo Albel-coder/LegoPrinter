@@ -25,8 +25,8 @@ public:
         // Извлечение контуров
         int upscale = 8;
         int maxUpscaledSide = 6000;
-        double minAreaPx2 = 3.0;
-        double minAreaMm2 = 0.5;
+        double minAreaPx2 = 0.1;
+        double minAreaMm2 = 0.1;
         bool printHoles = true;
     };
 

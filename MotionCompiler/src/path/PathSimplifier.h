@@ -5,7 +5,7 @@
 #include <vector>
 
 struct PathSimplificationConfig {
-    double rdpEpsilonMm = 1.0;
+    double rdpEpsilonMm = 0.15;
 };
 
 class PathSimplifier {

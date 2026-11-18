@@ -25,8 +25,8 @@ struct GCodeConfig {
     double minHopMm = 0.0;
 
     // Компенсация люфта
-    double backlashXMm = 32.0;
-    double backlashYMm = 32.0;
+    double backlashXMm = 0.0;
+    double backlashYMm = 0.0;
     double initialPosX = 0.0;
     double initialPosY = 0.0;
     bool emitG92Start = true;

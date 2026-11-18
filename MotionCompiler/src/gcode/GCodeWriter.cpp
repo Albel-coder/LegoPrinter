@@ -59,6 +59,13 @@ namespace {
     private:
         double compAxis(int ax, double target) {
             const double delta = target - pen_[ax];
+
+            if (std::abs(delta) < 0.3) {
+                motor_[ax] += delta;
+                pen_[ax] = target;
+                return motor_[ax];
+            }
+
             if (std::abs(delta) < 1e-9) return motor_[ax];
 
             const int d = delta > 0 ? 1 : -1;
