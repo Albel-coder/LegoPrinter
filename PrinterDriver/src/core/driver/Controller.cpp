@@ -57,6 +57,9 @@ bool Controller::discover() {
 		// Pybricks Command/Event service
 		if (service == protocol::PYBRICKS_SERVICE_UUID) {
 			for (const auto& characteristic : transport.getCharacteristics(service)) {
+
+				LOG_BLUETOOTH("char %s props: %d", characteristic.characteristicUuid.c_str(), characteristic.serviceUUid.c_str());
+
 				if (characteristic.characteristicUuid == protocol::PYBRICKS_COMMAND_EVENT_UUID) {
 					pybricksCommandEvent = characteristic;
 				}

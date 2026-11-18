@@ -68,6 +68,10 @@ bool TransportSimpleBLE::connect(const std::string& address) {
             return false;
         }
 
+        // В connect() после printerPeripheral.connect():
+        auto mtu = printerPeripheral.mtu();  // SimpleBLE: Peripheral::mtu()
+        LOG_BLUETOOTH("Negotiated MTU = %zu", mtu);
+
         peripheral = printerPeripheral;
         connectedAddress = address;
 
